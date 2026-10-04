@@ -2,7 +2,7 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: fundação técnica.** A API de saúde e a interface de diagnóstico funcionam. Conversas, modelos, memória, tarefas, políticas, VM e conector pessoal serão implementados nas próximas etapas. Ainda não há um assistente utilizável nem autenticação para publicação na internet.
+**Estágio atual: fundação técnica.** A API de saúde, o painel de diagnóstico e a camada interna de persistência funcionam. Registros de agentes, conversas, tarefas, decisões e resultados sobrevivem ao reinício. Onboarding, modelos, execução de tarefas, políticas de autorização, VM e conector pessoal serão implementados nas próximas etapas. Ainda não há um assistente utilizável nem autenticação para publicação na internet.
 
 ## Requisitos
 
@@ -54,8 +54,11 @@ Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). O mesmo processo serve API
 | `BEES_HOST` | `127.0.0.1` | Apenas loopback nesta fundação, enquanto não há autenticação. |
 | `BEES_PORT` | `8000` | Porta HTTP; o proxy de desenvolvimento espera 8000. |
 | `BEES_WEB_DIST` | `apps/web/dist` no checkout | Caminho opcional da interface compilada. |
+| `BEES_DATA_DIR` | `data` no checkout | Pasta privada da base SQLite, em filesystem local. |
+| `BEES_CACHE_TTL_SECONDS` | `86400` | TTL de cache derivado; estado canônico não expira. |
+| `BEES_CACHE_PRUNE_LIMIT` | `1000` | Lote de limpeza de cache expirado no startup, entre 1 e 1000. |
 
-SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; nenhum banco de domínio é criado ainda. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema.
+SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; o banco de domínio é criado/migrado antes de aceitar tráfego. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema. [Persistência e migrações](docs/persistence.md) descrevem os contratos e a manutenção com serviço parado. Não há HTTP de escrita de registros nesta etapa.
 
 ## Servidor Linux / VPS
 
@@ -83,13 +86,14 @@ Linux:
 sh scripts/check.sh
 ```
 
-Os scripts instalam dependências pelos lockfiles, executam análise/formatação Python, testes da API, análise/testes web e build TypeScript/Vite. A [CI](.github/workflows/ci.yml) usa os mesmos comandos. Os testes não chamam modelos nem operam contas/apps reais.
+Os scripts instalam dependências pelos lockfiles, executam análise/formatação Python, testes de domínio, banco e API, análise/testes web e build TypeScript/Vite. A [CI](.github/workflows/ci.yml) usa os mesmos comandos. Os testes não chamam modelos nem operam contas/apps reais.
 
 ## Arquitetura e continuidade
 
 - [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, autenticação planejada, protocolos e limites.
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
+- [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
 
-Próxima entrega: persistência e migrações do estado individual, antes de integrar modelos e executar ferramentas. O computador próprio e o conector pessoal são requisitos do MVP completo.
+Próxima entrega implementável: adaptadores de modelo remoto/local (BEES-005), antes de concluir o onboarding (BEES-004) que depende deles. O computador próprio e o conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.

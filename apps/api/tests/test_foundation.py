@@ -11,21 +11,10 @@ from bees_api.config import Settings
 from bees_api.runtime import validate_sqlite_runtime
 
 
-@pytest.fixture(autouse=True)
-def isolated_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    for variable in ("BEES_HOST", "BEES_PORT", "BEES_WEB_DIST"):
-        monkeypatch.delenv(variable, raising=False)
-
-
-@pytest.fixture(autouse=True)
-def clean_settings_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("BEES_HOST", "BEES_PORT", "BEES_WEB_DIST"):
-        monkeypatch.delenv(name, raising=False)
-
-
 def test_health_without_frontend(tmp_path: Path) -> None:
     with TestClient(
-        create_app(Settings(web_dist=tmp_path / "missing")), base_url="http://127.0.0.1"
+        create_app(Settings(web_dist=tmp_path / "missing", data_dir=tmp_path / "state")),
+        base_url="http://127.0.0.1",
     ) as client:
         response = client.get("/api/v1/health")
         assert response.status_code == 200
@@ -42,7 +31,10 @@ def test_health_without_frontend(tmp_path: Path) -> None:
 def test_spa_does_not_hide_api_or_asset_errors(tmp_path: Path) -> None:
     (tmp_path / "index.html").write_text("<html>Bees de teste</html>", encoding="utf-8")
     (tmp_path / "app.js").write_text("console.log('teste');", encoding="utf-8")
-    with TestClient(create_app(Settings(web_dist=tmp_path)), base_url="http://127.0.0.1") as client:
+    with TestClient(
+        create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state")),
+        base_url="http://127.0.0.1",
+    ) as client:
         assert client.get("/").status_code == 200
         assert "Bees de teste" in client.get("/connections").text
         assert client.get("/app.js").headers["content-type"].startswith("text/javascript")
@@ -70,7 +62,7 @@ def test_effective_runtime_is_checked_at_startup(
 ) -> None:
     monkeypatch.setattr(apsw, "sqlitelibversion", lambda: "3.52.0")
     with pytest.raises(RuntimeError, match="SQLite 3.52.0"):
-        with TestClient(create_app(Settings(web_dist=tmp_path))):
+        with TestClient(create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state"))):
             pass
 
 
@@ -118,6 +110,9 @@ def test_external_environment_host_is_rejected(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_untrusted_host_is_rejected(tmp_path: Path) -> None:
-    with TestClient(create_app(Settings(web_dist=tmp_path)), base_url="http://127.0.0.1") as client:
+    with TestClient(
+        create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state")),
+        base_url="http://127.0.0.1",
+    ) as client:
         response = client.get("/api/v1/health", headers={"host": "untrusted.example"})
         assert response.status_code == 400

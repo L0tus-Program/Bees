@@ -9,11 +9,11 @@ import uvicorn
 from pydantic import ValidationError
 
 from bees_api.app import create_app
-from bees_api.config import Settings, default_web_dist
+from bees_api.config import Settings, default_data_dir, default_web_dist
 
 
 def parse_settings(argv: Sequence[str] | None = None) -> Settings:
-    parser = argparse.ArgumentParser(description="Inicia a fundação local do Bees.")
+    parser = argparse.ArgumentParser(description="Inicia o serviço local do Bees.")
     parser.add_argument(
         "--host",
         default=os.environ.get("BEES_HOST", "127.0.0.1"),
@@ -31,12 +31,38 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
         default=os.environ.get("BEES_WEB_DIST", str(default_web_dist())),
         help="Frontend compilado; padrão: BEES_WEB_DIST ou apps/web/dist do checkout.",
     )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=os.environ.get("BEES_DATA_DIR", str(default_data_dir())),
+        help="Estado local; padrão: BEES_DATA_DIR ou data no checkout.",
+    )
+    parser.add_argument(
+        "--cache-ttl-seconds",
+        type=int,
+        default=os.environ.get("BEES_CACHE_TTL_SECONDS", "86400"),
+        help="Retenção padrão de cache; BEES_CACHE_TTL_SECONDS ou 86400 segundos.",
+    )
+    parser.add_argument(
+        "--cache-prune-limit",
+        type=int,
+        default=os.environ.get("BEES_CACHE_PRUNE_LIMIT", "1000"),
+        help="Máximo de caches expirados removidos no startup; BEES_CACHE_PRUNE_LIMIT ou 1000.",
+    )
     args = parser.parse_args(argv)
     try:
-        return Settings(host=args.host, port=args.port, web_dist=args.web_dist)
+        return Settings(
+            host=args.host,
+            port=args.port,
+            web_dist=args.web_dist,
+            data_dir=args.data_dir,
+            cache_ttl_seconds=args.cache_ttl_seconds,
+            cache_prune_limit=args.cache_prune_limit,
+        )
     except ValidationError:
         parser.error(
-            "Esta fundação permite somente --host 127.0.0.1 e portas entre 1 e 65535. "
+            "Configuração inválida. Bind deve ser 127.0.0.1; porta entre 1 e 65535; "
+            "TTL entre 1 e 31536000; limite de limpeza entre 1 e 1000. "
             "Acesso remoto exige autenticação ainda não implementada."
         )
 

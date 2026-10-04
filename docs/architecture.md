@@ -19,7 +19,7 @@ flowchart LR
     VIEW --> LOCAL
 ```
 
-O diagrama mostra o desenho alvo. O scaffold inicial contém API de saúde e frontend; os outros componentes ainda serão implementados.
+O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, frontend de diagnóstico e packages/core com estado persistente, migrações e repositórios. Os outros componentes ainda serão implementados; artefatos têm metadados persistentes, não publicação de blobs. Veja [persistência](persistence.md).
 
 ## Contratos
 

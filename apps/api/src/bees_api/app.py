@@ -15,6 +15,8 @@ from starlette.types import Scope
 from bees_api import __version__
 from bees_api.config import Settings
 from bees_api.runtime import validate_sqlite_runtime
+from bees_core.storage.database import Database
+from bees_core.storage.store import StateStore
 
 
 class HealthResponse(BaseModel):
@@ -22,6 +24,12 @@ class HealthResponse(BaseModel):
     service: str = "bees-api"
     version: str = __version__
     stage: str = "foundation"
+
+
+class StorageStatus(BaseModel):
+    status: str = "ready"
+    engine: str = "sqlite"
+    schema_version: int
 
 
 def is_api_path(path: str) -> bool:
@@ -43,20 +51,34 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    validate_sqlite_runtime()
-    yield
-
-
 def create_app(settings: Settings | None = None) -> FastAPI:
     config = settings or Settings()
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        validate_sqlite_runtime()
+        database = Database(config.data_dir / "bees.sqlite3")
+        database.initialize()
+        store = StateStore(database, cache_ttl_seconds=config.cache_ttl_seconds)
+        store.prune_cache(limit=config.cache_prune_limit)
+        application.state.store = store
+        application.state.database = database
+        try:
+            yield
+        finally:
+            del application.state.store
+            del application.state.database
+
     app = FastAPI(title="Bees API", version=__version__, lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
     async def health() -> HealthResponse:
         return HealthResponse()
+
+    @app.get("/api/v1/state/status", response_model=StorageStatus, tags=["state"])
+    def state_status() -> StorageStatus:
+        return StorageStatus(schema_version=app.state.database.schema_version())
 
     if (config.web_dist / "index.html").is_file():
         app.mount("/", SPAStaticFiles(directory=config.web_dist, html=True), name="web")

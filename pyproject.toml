@@ -16,13 +16,14 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["apps/api"]
+members = ["apps/api", "packages/core"]
 
 [tool.uv.sources]
 bees-api = { workspace = true }
+bees-core = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests"]
+testpaths = ["apps/api/tests", "packages/core/tests"]
 addopts = "-ra"
 
 [tool.ruff]
@@ -33,4 +34,4 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bees_api"]
+known-first-party = ["bees_api", "bees_core"]
