@@ -1,0 +1,28 @@
+briefing.md
+/AGENTS.md
+/backlog.md
+
+# Ambientes e dependências locais
+.venv/
+node_modules/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Builds, caches e relatórios
+/dist/
+/apps/web/dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
+htmlcov/
+*.tsbuildinfo
+
+# Configuração privada e dados de execução
+.env
+.env.*
+!.env.example
+/data/
+/logs/
+*.log
