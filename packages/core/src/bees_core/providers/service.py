@@ -1,11 +1,12 @@
 """Configuração e conversa persistidas, sem execução de ferramentas ou fallback."""
 
+import hashlib
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from bees_core.memory import MemoryService
 from bees_core.models import Agent, Conversation, Message, utc_now
@@ -27,6 +28,30 @@ from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import EnvSecretResolver
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore, UnitOfWork
+
+
+class PreparedChat(BaseModel):
+    """Snapshot durável de contexto, sem valores de credenciais.
+
+    A aplicação pode confirmar a resposta junto de seu journal na mesma UoW.
+    Nenhuma operação deste contrato abre uma transação ou faz rede.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
+
+    agent_id: UUID
+    agent_revision: int
+    conversation_id: UUID
+    conversation_revision: int
+    task_id: UUID | None = None
+    config: ProviderConfig
+    request: ChatRequest
+    history_digest: str
+    historical_call_ids: list[str] = Field(default_factory=list)
+    memory_query: str
+    memory_signature: list[tuple[str, int]] | None = None
+    memory_digest: str | None = None
+    context: dict[str, Any]
 
 
 class ProviderService:
@@ -318,6 +343,199 @@ class ProviderService:
             metadata=(metadata or {}) | {"provider_message": normalized.model_dump(mode="json")},
         )
 
+    @staticmethod
+    def _text_digest(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _history_digest(cls, records: list[Message]) -> str:
+        # JSON canônico de cada registro, delimitado por comprimento.
+        digest = hashlib.sha256()
+        for value in cls._signature(records):
+            raw = value.encode("utf-8")
+            digest.update(len(raw).to_bytes(8, "big"))
+            digest.update(raw)
+        return digest.hexdigest()
+
+    def prepare_chat(
+        self,
+        uow: UnitOfWork,
+        agent_id: UUID | str,
+        conversation_id: UUID | str,
+        message: ChatMessage | str | list[ChatMessage],
+        *,
+        tools: list[ToolDefinition] | None = None,
+        requirements: CapabilityRequirements | None = None,
+        task_id: UUID | str | None = None,
+    ) -> PreparedChat:
+        """Valida/persiste entradas e devolve contexto para despacho fora da UoW."""
+        normalized_inputs = self._inputs(message)
+        agent = self._agent(uow, agent_id)
+        if agent.status != "active":
+            raise ProviderError(
+                "agent_inactive", "Agente pausado ou arquivado não executa chamadas."
+            )
+        config = self._validated_config(agent.provider_config)
+        conversation = self._conversation(uow, agent, conversation_id)
+        self._task_context(uow, agent, conversation, task_id)
+        records = self._records(uow, conversation.id)
+        history = [self._normalized(record) for record in records]
+        try:
+            messages = self._history_window(history + normalized_inputs)
+            context_history_count = len(messages)
+            # O corte não pode ocultar requisitos presentes em mensagens antigas.
+            validate_capabilities(config, requirements=self._requirements(history, requirements))
+            if len(agent.purpose) > 4096 or len(agent.instructions) > 16384:
+                raise ProviderError("request_too_large")
+            instruction_parts = []
+            if agent.purpose:
+                instruction_parts.append(f"Propósito permanente da abelha: {agent.purpose}")
+            if agent.instructions:
+                instruction_parts.append(agent.instructions)
+            if instruction_parts:
+                messages.insert(
+                    0, ChatMessage(role="system", content="\n\n".join(instruction_parts))
+                )
+            memories = MemoryService(self.store.database)
+            memory_context = (
+                memories.select_context(
+                    agent.id,
+                    normalized_inputs[-1].content or "",
+                    task_id=task_id,
+                    max_chars=self.MEMORY_MAX_CHARS
+                    - len(self.MEMORY_PREFIX)
+                    - len(self.MEMORY_SUFFIX),
+                    max_items=self.MEMORY_MAX_ITEMS,
+                    unit=uow,
+                )
+                if memory_enabled(agent)
+                else None
+            )
+            if memory_context is not None and memory_context.text:
+                messages.insert(
+                    1 if instruction_parts else 0,
+                    ChatMessage(
+                        role="user",
+                        content=self.MEMORY_PREFIX + memory_context.text + self.MEMORY_SUFFIX,
+                    ),
+                )
+            request = ChatRequest(messages=messages, tools=tools or [])
+        except ValidationError, ValueError:
+            raise ProviderError("invalid_request", "Solicitação de conversa inválida.") from None
+        config, request = validate_request(config, request, requirements=requirements)
+        # Resolver antes de persistir: credencial ausente não cria chamada pendente.
+        if config.secret_ref is not None:
+            self.resolver.resolve(config.secret_ref)
+        for normalized_input in normalized_inputs:
+            input_record = self._message(conversation.id, normalized_input, records, source="user")
+            uow.messages.create(input_record)
+            records.append(input_record)
+        conversation = uow.conversations.update(
+            conversation, expected_revision=conversation.revision
+        )
+        context = {
+            "history_messages": context_history_count,
+            "history_omitted": len(history) + len(normalized_inputs) - context_history_count,
+            "memory_refs": [
+                {"id": str(entry.id), "revision": entry.revision}
+                for entry in memory_context.entries
+            ]
+            if memory_context is not None
+            else [],
+            "memory_omitted": memory_context.omitted if memory_context is not None else 0,
+        } | ({"task_id": str(UUID(str(task_id)))} if task_id is not None else {})
+        return PreparedChat(
+            agent_id=agent.id,
+            agent_revision=agent.revision,
+            conversation_id=conversation.id,
+            conversation_revision=conversation.revision,
+            task_id=task_id,
+            config=config,
+            request=request,
+            history_digest=self._history_digest(records),
+            historical_call_ids=[call.id for entry in history for call in entry.tool_calls],
+            memory_query=normalized_inputs[-1].content or "",
+            memory_signature=list(memory_context.signature) if memory_context is not None else None,
+            memory_digest=self._text_digest(memory_context.text)
+            if memory_context is not None
+            else None,
+            context=context,
+        )
+
+    def validate_snapshot(
+        self, uow: UnitOfWork, prepared: PreparedChat
+    ) -> tuple[Agent, Conversation, list[Message]]:
+        prepared = PreparedChat.model_validate(prepared.model_dump(mode="python"))
+        agent = self._agent(uow, prepared.agent_id)
+        conversation = self._conversation(uow, agent, prepared.conversation_id)
+        records = self._records(uow, conversation.id)
+        self._task_context(uow, agent, conversation, prepared.task_id)
+        current_memory = (
+            MemoryService(self.store.database).select_context(
+                agent.id,
+                prepared.memory_query,
+                task_id=prepared.task_id,
+                max_chars=self.MEMORY_MAX_CHARS - len(self.MEMORY_PREFIX) - len(self.MEMORY_SUFFIX),
+                max_items=self.MEMORY_MAX_ITEMS,
+                unit=uow,
+            )
+            if prepared.memory_signature is not None
+            else None
+        )
+        if (
+            agent.revision != prepared.agent_revision
+            or agent.status != "active"
+            or conversation.revision != prepared.conversation_revision
+            or self._history_digest(records) != prepared.history_digest
+            or (
+                current_memory is not None
+                and (
+                    list(current_memory.signature) != prepared.memory_signature
+                    or self._text_digest(current_memory.text) != prepared.memory_digest
+                )
+            )
+        ):
+            raise ProviderError("state_conflict")
+        return agent, conversation, records
+
+    @staticmethod
+    def normalized_response(prepared: PreparedChat, response: ChatResponse) -> ChatResponse:
+        try:
+            response = ChatResponse.model_validate(response.model_dump(mode="python"))
+            if response.message.role != "assistant" or any(
+                call.id in prepared.historical_call_ids for call in response.message.tool_calls
+            ):
+                raise ValueError("Resposta não pertence ao contexto preparado.")
+            return response
+        except ValueError, TypeError, AttributeError:
+            raise ProviderError("invalid_response") from None
+
+    def persist_response(
+        self, uow: UnitOfWork, prepared: PreparedChat, response: ChatResponse
+    ) -> Message:
+        """Confirma contexto e grava resposta; o chamador confirma seu journal na mesma UoW."""
+        prepared = PreparedChat.model_validate(prepared.model_dump(mode="python"))
+        response = self.normalized_response(prepared, response)
+        _, conversation, records = self.validate_snapshot(uow, prepared)
+        output = self._message(
+            conversation.id,
+            response.message,
+            records,
+            source=f"provider:{prepared.config.kind}",
+            metadata={
+                "provider_kind": prepared.config.kind,
+                "model": prepared.config.model,
+                "provider_response": {
+                    "finish_reason": response.finish_reason,
+                    "usage": response.usage.model_dump(mode="json"),
+                },
+                "context": prepared.context,
+            },
+        )
+        uow.messages.create(output)
+        uow.conversations.update(conversation, expected_revision=conversation.revision)
+        return output
+
     async def chat(
         self,
         agent_id: UUID | str,
@@ -328,158 +546,26 @@ class ProviderService:
         requirements: CapabilityRequirements | None = None,
         task_id: UUID | str | None = None,
     ) -> ChatResponse:
-        normalized_inputs = self._inputs(message)
         with self.store.transaction(source="provider_chat") as uow:
-            agent = self._agent(uow, agent_id)
-            if agent.status != "active":
-                raise ProviderError(
-                    "agent_inactive", "Agente pausado ou arquivado não executa chamadas."
-                )
-            config = self._validated_config(agent.provider_config)
-            conversation = self._conversation(uow, agent, conversation_id)
-            self._task_context(uow, agent, conversation, task_id)
-            records = self._records(uow, conversation.id)
-            history = [self._normalized(record) for record in records]
-            try:
-                messages = self._history_window(history + normalized_inputs)
-                context_history_count = len(messages)
-                # O corte não pode ocultar requisitos presentes em mensagens antigas.
-                validate_capabilities(
-                    config, requirements=self._requirements(history, requirements)
-                )
-                if len(agent.purpose) > 4096 or len(agent.instructions) > 16384:
-                    raise ProviderError("request_too_large")
-                instruction_parts = []
-                if agent.purpose:
-                    instruction_parts.append(f"Propósito permanente da abelha: {agent.purpose}")
-                if agent.instructions:
-                    instruction_parts.append(agent.instructions)
-                if instruction_parts:
-                    messages.insert(
-                        0, ChatMessage(role="system", content="\n\n".join(instruction_parts))
-                    )
-                memories = MemoryService(self.store.database)
-                memory_context = (
-                    memories.select_context(
-                        agent.id,
-                        normalized_inputs[-1].content or "",
-                        task_id=task_id,
-                        max_chars=self.MEMORY_MAX_CHARS
-                        - len(self.MEMORY_PREFIX)
-                        - len(self.MEMORY_SUFFIX),
-                        max_items=self.MEMORY_MAX_ITEMS,
-                        unit=uow,
-                    )
-                    if memory_enabled(agent)
-                    else None
-                )
-                if memory_context is not None and memory_context.text:
-                    messages.insert(
-                        1 if instruction_parts else 0,
-                        ChatMessage(
-                            role="user",
-                            content=self.MEMORY_PREFIX + memory_context.text + self.MEMORY_SUFFIX,
-                        ),
-                    )
-                request = ChatRequest(messages=messages, tools=tools or [])
-            except ValidationError, ValueError:
-                raise ProviderError(
-                    "invalid_request", "Solicitação de conversa inválida."
-                ) from None
-            config, request = validate_request(config, request, requirements=requirements)
-            # Resolver antes de persistir: credencial ausente não cria chamada pendente.
-            if config.secret_ref is not None:
-                self.resolver.resolve(config.secret_ref)
-            for normalized_input in normalized_inputs:
-                input_record = self._message(
-                    conversation.id, normalized_input, records, source="user"
-                )
-                uow.messages.create(input_record)
-                records.append(input_record)
-            conversation = uow.conversations.update(
-                conversation, expected_revision=conversation.revision
-            )
-            signature = self._signature(records)
-
-        adapter = create_adapter(config.kind, self.resolver, transport=self.transport)
-        response = await adapter.complete(config, request)
-        try:
-            response = ChatResponse.model_validate(response.model_dump(mode="python"))
-            if response.message.role != "assistant":
-                raise ValueError("Provedor retornou papel incompatível.")
-            historical_ids = {call.id for entry in history for call in entry.tool_calls}
-            if any(call.id in historical_ids for call in response.message.tool_calls):
-                raise ValueError("ID de chamada já pertence ao histórico completo.")
-        except ValueError, TypeError, AttributeError:
-            raise ProviderError("invalid_response", "Resposta normalizada inválida.") from None
-
-        with self.store.transaction(source="provider_chat") as uow:
-            current_agent = self._agent(uow, agent.id)
-            current_conversation = self._conversation(uow, current_agent, conversation.id)
-            current_records = self._records(uow, conversation.id)
-            self._task_context(uow, current_agent, current_conversation, task_id)
-            current_memory = (
-                memories.select_context(
-                    current_agent.id,
-                    normalized_inputs[-1].content or "",
-                    task_id=task_id,
-                    max_chars=self.MEMORY_MAX_CHARS
-                    - len(self.MEMORY_PREFIX)
-                    - len(self.MEMORY_SUFFIX),
-                    max_items=self.MEMORY_MAX_ITEMS,
-                    unit=uow,
-                )
-                if memory_context is not None
-                else None
-            )
+            conversation = uow.conversations.get(conversation_id)
             if (
-                current_agent.revision != agent.revision
-                or current_agent.status != "active"
-                or current_conversation.revision != conversation.revision
-                or self._signature(current_records) != signature
-                or (
-                    memory_context is not None
-                    and (
-                        current_memory.signature != memory_context.signature
-                        or current_memory.text != memory_context.text
-                    )
-                )
+                conversation is not None
+                and conversation.metadata.get("execution_kind") == "text_task"
             ):
-                raise ProviderError(
-                    "state_conflict", "Agente ou conversa mudou; resposta antiga não foi gravada."
-                )
-            output_record = self._message(
-                conversation.id,
-                response.message,
-                current_records,
-                source=f"provider:{config.kind}",
-                metadata={
-                    "provider_kind": config.kind,
-                    "model": config.model,
-                    "provider_response": {
-                        "finish_reason": response.finish_reason,
-                        "usage": response.usage.model_dump(mode="json"),
-                    },
-                    "context": {
-                        "history_messages": context_history_count,
-                        "history_omitted": len(history)
-                        + len(normalized_inputs)
-                        - context_history_count,
-                        "memory_refs": [
-                            {"id": str(entry.id), "revision": entry.revision}
-                            for entry in memory_context.entries
-                        ]
-                        if memory_context is not None
-                        else [],
-                        "memory_omitted": memory_context.omitted
-                        if memory_context is not None
-                        else 0,
-                    }
-                    | ({"task_id": str(UUID(str(task_id)))} if task_id is not None else {}),
-                },
+                # O chat comum não pode contornar orçamento, controle ou journal de tarefa.
+                raise ProviderError("invalid_request")
+            prepared = self.prepare_chat(
+                uow,
+                agent_id,
+                conversation_id,
+                message,
+                tools=tools,
+                requirements=requirements,
+                task_id=task_id,
             )
-            uow.messages.create(output_record)
-            uow.conversations.update(
-                current_conversation, expected_revision=current_conversation.revision
-            )
+        adapter = create_adapter(prepared.config.kind, self.resolver, transport=self.transport)
+        response = await adapter.complete(prepared.config, prepared.request)
+        response = self.normalized_response(prepared, response)
+        with self.store.transaction(source="provider_chat") as uow:
+            self.persist_response(uow, prepared, response)
         return response

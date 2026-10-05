@@ -2,11 +2,11 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: assistente de texto com perfis e memória editável.** Escolha um provedor e modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Listas prontas e digitação manual estão disponíveis; busca e teste de catálogo são opcionais. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
+**Estágio atual: assistente de texto com memória e tarefas em segundo plano.** Escolha um provedor e modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Listas prontas e digitação manual estão disponíveis; busca e teste de catálogo são opcionais. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Tarefas textuais possuem execução independente, controles e resultados persistentes. Políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
 ## Abrir com Docker
 
-No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliques em **Iniciar Bees.vbs**. O launcher sobe API/interface, prepara o cofre e abre o navegador com autorização para criar seu acesso. Configure nome, senha, modelo e primeira abelha na interface, sem gerar tokens ou chaves no terminal. Não precisa instalar Python/Node no host.
+No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliques em **Iniciar Bees.vbs**. O launcher sobe API/interface e executor de tarefas, prepara o cofre e abre o navegador com autorização para criar seu acesso. Configure nome, senha, modelo e primeira abelha na interface, sem gerar tokens ou chaves no terminal. Não precisa instalar Python/Node no host.
 
 Operadores também podem subir com `docker compose up --build --detach --wait`. Interface em [localhost:8080](http://localhost:8080); dados e chave ficam em volumes separados e sobrevivem a reinícios. [Distribuição e operação](docs/containers.md) explica primeiro acesso, volumes, backup, Ollama opcional e limites. A instalação nativa abaixo usa outro estado; não há importação automática.
 
@@ -34,7 +34,13 @@ Terminal 1, serviço:
 uv run --locked bees-api
 ```
 
-Terminal 2, interface com atualização automática:
+Terminal 2, executor de tarefas (com a API já iniciada):
+
+```sh
+uv run --locked bees-worker
+```
+
+Terminal 3, interface com atualização automática:
 
 ```sh
 npm --prefix apps/web run dev
@@ -49,7 +55,7 @@ npm --prefix apps/web run build
 uv run --locked bees-api
 ```
 
-Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). O mesmo processo serve API e arquivos estáticos de `apps/web/dist`. Sem build, a API continua disponível; a raiz informa a ausência da interface compilada. `vite preview` não é o servidor de produção.
+Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). Inicie também `uv run --locked bees-worker` para consumir tarefas. O processo da API serve API e arquivos estáticos de `apps/web/dist`. Sem build, a API continua disponível; a raiz informa a ausência da interface compilada. `vite preview` não é o servidor de produção.
 
 ## Primeiro acesso no desenvolvimento
 
@@ -83,7 +89,7 @@ Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 carac
 | `BEES_PUBLIC_URL` | ausente | Origem HTTPS exata para acesso remoto por proxy local. |
 | `BEES_VAULT_KEY` | ausente | Chave Fernet externa para cofre no Linux; Windows usa DPAPI do usuário atual. |
 
-SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; o banco de domínio é criado/migrado antes de aceitar tráfego. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema. [Persistência e migrações](docs/persistence.md) descrevem os contratos e a manutenção com serviço parado. Identidade, criação de abelhas e conversa possuem endpoints autenticados; ferramentas e tarefas autônomas continuam pendentes.
+SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; o banco de domínio é criado/migrado antes de aceitar tráfego. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema. [Persistência e migrações](docs/persistence.md) descrevem os contratos e a manutenção com serviço parado. Identidade, criação de abelhas e conversa possuem endpoints autenticados; tarefas textuais usam um worker separado. Ferramentas continuam pendentes; veja [tarefas](docs/tasks.md).
 
 ## Servidor Linux / VPS
 
@@ -118,6 +124,7 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, fronteiras de autenticação, protocolos e limites.
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
 - [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
+- [Tarefas](docs/tasks.md): delegação, controles, limites, journal e executor independente.
 - [Perfis e memória](docs/memory.md): edição, proveniência, isolamento, contexto e exclusão.
 - [Docker e instalação](docs/containers.md): launcher, distribuição, volumes e recuperação.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.

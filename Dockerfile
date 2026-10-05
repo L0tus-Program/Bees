@@ -14,8 +14,10 @@ ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
+COPY apps/worker/pyproject.toml ./apps/worker/pyproject.toml
 COPY packages/core/pyproject.toml ./packages/core/pyproject.toml
 COPY apps/api/src ./apps/api/src
+COPY apps/worker/src ./apps/worker/src
 COPY packages/core/src ./packages/core/src
 RUN uv sync --locked --no-dev --no-editable
 
@@ -41,5 +43,6 @@ CMD ["bees-api"]
 FROM python-build AS verification
 RUN uv sync --locked --no-editable
 COPY apps/api/tests ./apps/api/tests
+COPY apps/worker/tests ./apps/worker/tests
 COPY packages/core/tests ./packages/core/tests
-CMD ["/app/.venv/bin/python", "-m", "pytest", "apps/api/tests/test_managed_key.py", "apps/api/tests/test_model_cli.py", "apps/api/tests/test_container_config.py", "apps/api/tests/test_bootstrap_cli.py", "packages/core/tests/test_provider_vault.py"]
+CMD ["/app/.venv/bin/python", "-m", "pytest", "apps/api/tests/test_managed_key.py", "apps/api/tests/test_model_cli.py", "apps/api/tests/test_container_config.py", "apps/api/tests/test_bootstrap_cli.py", "apps/worker/tests/test_worker_cli.py", "packages/core/tests/test_provider_vault.py", "packages/core/tests/test_execution_store.py", "packages/core/tests/test_tasks_execution.py"]

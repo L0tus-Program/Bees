@@ -222,7 +222,11 @@ def validate_existing_reference(agent: Agent, config: ConnectionConfig) -> None:
 
 
 def _summary(unit, agent: Agent) -> dict:
-    conversations = unit.conversations.list(agent_id=agent.id, status="active", limit=1)
+    conversations = [
+        conversation
+        for conversation in unit.conversations.list(agent_id=agent.id, status="active", limit=1000)
+        if conversation.metadata.get("execution_kind") != "text_task"
+    ]
     return {
         "id": str(agent.id),
         "name": agent.name,

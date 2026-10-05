@@ -1,10 +1,12 @@
 """Repositórios tipados, revisões otimistas e ledger transacional sem conteúdo."""
 
+import hashlib
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -20,13 +22,17 @@ from bees_core.models import (
     Conversation,
     DomainEvent,
     EntityType,
+    ExecutionClaim,
+    LeaseToken,
     Memory,
     Message,
+    ModelCall,
     Policy,
     Record,
     Routine,
     Run,
     Task,
+    TaskCommand,
     TaskStatus,
     utc_now,
 )
@@ -69,6 +75,10 @@ JSON_COLUMNS = {
     "result": "result_json",
     "scope": "scope_json",
     "schedule": "schedule_json",
+    "request": "request_json",
+    "response": "response_json",
+    "snapshot": "snapshot_json",
+    "payload": "payload_json",
 }
 
 
@@ -164,7 +174,9 @@ class _Repository[T: Record]:
         ).fetchone()
         return self._decode(row) if row is not None else None
 
-    def _list(self, filters: dict, limit: int, offset: int) -> list[T]:
+    def _list(
+        self, filters: dict, limit: int, offset: int, *, newest_first: bool = False
+    ) -> list[T]:
         self._context.check()
         _pagination(limit, offset)
         filters = {name: value for name, value in filters.items() if value is not None}
@@ -181,7 +193,11 @@ class _Repository[T: Record]:
         where = f" WHERE {clauses}" if clauses else ""
         rows = self._context.connection.execute(
             f"SELECT {','.join(self._spec.columns)} FROM {self._spec.table}{where} "
-            "ORDER BY created_at,id LIMIT ? OFFSET ?",
+            + (
+                "ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?"
+                if newest_first
+                else "ORDER BY created_at,id LIMIT ? OFFSET ?"
+            ),
             (*values, limit, offset),
         )
         return [self._decode(row) for row in rows]
@@ -242,6 +258,14 @@ class _Repository[T: Record]:
             ).fetchone()
             if row is None or row[0] != str(record.task_id):
                 raise IntegrityError("Artefato e execução precisam pertencer à mesma tarefa.")
+        elif isinstance(record, ModelCall) and record.output_message_id is not None:
+            row = connection.execute(
+                "SELECT t.conversation_id,m.conversation_id,m.role FROM runs r "
+                "JOIN tasks t ON t.id=r.task_id JOIN messages m ON m.id=? WHERE r.id=?",
+                (str(record.output_message_id), str(record.run_id)),
+            ).fetchone()
+            if row is None or row[0] != row[1] or row[2] != "assistant":
+                raise IntegrityError("Resultado precisa pertencer à conversa da tarefa.")
         elif isinstance(record, Memory) and record.task_id is not None:
             row = connection.execute(
                 "SELECT agent_id FROM tasks WHERE id=?", (str(record.task_id),)
@@ -415,6 +439,14 @@ class Messages(_Repository[Message]):
 
 
 class Tasks(_Repository[Task]):
+    def find_submission(self, client_request_id: UUID | str) -> Task | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM tasks WHERE submission_key=?",
+            (str(UUID(str(client_request_id))),),
+        ).fetchone()
+        return self._decode(row) if row else None
+
     def list(
         self,
         *,
@@ -422,13 +454,445 @@ class Tasks(_Repository[Task]):
         status: TaskStatus | None = None,
         limit: int = 100,
         offset: int = 0,
+        newest_first: bool = False,
     ) -> list[Task]:
-        return self._list({"agent_id": agent_id, "status": status}, limit, offset)
+        return self._list(
+            {"agent_id": agent_id, "status": status}, limit, offset, newest_first=newest_first
+        )
 
 
 class Runs(_Repository[Run]):
     def list(self, *, task_id: UUID | None = None, limit: int = 100, offset: int = 0) -> list[Run]:
         return self._list({"task_id": task_id}, limit, offset)
+
+
+class TaskCommands(_Repository[TaskCommand]):
+    def list(self, *, task_id: UUID, limit: int = 100, offset: int = 0) -> list[TaskCommand]:
+        return self._list({"task_id": task_id}, limit, offset)
+
+    def find_request(
+        self, task_id: UUID | str, client_request_id: UUID | str
+    ) -> TaskCommand | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM task_commands "
+            "WHERE task_id=? AND client_request_id=?",
+            (str(UUID(str(task_id))), str(UUID(str(client_request_id)))),
+        ).fetchone()
+        return self._decode(row) if row else None
+
+    def update(self, record: TaskCommand, expected_revision: int) -> TaskCommand:
+        raise IntegrityError("Comandos são append-only.")
+
+
+class ModelCalls(_Repository[ModelCall]):
+    @staticmethod
+    def request_digest(provider_config: dict, request: dict, snapshot: dict) -> str:
+        data = {"provider_config": provider_config, "request": request, "snapshot": snapshot}
+        encoded = json.dumps(
+            data, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def create(self, record: ModelCall) -> ModelCall:
+        if record.status != "prepared":
+            raise IntegrityError("Novo journal precisa de intenção prepared.")
+        validated = self._validated(record)
+        if validated.request_hash != self.request_digest(
+            validated.provider_config, validated.request, validated.snapshot
+        ):
+            raise IntegrityError("Hash não corresponde ao snapshot validado.")
+        return super().create(validated)
+
+    def list(
+        self, *, run_id: UUID, status: str | None = None, limit: int = 100, offset: int = 0
+    ) -> list[ModelCall]:
+        return self._list({"run_id": run_id, "status": status}, limit, offset)
+
+    def update(self, record: ModelCall, expected_revision: int) -> ModelCall:
+        raise IntegrityError("Journal exige operação de despacho/conclusão com fencing.")
+
+    def _change(self, previous: ModelCall, **updates) -> ModelCall:
+        changed = previous.model_copy(update=updates)
+        return self._update(changed, previous.revision)
+
+
+def _execution_atomic(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self.tasks._mutation():
+            return method(self, *args, **kwargs)
+
+    return guarded
+
+
+class Execution:
+    """Fila textual global1+agente1; leases não cancelam processamento remoto.
+
+    A quarentena é da tarefa/run. Outra tarefa pode usar um recurso expirado,
+    enquanto um provedor ainda processa a chamada antiga de resultado desconhecido.
+    """
+
+    GLOBAL_RESOURCE = "worker_slot:0"
+
+    def __init__(self, context: _Context, tasks: Tasks, runs: Runs, calls: ModelCalls) -> None:
+        self._context = context
+        self.tasks, self.runs, self.calls = tasks, runs, calls
+
+    @staticmethod
+    def _ttl(ttl_seconds: int) -> None:
+        if (
+            isinstance(ttl_seconds, bool)
+            or not isinstance(ttl_seconds, int)
+            or not 5 <= ttl_seconds <= 300
+        ):
+            raise ValueError("Lease TTL entre 5 e 300 segundos.")
+
+    def _lease(self, resource_key: str):
+        return self._context.connection.execute(
+            "SELECT owner_id,run_id,generation,expires_at FROM execution_leases "
+            "WHERE resource_key=?",
+            (resource_key,),
+        ).fetchone()
+
+    def assert_claim(self, claim: ExecutionClaim, *, now: datetime) -> None:
+        self._context.check()
+        keys = {self.GLOBAL_RESOURCE, f"agent:{claim.task.agent_id}"}
+        if {token.resource_key for token in claim.leases} != keys or len(claim.leases) != 2:
+            raise RevisionConflict("Lease incompleta ou incompatível.")
+        instant = _timestamp(now)
+        for token in claim.leases:
+            row = self._lease(token.resource_key)
+            if (
+                row is None
+                or token.owner_id != claim.owner_id
+                or token.run_id != claim.run.id
+                or row[:3] != (str(claim.owner_id), str(claim.run.id), token.generation)
+                or row[3] <= instant
+            ):
+                raise RevisionConflict("Lease antiga ou expirada; não gravar/despachar.")
+
+    def _tokens(self, owner_id: UUID, run: Run, agent_id: UUID, now: datetime, ttl: int):
+        tokens = []
+        expires = now + timedelta(seconds=ttl)
+        for resource in (self.GLOBAL_RESOURCE, f"agent:{agent_id}"):
+            row = self._lease(resource)
+            if row is not None and row[0] is not None and row[3] > _timestamp(now):
+                return None
+            generation = row[2] + 1 if row else 1
+            tokens.append(
+                LeaseToken(
+                    resource_key=resource,
+                    owner_id=owner_id,
+                    run_id=run.id,
+                    generation=generation,
+                    expires_at=expires,
+                )
+            )
+        for token in tokens:
+            self._context.connection.execute(
+                "INSERT INTO execution_leases(resource_key,owner_id,run_id,generation,"
+                "acquired_at,expires_at) "
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(resource_key) DO UPDATE SET "
+                "owner_id=excluded.owner_id,run_id=excluded.run_id,generation=excluded.generation,"
+                "acquired_at=excluded.acquired_at,expires_at=excluded.expires_at",
+                (
+                    token.resource_key,
+                    str(owner_id),
+                    str(run.id),
+                    token.generation,
+                    _timestamp(now),
+                    _timestamp(expires),
+                ),
+            )
+        return tuple(tokens)
+
+    @_execution_atomic
+    def claim_next(
+        self, owner_id: UUID | str, *, now: datetime, ttl_seconds: int = 30
+    ) -> ExecutionClaim | None:
+        self._context.check(write=True)
+        self._ttl(ttl_seconds)
+        owner_id = UUID(str(owner_id))
+        self.recover_expired(now=now)
+        global_lease = self._lease(self.GLOBAL_RESOURCE)
+        if global_lease and global_lease[0] is not None and global_lease[3] > _timestamp(now):
+            return None
+        rows = self._context.connection.execute(
+            f"SELECT {','.join('t.' + column for column in self.tasks._spec.columns)} FROM tasks t "
+            "JOIN agents a ON a.id=t.agent_id WHERE t.status='queued' "
+            "AND t.desired_state='running' "
+            "AND a.status='active' AND t.calls_started<t.max_calls "
+            "AND t.active_milliseconds<t.max_active_seconds*1000 "
+            "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
+            "WHERE r.task_id=t.id AND c.status='outcome_unknown' "
+            "AND c.unknown_acknowledged_at IS NULL) "
+            "ORDER BY t.created_at,t.id LIMIT 100",
+        )
+        for row in list(rows):
+            task = self.tasks._decode(row)
+            existing = self.runs.list(task_id=task.id, limit=1000)
+            unfinished = [run for run in existing if run.status in ("queued", "running")]
+            run = unfinished[-1] if unfinished else self.runs.create(Run(task_id=task.id))
+            tokens = self._tokens(owner_id, run, task.agent_id, now, ttl_seconds)
+            if tokens is None:
+                continue
+            task = self.tasks.update(task.model_copy(update={"status": "running"}), task.revision)
+            run = self.runs.update(
+                run.model_copy(update={"status": "running", "started_at": run.started_at or now}),
+                run.revision,
+            )
+            return ExecutionClaim(task=task, run=run, owner_id=owner_id, leases=tokens)
+        return None
+
+    @_execution_atomic
+    def renew(
+        self, claim: ExecutionClaim, *, now: datetime, ttl_seconds: int = 30
+    ) -> ExecutionClaim:
+        self._ttl(ttl_seconds)
+        self.assert_claim(claim, now=now)
+        expires = now + timedelta(seconds=ttl_seconds)
+        tokens = []
+        for token in claim.leases:
+            self._context.connection.execute(
+                "UPDATE execution_leases SET expires_at=? WHERE resource_key=? AND owner_id=? "
+                "AND run_id=? AND generation=?",
+                (
+                    _timestamp(expires),
+                    token.resource_key,
+                    str(claim.owner_id),
+                    str(claim.run.id),
+                    token.generation,
+                ),
+            )
+            tokens.append(token.model_copy(update={"expires_at": expires}))
+        return claim.model_copy(update={"leases": tuple(tokens)})
+
+    @_execution_atomic
+    def release(self, claim: ExecutionClaim) -> None:
+        self._context.check(write=True)
+        # Não exigir TTL vigente para liberar, mas nunca liberar a geração de outro dono.
+        for token in claim.leases:
+            self._context.connection.execute(
+                "UPDATE execution_leases SET owner_id=NULL,run_id=NULL,expires_at=NULL "
+                "WHERE resource_key=? AND owner_id=? AND run_id=? AND generation=?",
+                (token.resource_key, str(claim.owner_id), str(claim.run.id), token.generation),
+            )
+
+    @_execution_atomic
+    def charge_active(self, claim: ExecutionClaim, elapsed_ms: int, *, now: datetime) -> Task:
+        self.assert_claim(claim, now=now)
+        if isinstance(elapsed_ms, bool) or not isinstance(elapsed_ms, int) or elapsed_ms < 0:
+            raise ValueError("Tempo ativo deve ser quantidade não negativa de milissegundos.")
+        task = self.tasks.get(claim.task.id)
+        return self.tasks.update(
+            task.model_copy(update={"active_milliseconds": task.active_milliseconds + elapsed_ms}),
+            task.revision,
+        )
+
+    @_execution_atomic
+    def begin_call(self, claim: ExecutionClaim, call: ModelCall, *, now: datetime) -> ModelCall:
+        self.assert_claim(claim, now=now)
+        task = self.tasks.get(claim.task.id)
+        agent = self._context.connection.execute(
+            "SELECT revision,status FROM agents WHERE id=?", (str(task.agent_id),)
+        ).fetchone()
+        if (
+            task.status != "running"
+            or task.desired_state != "running"
+            or task.control_revision != call.task_control_revision
+            or agent != (call.agent_revision, "active")
+            or call.run_id != claim.run.id
+            or call.lease_generation != claim.generation
+        ):
+            raise RevisionConflict("Intenção mudou antes do despacho.")
+        current_run = self.runs.get(claim.run.id)
+        if current_run.provider_config != call.provider_config:
+            raise RevisionConflict("Configuração difere do snapshot da execução.")
+        if (
+            task.calls_started >= task.max_calls
+            or task.active_milliseconds >= task.max_active_seconds * 1000
+        ):
+            raise InvalidTransition("Orçamento da tarefa esgotado.")
+        unresolved = self._context.connection.execute(
+            "SELECT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
+            "WHERE r.task_id=? "
+            "AND (c.status='dispatch_started' OR (c.status='outcome_unknown' "
+            "AND c.unknown_acknowledged_at IS NULL)))",
+            (str(task.id),),
+        ).get
+        if unresolved:
+            raise InvalidTransition("Chamada pendente/desconhecida impede novo despacho.")
+        previous = self.calls.get(call.id)
+        if previous is None:
+            previous = self.calls.create(call)
+        if previous.status != "prepared" or previous.model_dump() != call.model_dump():
+            raise RevisionConflict("Intenção já despachada ou alterada.")
+        self.tasks.update(
+            task.model_copy(update={"calls_started": task.calls_started + 1}), task.revision
+        )
+        return self.calls._change(previous, status="dispatch_started", started_at=now)
+
+    @_execution_atomic
+    def finish_call(
+        self,
+        claim: ExecutionClaim,
+        call_id: UUID | str,
+        *,
+        expected_revision: int,
+        status: str,
+        response: dict | None = None,
+        output_message_id: UUID | None = None,
+        error_code: str | None = None,
+        obsolete: bool = False,
+        now: datetime,
+    ) -> ModelCall:
+        self.assert_claim(claim, now=now)
+        call = self.calls.get(call_id)
+        if call is None:
+            raise NotFoundError("Chamada não encontrada.")
+        if (
+            call.run_id != claim.run.id
+            or call.lease_generation != claim.generation
+            or call.revision != expected_revision
+        ):
+            raise RevisionConflict("Journal pertence a outro despacho/revisão.")
+        if call.status != "dispatch_started" or status not in (
+            "confirmed",
+            "failed_no_effect",
+            "outcome_unknown",
+        ):
+            raise InvalidTransition("Conclusão inválida do journal.")
+        # Um erro HTTP após despacho não prova ausência de efeito: usar unknown.
+        if status == "failed_no_effect":
+            raise InvalidTransition(
+                "Após despacho, ausência de efeito exige prova/reconciliação futura."
+            )
+        return self.calls._change(
+            call,
+            status=status,
+            response=response,
+            output_message_id=output_message_id,
+            error_code=error_code,
+            finished_at=now,
+            metadata=call.metadata | {"obsolete": obsolete},
+        )
+
+    @_execution_atomic
+    def discard_prepared(
+        self,
+        claim: ExecutionClaim,
+        call_id: UUID | str,
+        *,
+        now: datetime,
+        error_code: str | None = None,
+    ) -> ModelCall:
+        self.assert_claim(claim, now=now)
+        call = self.calls.get(call_id)
+        if call is None:
+            raise NotFoundError("Intenção não encontrada.")
+        if call.run_id != claim.run.id or call.status != "prepared":
+            raise InvalidTransition("Somente intenção não despachada pode ser descartada.")
+        return self.calls._change(call, status="cancelled", error_code=error_code, finished_at=now)
+
+    @_execution_atomic
+    def acknowledge_unknown(self, task_id: UUID | str, *, command_id: UUID, now: datetime) -> None:
+        self._context.check(write=True)
+        command = self._context.connection.execute(
+            "SELECT task_id,kind,payload_json,expected_revision FROM task_commands WHERE id=?",
+            (str(command_id),),
+        ).fetchone()
+        if (
+            command is None
+            or command[0] != str(task_id)
+            or command[1] != "resume"
+            or json.loads(command[2]).get("acknowledge_unknown") is not True
+            or command[3] != self.tasks.get(task_id).revision
+        ):
+            raise IntegrityError("Reconhecimento exige comando explícito de retomada.")
+        rows = self._context.connection.execute(
+            f"SELECT {','.join('c.' + column for column in self.calls._spec.columns)} "
+            "FROM model_calls c "
+            "JOIN runs r ON r.id=c.run_id WHERE r.task_id=? AND c.status='outcome_unknown' "
+            "AND c.unknown_acknowledged_at IS NULL",
+            (str(task_id),),
+        )
+        for row in list(rows):
+            self.calls._change(self.calls._decode(row), unknown_acknowledged_at=now)
+
+    @_execution_atomic
+    def recover_expired(self, *, now: datetime) -> int:
+        self._context.check(write=True)
+        rows = self._context.connection.execute(
+            "SELECT DISTINCT run_id FROM execution_leases WHERE owner_id IS NOT NULL "
+            "AND expires_at<=?",
+            (_timestamp(now),),
+        )
+        count = 0
+        for (run_id,) in list(rows):
+            run = self.runs.get(run_id)
+            task = self.tasks.get(run.task_id)
+            calls = self.calls.list(run_id=run.id, status="dispatch_started", limit=1000)
+            unknown = bool(calls)
+            for call in calls:
+                self.calls._change(
+                    call, status="outcome_unknown", error_code="worker_lost", finished_at=now
+                )
+                if call.started_at is not None:
+                    duration = min(
+                        int(call.provider_config.get("deadline_seconds", 60) * 1000),
+                        max(0, int((now - call.started_at).total_seconds() * 1000)),
+                    )
+                    task = self.tasks.update(
+                        task.model_copy(
+                            update={"active_milliseconds": task.active_milliseconds + duration}
+                        ),
+                        task.revision,
+                    )
+            if task.status not in ("completed", "failed", "cancelled"):
+                status = (
+                    "cancelled"
+                    if task.desired_state == "cancelled"
+                    else "paused"
+                    if unknown or task.desired_state == "paused"
+                    else "queued"
+                )
+                desired = (
+                    "paused"
+                    if unknown and task.desired_state != "cancelled"
+                    else task.desired_state
+                )
+                task = self.tasks.update(
+                    task.model_copy(update={"status": status, "desired_state": desired}),
+                    task.revision,
+                )
+                run = self.runs.update(
+                    run.model_copy(
+                        update={
+                            "status": status,
+                            "error": "outcome_unknown" if unknown else run.error,
+                            "checkpoint": run.checkpoint | {"attention_required": unknown},
+                        }
+                    ),
+                    run.revision,
+                )
+            elif unknown:
+                self.runs.update(
+                    run.model_copy(
+                        update={
+                            "error": "outcome_unknown",
+                            "checkpoint": run.checkpoint | {"attention_required": True},
+                        }
+                    ),
+                    run.revision,
+                )
+            self._context.connection.execute(
+                "UPDATE execution_leases SET owner_id=NULL,run_id=NULL,expires_at=NULL "
+                "WHERE run_id=? AND expires_at<=?",
+                (run_id, _timestamp(now)),
+            )
+            count += 1
+        return count
 
 
 class Actions(_Repository[Action]):
@@ -632,6 +1096,30 @@ class UnitOfWork:
             context, _Spec("tasks", "task", Task, ("agent_id", "conversation_id", "routine_id"))
         )
         self.runs = Runs(context, _Spec("runs", "run", Run, ("task_id",)))
+        self.model_calls = ModelCalls(
+            context,
+            _Spec(
+                "model_calls",
+                "model_call",
+                ModelCall,
+                (
+                    "run_id",
+                    "ordinal",
+                    "phase",
+                    "task_control_revision",
+                    "agent_revision",
+                    "lease_generation",
+                    "provider_config",
+                    "request",
+                    "snapshot",
+                    "request_hash",
+                ),
+            ),
+        )
+        self.task_commands = TaskCommands(
+            context, _Spec("task_commands", "task_command", TaskCommand)
+        )
+        self.execution = Execution(context, self.tasks, self.runs, self.model_calls)
         self.actions = Actions(context, _Spec("actions", "action", Action, ("run_id",)))
         self.policies = Policies(context, _Spec("policies", "policy", Policy, ("agent_id",)))
         self.approvals = Approvals(

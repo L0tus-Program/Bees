@@ -22,6 +22,33 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s
+  worker:
+    image: bees-local:0.1.0
+    command: [bees-worker]
+    init: true
+    restart: unless-stopped
+    network_mode: service:bees
+    volumes:
+      - bees-data:/var/lib/bees
+      - bees-secrets:/run/bees-secrets
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    depends_on:
+      bees:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: [CMD, bees-worker-health]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
   ollama:
     image: ollama/ollama:latest@sha256:292ee7945dfc3d5840a181f3ab86fedb1e66703e02c8af98b50f4da56b7e278c
     profiles: [local-model]

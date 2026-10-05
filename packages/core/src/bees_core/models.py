@@ -47,6 +47,8 @@ EntityType = Literal[
     "routine",
     "memory",
     "artifact",
+    "model_call",
+    "task_command",
 ]
 
 
@@ -121,6 +123,13 @@ class Task(Record):
     objective: str = Field(min_length=1)
     expected_result: str = ""
     status: TaskStatus = "queued"
+    submission_key: UUID | None = None
+    desired_state: Literal["running", "paused", "cancelled"] = "running"
+    control_revision: int = Field(default=0, ge=0)
+    max_calls: int = Field(default=3, ge=1, le=50)
+    max_active_seconds: int = Field(default=120, ge=1, le=1800)
+    calls_started: int = Field(default=0, ge=0)
+    active_milliseconds: int = Field(default=0, ge=0)
 
 
 class Run(Record):
@@ -133,12 +142,113 @@ class Run(Record):
     started_at: AwareDatetime | None = None
     finished_at: AwareDatetime | None = None
     error: str | None = None
+    provider_config: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("provider_config", mode="before")
+    @classmethod
+    def validated_config(cls, value):
+        return Agent.validated_provider_config(value)
 
     @model_validator(mode="after")
     def ordered_run_dates(self) -> Self:
         if self.started_at and self.finished_at and self.finished_at < self.started_at:
             raise ValueError("finished_at não pode preceder started_at.")
         return self
+
+
+class ModelCall(Record):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    run_id: UUID
+    ordinal: int = Field(ge=1)
+    phase: Literal["final", "draft", "review"] = "final"
+    status: Literal[
+        "prepared",
+        "dispatch_started",
+        "confirmed",
+        "failed_no_effect",
+        "outcome_unknown",
+        "cancelled",
+    ] = "prepared"
+    task_control_revision: int = Field(ge=0)
+    agent_revision: int = Field(ge=1)
+    lease_generation: int = Field(ge=1)
+    provider_config: dict[str, JsonValue]
+    request: dict[str, JsonValue]
+    snapshot: dict[str, JsonValue] = Field(default_factory=dict)
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    response: dict[str, JsonValue] | None = None
+    output_message_id: UUID | None = None
+    error_code: str | None = Field(default=None, max_length=100, pattern=r"^[a-z0-9_]+$")
+    started_at: AwareDatetime | None = None
+    finished_at: AwareDatetime | None = None
+    unknown_acknowledged_at: AwareDatetime | None = None
+
+    @field_validator("provider_config", mode="before")
+    @classmethod
+    def validated_config(cls, value):
+        from bees_core.providers.contracts import ProviderConfig
+
+        return ProviderConfig.model_validate(value).model_dump(mode="json")
+
+    @field_validator("request", mode="before")
+    @classmethod
+    def validated_request(cls, value):
+        from bees_core.providers.contracts import ChatRequest
+
+        return ChatRequest.model_validate(value).model_dump(mode="json")
+
+    @field_validator("response", mode="before")
+    @classmethod
+    def validated_response(cls, value):
+        if value is None:
+            return None
+        from bees_core.providers.contracts import ChatResponse
+
+        return ChatResponse.model_validate(value).model_dump(mode="json")
+
+    @model_validator(mode="after")
+    def consistent_result(self) -> Self:
+        if self.status == "confirmed" and self.response is None:
+            raise ValueError("Chamada confirmada exige resposta normalizada.")
+        if self.response is not None and self.status != "confirmed":
+            raise ValueError("Somente chamada confirmada possui resposta.")
+        if self.output_message_id is not None and self.status != "confirmed":
+            raise ValueError("Publicação exige chamada confirmada.")
+        if self.unknown_acknowledged_at is not None and self.status != "outcome_unknown":
+            raise ValueError("Reconhecimento de risco exige resultado desconhecido.")
+        return self
+
+
+class TaskCommand(Record):
+    task_id: UUID
+    client_request_id: UUID
+    kind: Literal["pause", "resume", "cancel", "redirect"]
+    expected_revision: int = Field(ge=1)
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class LeaseToken(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resource_key: str
+    owner_id: UUID
+    run_id: UUID
+    generation: int = Field(ge=1)
+    expires_at: AwareDatetime
+
+
+class ExecutionClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    task: Task
+    run: Run
+    owner_id: UUID
+    leases: tuple[LeaseToken, ...]
+
+    @property
+    def generation(self) -> int:
+        return self.leases[0].generation
 
 
 class Action(Record):

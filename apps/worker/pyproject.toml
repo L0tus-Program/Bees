@@ -1,0 +1,17 @@
+[project]
+name = "bees-worker"
+version = "0.1.0"
+description = "Executor persistente de tarefas da plataforma Bees"
+requires-python = ">=3.14,<3.15"
+dependencies = ["bees-api==0.1.0", "bees-core==0.1.0"]
+
+[project.scripts]
+bees-worker = "bees_worker.cli:main"
+bees-worker-health = "bees_worker.cli:health"
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bees_worker"]

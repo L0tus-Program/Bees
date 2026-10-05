@@ -30,9 +30,22 @@ try {
     $env:BEES_HTTP_PORT = "$Port"
     $taskCompose = @('compose', '--project-name', $ProjectName, '--project-directory', $taskRoot, '-f', (Join-Path $taskRoot 'compose.yaml'))
     $taskUp = @('up', '--detach', '--wait', '--wait-timeout', '180')
-    if (-not $NoBuild) { $taskUp += '--build' }
     Write-Output 'Preparando o Bees. Na primeira vez, o Docker precisa baixar e compilar a aplicação.'
     $ErrorActionPreference = 'Continue'
+    if (-not $NoBuild) {
+        & docker @taskCompose build *> $taskLog
+        if ($LASTEXITCODE -ne 0) { throw 'Não foi possível compilar o Bees.' }
+    }
+    $taskExistingContainer = & docker @taskCompose ps --all --quiet bees 2>$null
+    if ($taskExistingContainer) {
+        $taskPreviousImage = & docker inspect --format '{{.Image}}' $taskExistingContainer 2>$null
+        $taskNextImage = & docker image inspect --format '{{.Id}}' bees-local:0.1.0 2>$null
+        if ($taskPreviousImage -and $taskNextImage -and $taskPreviousImage -ne $taskNextImage) {
+            # Mesmo com API parada ou NoBuild, nenhum worker ativo durante a migração.
+            & docker @taskCompose stop worker bees *>> $taskLog
+            if ($LASTEXITCODE -ne 0) { throw 'Não foi possível parar a versão anterior.' }
+        }
+    }
     & docker @taskCompose @taskUp *> $taskLog
     $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) {

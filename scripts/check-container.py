@@ -9,7 +9,9 @@ import json
 import os
 import secrets
 import subprocess
+import time
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 
@@ -59,7 +61,7 @@ def main():
         with httpx.Client(base_url=origin, trust_env=False, timeout=15) as client:
             assert client.get("/").status_code == 200
             state = client.get("/api/v1/state/status")
-            assert state.json()["schema_version"] == 2
+            assert state.json()["schema_version"] == 3
             assert client.get("/api/v1/onboarding").status_code == 401
             assert client.get("/api/v1/auth/status").json()["configured"] is False
             authorization = json.loads(
@@ -225,6 +227,54 @@ def main():
             before = client.get(
                 agent_path + f"/messages?conversation_id={bee['conversation_id']}"
             ).json()
+            # Fila não depende do frontend; comandos aceitos sobrevivem ao worker parado.
+            compose("stop", "worker")
+            task_body = {
+                "client_request_id": str(uuid4()),
+                "title": "Plano persistente",
+                "objective": "Organize as ideias fornecidas em próximos passos.",
+                "expected_result": "Lista curta de passos.",
+            }
+            task_response = client.post(agent_path + "/tasks", json=task_body, headers=headers())
+            assert task_response.status_code == 201
+            task = task_response.json()
+            task_path = agent_path + "/tasks/" + task["id"]
+            assert (
+                client.post(agent_path + "/tasks", json=task_body, headers=headers()).json()["id"]
+                == task["id"]
+            )
+            pause = {
+                "client_request_id": str(uuid4()),
+                "expected_revision": task["revision"],
+                "action": "pause",
+            }
+            paused = client.post(task_path + "/control", json=pause, headers=headers())
+            assert paused.status_code == 200 and paused.json()["status"] == "paused"
+            resume = pause | {
+                "client_request_id": str(uuid4()),
+                "expected_revision": paused.json()["revision"],
+                "action": "resume",
+            }
+            assert (
+                client.post(task_path + "/control", json=resume, headers=headers()).status_code
+                == 200
+            )
+            compose("up", "--detach", "--wait", "--wait-timeout", "120")
+            deadline = time.monotonic() + 30
+            while True:
+                task_detail = client.get(task_path).json()
+                if task_detail["task"]["status"] == "completed":
+                    break
+                assert time.monotonic() < deadline, "Executor não concluiu tarefa controlada."
+                time.sleep(0.2)
+            assert "Resposta controlada" in task_detail["task"]["latest_run"]["result"]["content"]
+            assert client.get(agent_path + "/tasks").json()["worker"]["available"] is True
+            assert (
+                client.get(
+                    agent_path + f"/messages?conversation_id={bee['conversation_id']}"
+                ).json()
+                == before
+            )
             assert (
                 client.get("/api/v1/auth/status", headers={"Host": "visitante.example"}).status_code
                 == 400
@@ -257,13 +307,17 @@ def main():
                 == before
             )
             assert len(client.get(agent_path + "/memories").json()["memories"]) == 1
+            assert (
+                client.get(task_path).json()["task"]["latest_run"]["result"]
+                == task_detail["task"]["latest_run"]["result"]
+            )
             continued = client.post(
                 agent_path + "/chat",
                 json={"conversation_id": bee["conversation_id"], "content": "Após recriar."},
                 headers=headers(),
             )
             assert continued.status_code == 200
-            logs = compose("logs", "--no-color", "bees")
+            logs = compose("logs", "--no-color", "bees", "worker")
             assert (
                 fake_key not in logs
                 and password not in logs
@@ -271,7 +325,7 @@ def main():
             )
         print(
             "Docker: catálogo opcional, modelo manual, primeiro acesso, cofre, conversa, "
-            "fronteiras e persistência aprovados."
+            "tarefas em processo separado, fronteiras e persistência aprovados."
         )
         if args.keep:
             print(f"Projeto de teste mantido: {project}; porta {args.port}.")

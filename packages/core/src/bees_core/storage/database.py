@@ -234,6 +234,10 @@ class Database:
     @staticmethod
     def _execute_migration(connection: apsw.Connection, sql: str) -> None:
         def authorize(action: int, *_: str | None) -> int:
+            # ALTER ADD COLUMN com CHECK usa quick_check internamente no SQLite.
+            # Esta operação só lê; pragmas capazes de mudar restrições continuam negados.
+            if action == apsw.SQLITE_PRAGMA and _ and _[0] == "quick_check":
+                return apsw.SQLITE_OK
             if action in {
                 apsw.SQLITE_TRANSACTION,
                 apsw.SQLITE_SAVEPOINT,
@@ -314,3 +318,24 @@ class Database:
             applied = self._applied_migrations(connection)
             self._validate_history(applied, self._migrations())
             return applied[-1][0] if applied else 0
+
+    def require_current_schema(self) -> int:
+        """Worker valida sem criar base, alterar pragmas persistentes ou migrar."""
+        check_sqlite_runtime()
+        migrations = self._migrations()
+        try:
+            connection = apsw.Connection(str(self.path), flags=apsw.SQLITE_OPEN_READONLY)
+            try:
+                connection.set_busy_timeout(self.busy_timeout_ms)
+                connection.execute("PRAGMA query_only=ON")
+                connection.execute("BEGIN")
+                applied = self._applied_migrations(connection)
+                self._validate_history(applied, migrations)
+                if len(applied) != len(migrations):
+                    raise MigrationError("Esquema pendente: pare os serviços e migre pela API.")
+                connection.execute("COMMIT")
+                return applied[-1][0]
+            finally:
+                connection.close()
+        except apsw.Error:
+            raise MigrationError("Estado ausente ou inválido; o worker não migra a base.") from None

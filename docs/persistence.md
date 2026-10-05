@@ -9,6 +9,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | agents | Identidade, instruções e metadados de configuração do modelo. |
 | conversations / messages | Conversa do agente e mensagens append-only. |
 | tasks / runs | Objetivo, estado, execução e checkpoint; vínculos com conversa/rotina. |
+| task_commands / model_calls / execution_leases | Comandos idempotentes, journal das gerações e fencing durável da fila textual (migração 0003). |
 | actions | Intenção, parâmetros, estado de efeito, resultado e evidências de despacho. |
 | policies / approvals | Escolhas registradas, revisão, escopo e decisão da ação. |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
@@ -62,6 +63,8 @@ Eventos guardam metadados de mudança, sem copiar textos, parâmetros ou resulta
 SQL numerado fica em `bees_core/storage/migrations`. A tabela `schema_migrations` registra nome, versão, checksum SHA-256 e data. Checksums normalizam CRLF para LF, permitindo mover a instalação entre Windows e Linux. Não editar uma migração aplicada; acrescentar outra.
 
 Ao iniciar, histórico adulterado, versão desconhecida ou base sem histórico reconhecido causam recusa. Não substituir a base nem tentar um fallback. Migrações pendentes são aplicadas em transação exclusiva; SQL versionado não pode encerrar essa transação ou desativar as restrições por PRAGMA/ATTACH.
+
+A migração 0003 acrescenta fila/controladores, orçamento básico, comandos e journal de modelos. O worker usa `require_current_schema()` em modo somente leitura e recusa migrações pendentes. Consulte [tarefas](tasks.md) para interrupção e resultado desconhecido.
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

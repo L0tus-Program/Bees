@@ -6,6 +6,7 @@ requires-python = "==3.14.*"
 members = [
     "bees-api",
     "bees-core",
+    "bees-worker",
     "bees-workspace",
 ]
 
@@ -173,11 +174,27 @@ requires-dist = [
 ]
 
 [[package]]
+name = "bees-worker"
+version = "0.1.0"
+source = { editable = "apps/worker" }
+dependencies = [
+    { name = "bees-api" },
+    { name = "bees-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bees-api", editable = "apps/api" },
+    { name = "bees-core", editable = "packages/core" },
+]
+
+[[package]]
 name = "bees-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "bees-api" },
+    { name = "bees-worker" },
 ]
 
 [package.dev-dependencies]
@@ -188,7 +205,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "bees-api", editable = "apps/api" }]
+requires-dist = [
+    { name = "bees-api", editable = "apps/api" },
+    { name = "bees-worker", editable = "apps/worker" },
+]
 
 [package.metadata.requires-dev]
 dev = [

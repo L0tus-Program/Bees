@@ -23,6 +23,7 @@ from bees_api.onboarding import router as onboarding_router
 from bees_api.profiles import router as profiles_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
+from bees_api.tasks import router as tasks_router
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
@@ -30,6 +31,7 @@ from bees_core.providers.vault import FernetBackend, FileSecretVault
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, StateStore, StoreError
+from bees_core.tasks import TaskError
 
 
 class HealthResponse(BaseModel):
@@ -114,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(onboarding_router)
     app.include_router(configuration_router)
     app.include_router(profiles_router)
+    app.include_router(tasks_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -172,6 +175,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": code, "message": "Registro ausente ou alterado; atualize a tela."}},
             status_code=status,
+        )
+
+    @app.exception_handler(TaskError)
+    async def task_error(request: Request, error: TaskError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Comando indisponível; atualize a tarefa."}},
+            status_code=409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

@@ -20,16 +20,16 @@ Quem administra a instalação também pode usar um comando único:
 docker compose up --build --detach --wait
 ```
 
-Esse comando entrega API e interface juntas em `localhost:8080`; não exige Vite separado. O primeiro acesso autorizado é aberto pelo launcher. O bootstrap CLI permanece uma opção do operador, sem se tornar requisito do usuário final.
+Esse comando entrega API, interface e worker juntos em `localhost:8080`; não exige Vite separado. O primeiro acesso autorizado é aberto pelo launcher. O bootstrap CLI permanece uma opção do operador, sem se tornar requisito do usuário final.
 
 ```sh
 docker compose ps
-docker compose logs --tail 100 bees
-docker compose restart bees
+docker compose logs --tail 100 bees worker
+docker compose restart bees worker
 docker compose down
 ```
 
-Para atualizar o checkout, pare a aplicação, preserve/guarde os volumes e execute novamente `docker compose up --build --detach --wait`. Uma única instância do serviço escreve nesses volumes. O healthcheck confirma banco pronto e frontend presente. A imagem usa lockfiles, imagens-base por digest e usuário `10001:10001`; não inclui dados, arquivos `.env`, planejamento privado ou dependências locais. O filesystem da imagem é somente leitura, com volumes graváveis e `/tmp` temporário.
+Para atualizar o checkout, execute `docker compose stop worker bees` (incluindo demais escritores), preserve/guarde os volumes e execute novamente `docker compose up --build --detach --wait`. API e worker compartilham SQLite no mesmo host. O healthcheck da API confirma banco pronto e frontend presente; o do worker observa heartbeat com expiração de 20 segundos. O worker só abre schema atual, sem migrar ou provisionar chave. O launcher para ambos antes de iniciar uma imagem diferente, preservando o estado. Interrupção de uma chamada em andamento pode exigir uma decisão de retomada; veja [tarefas](tasks.md). A imagem usa lockfiles, imagens-base por digest e usuário `10001:10001`; não inclui dados, arquivos `.env`, planejamento privado ou dependências locais. O filesystem da imagem é somente leitura, com volumes graváveis e `/tmp` temporário.
 
 O requisito Engine 28+ acompanha a correção de alcance de portas publicadas em localhost, descrita na [documentação de portas](https://docs.docker.com/engine/network/port-publishing/). O Compose publica somente `127.0.0.1:8080`, encaminhado à porta interna 8000. `BEES_HTTP_PORT` altera a porta externa e a origem permitida juntas; o launcher também aceita `-Port`. A instalação nativa em 8000 e esta instalação usam estados diferentes. O Compose não importa automaticamente SQLite ou credenciais DPAPI do Windows.
 
@@ -75,7 +75,7 @@ Loopback dentro do container não é o host Windows/Linux. Um Ollama já instala
 
 Esta distribuição local não inclui proxy/certificado HTTPS. Não publique a porta em `0.0.0.0` no host. Acesso remoto autenticado via túnel SSH mantém a URL local; publicação por proxy segue o modo nativo documentado em [primeiro acesso](onboarding.md). O modo container não confia em headers de proxy por padrão, e não basta definir uma URL pública para obter HTTPS.
 
-Compose empacota o plano de controle. Não provisiona VM da abelha, conector pessoal, ferramentas ou scheduler. Esses componentes serão acrescentados quando suas histórias estiverem implementadas.
+Compose empacota o plano de controle. Inclui worker de tarefas textuais; não provisiona VM da abelha, conector pessoal, ferramentas ou scheduler de rotinas. Esses componentes serão acrescentados quando suas histórias estiverem implementadas.
 
 Validação reproduzível com modelo de protocolo controlado, sem chaves reais:
 
@@ -86,7 +86,7 @@ docker build --target verification -t bees-verification:local .
 docker run --rm --network none bees-verification:local
 ```
 
-No Linux, use `.venv/bin/python` para o script. O aceite cria projeto/volumes próprios, verifica primeiro acesso, cofre, conversa, memória, Host/Origin/CSRF, reinício e recriação, e remove somente esse projeto de teste. `--keep` mantém o projeto para inspeção. O alvo `verification` roda os testes POSIX de chave/cofre e contratos da configuração/CLI; não faz parte da imagem usada pelo usuário. Os testes não demonstram geração por um modelo real nem execução autônoma.
+No Linux, use `.venv/bin/python` para o script. O aceite cria projeto/volumes próprios, verifica primeiro acesso, cofre, conversa, memória, Host/Origin/CSRF, reinício e recriação, e remove somente esse projeto de teste. `--keep` mantém o projeto para inspeção. O alvo `verification` roda os testes POSIX de chave/cofre e contratos da configuração/CLI; não faz parte da imagem usada pelo usuário. Os testes não demonstram geração por um modelo real nem execução de ferramentas/ambientes.
 
 Contratos de build, volumes e inicialização seguem as documentações oficiais de [uv em Docker](https://docs.astral.sh/uv/guides/integration/docker/) e [serviços do Compose](https://docs.docker.com/reference/compose-file/services/).
 
