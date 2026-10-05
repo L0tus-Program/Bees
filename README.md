@@ -61,7 +61,7 @@ Com a API iniciada, gere o código de configuração em outro terminal:
 uv run --locked bees-auth bootstrap
 ```
 
-Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois escolha protocolo, endpoint e modelo, teste a conexão e crie a abelha. Uma chave real só é necessária para um provedor que a exija; Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
+Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois selecione o provedor, informe sua chave quando necessária e clique em **Buscar modelos**. Escolha um modelo na lista, teste a conexão e crie a abelha. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; conexões personalizadas ficam nas opções avançadas. Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
 
 [Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. Computadores das abelhas e máquina pessoal aparecem como recursos em preparação.
 

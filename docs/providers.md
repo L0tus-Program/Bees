@@ -9,7 +9,7 @@ O Bees mantém configuração, histórico, memória e tarefas no próprio banco.
 | `openai_compatible` | `/chat/completions`, `/models` na base configurada | API remota HTTPS ou servidor compatível em loopback. Texto e funções conforme declaração explícita do modelo. |
 | `ollama` | `/api/tags`, `/api/show`, `/api/chat` | Ollama em loopback, modelo instalado e local. Capacidades verificadas na resposta do servidor. |
 
-O nome do adaptador descreve um protocolo, não exige assinatura OpenAI. Não há catálogo obrigatório, modelo padrão, fallback, retry automático, redirecionamento HTTP ou uso implícito de proxies do ambiente. A configuração remota aceita a URL base do provedor, incluindo seu prefixo, por exemplo `https://api.openai.com/v1`. HTTP fora de loopback, usuário/senha na URL, query e fragmento são recusados.
+O nome do adaptador descreve um protocolo, não exige assinatura OpenAI. Não há catálogo central de modelos ou fornecedor obrigatório, modelo padrão, fallback, retry automático, redirecionamento HTTP ou uso implícito de proxies do ambiente. A configuração remota aceita a URL base do provedor, incluindo seu prefixo, por exemplo `https://api.openai.com/v1`. HTTP fora de loopback, usuário/senha na URL, query e fragmento são recusados.
 
 Texto e funções formam o contrato inicial. Streaming, imagens, áudio, ferramentas hospedadas pelo fornecedor, Responses API e formatos específicos de outros protocolos ainda não são suportados. Não declarar compatibilidade apenas porque um endpoint é “OpenAI compatible”. O diagnóstico remoto confirma acesso e presença do modelo em `/models`; isso não comprova geração nem suporte às funções. A declaração de funções exige documentação/teste do modelo escolhido.
 
@@ -20,6 +20,22 @@ Mensagens, chamadas e resultados usam tipos do Bees. Identificadores de chamadas
 O subconjunto inicial aceita objetos/propriedades, tipos, itens, enumerações e limites simples. Referências, regex, `uniqueItems` e combinadores/condicionais são recusados para limitar a resolução e o custo de validação; estrutura e tamanho dos argumentos também são limitados. Não há confiança na promessa de JSON válido do modelo.
 
 ## Configuração e credenciais
+
+### Seleção pela interface
+
+A criação e a edição de uma abelha oferecem listas de provedores e modelos. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; o usuário não precisa procurar URLs. **Buscar modelos** consulta o provedor escolhido com a chave informada ou com uma referência existente explicitamente autorizada. A busca não gera respostas, envia histórico, baixa modelos, salva credenciais nem autoriza salvar a configuração; **Testar conexão** continua obrigatório antes de criar ou alterar uma abelha.
+
+O catálogo de provedores é servido pelo Bees; os modelos vêm da API escolhida, sem lista de identificadores fixada no frontend. O catálogo OpenAI usa um filtro conservador de famílias de conversa, Gemini filtra famílias de texto e OpenRouter usa modalidades anunciadas. Esses filtros não comprovam compatibilidade de geração ou ferramentas; modelos novos ou específicos podem exigir revisão do adaptador. Ollama lista apenas modelos locais anunciados, mantendo a verificação de capacidades no diagnóstico. Configurações existentes permanecem selecionadas mesmo antes de atualizar a lista.
+
+As opções **API compatível personalizada** e **Ollama personalizado** preservam servidores adicionais. Nelas, a URL fica explícita e um identificador manual é permitido nas opções avançadas. Os mesmos limites de destino e credenciais continuam aplicados. O catálogo não introduz fallback de modelo ou fornecedor.
+
+Rotas autenticadas: `GET /api/v1/providers` devolve as opções de conexão; `POST /api/v1/models/discover` recebe `provider_id`, chave transitória ou referência autorizada e endpoint apenas para conexão personalizada. A resposta contém somente identificadores e nomes dos modelos. A descoberta respeita CSRF, sessão, concorrência e revisão do agente; não devolve valores de credenciais. Endereços de presets não podem ser substituídos nessa rota.
+
+Fontes dos presets e catálogos: [OpenAI — listar modelos](https://developers.openai.com/api/reference/resources/models/methods/list), [Gemini — compatibilidade OpenAI e listagem](https://ai.google.dev/gemini-api/docs/openai#list-models), [OpenRouter — catálogo](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties) e [Ollama — modelos locais](https://docs.ollama.com/api/tags).
+
+Checkpoint de 05/10/2026: 479 testes Python e 94 testes web aprovados, além de Ruff, ESLint, typecheck/build e build Docker. Os 24 casos sem execução no Windows dependem de Linux/POSIX ou symlink. O fluxo Docker com projeto descartável validou catálogo, descoberta, CSRF, reutilização de credencial, conversa, reinício e recriação. No navegador, uma instalação própria de teste validou criação/edição com seletores, erro de chave, quatro presets, troca de destino limpando credencial, pt-BR/en/es e viewport de 390 px sem overflow horizontal. Respostas e catálogos usaram transporte controlado; não foi usada chave real nem comprovada geração real neste checkpoint.
+
+### Configuração para operadores
 
 Os exemplos em [examples/providers](../examples/providers) são modelos de configuração, não configurações prontas: substitua o campo `model` pelo identificador disponível no seu servidor. Habilite `capabilities.tool_calls` apenas para um modelo que suporte funções.
 
@@ -65,7 +81,7 @@ A troca preserva o estado e recusa incompatibilidades com funções presentes no
 
 Tokens são informados quando a resposta do fornecedor contém contadores válidos. O contrato distingue `reported`, `estimated` e `unknown`; não há cálculo de preço nem estimador de tokens implementado. Ausência de contadores é desconhecida, nunca consumo zero. Um valor informado não é garantia do total cobrado.
 
-Timeout, falha de conexão, autenticação, modelo ausente, capacidade incompatível, limite de payload e resposta inválida têm diagnóstico próprio. O padrão é 30 segundos por operação HTTP, deadline de 60 segundos para a sessão (incluindo probes), e 1 MiB por requisição/resposta. Esses valores são configuráveis. Respostas comprimidas são recusadas; parsing e validação síncronos têm limites de estrutura/tamanho, mas o deadline assíncrono não preempta CPU. Limites por tarefa e orçamento virão com o executor. Não há repetição automática, inclusive após timeout: o fornecedor pode já ter processado a solicitação.
+Timeout, falha de conexão, autenticação, modelo ausente, capacidade incompatível, limite de payload e resposta inválida têm diagnóstico próprio. O padrão é 30 segundos por operação HTTP, deadline de 60 segundos para a sessão (incluindo probes), e 1 MiB por requisição/resposta de geração. Catálogos têm limite separado de 4 MiB (`max_catalog_bytes`) e a descoberta aceita no máximo 4096 entradas; isso permite listas maiores sem ampliar o limite de uma resposta de conversa. Esses valores são configuráveis. Respostas comprimidas são recusadas; parsing e validação síncronos têm limites de estrutura/tamanho, mas o deadline assíncrono não preempta CPU. Limites por tarefa e orçamento virão com o executor. Não há repetição automática, inclusive após timeout: o fornecedor pode já ter processado a solicitação.
 
 A entrada do usuário fica preservada quando uma solicitação aceita falha. Não existe fila/retomada automática nesta CLI. Nenhuma transação SQLite permanece aberta durante a rede. Respostas são gravadas somente se agente e conversa continuam na revisão observada e o contexto de memória selecionado permanece o mesmo. Conflito/cancelamento pode descartar uma resposta já gerada, com consumo externo possível; o processo informa falha e não repete.
 

@@ -89,6 +89,34 @@ def main():
                     "X-Bees-CSRF": client.get("/api/v1/auth/status").json()["csrf_token"],
                 }
 
+            catalog = client.get("/api/v1/providers")
+            assert catalog.status_code == 200
+            assert {item["id"] for item in catalog.json()["providers"]} == {
+                "openai",
+                "openrouter",
+                "gemini",
+                "ollama",
+                "custom",
+                "custom_ollama",
+            }
+            discovery = {
+                "provider_id": "custom",
+                "endpoint": "http://127.0.0.1:11434/v1",
+                "api_key": fake_key,
+            }
+            assert (
+                client.post(
+                    "/api/v1/models/discover", json=discovery, headers={"Origin": origin}
+                ).status_code
+                == 403
+            )
+            listed = client.post("/api/v1/models/discover", json=discovery, headers=headers())
+            assert listed.status_code == 200
+            assert [item["id"] for item in listed.json()["models"]] == ["modelo-controlado"]
+            assert fake_key not in listed.text
+            assert "validation_token" not in listed.json()
+            assert client.get("/api/v1/onboarding").json()["agents"] == []
+
             model = {
                 "config": {
                     "kind": "openai_compatible",
@@ -114,6 +142,19 @@ def main():
             assert created.status_code == 201
             bee = created.json()
             assert bee["provider_config"]["secret_ref"].startswith("vault:")
+            reused = discovery | {
+                "agent_id": bee["id"],
+                "secret_ref": bee["provider_config"]["secret_ref"],
+            }
+            del reused["api_key"]
+            listed = client.post("/api/v1/models/discover", json=reused, headers=headers())
+            assert listed.status_code == 200
+            refused = client.post(
+                "/api/v1/models/discover",
+                json=reused | {"provider_id": "openai", "endpoint": "https://api.openai.com/v1"},
+                headers=headers(),
+            )
+            assert refused.status_code == 422
             agent_path = f"/api/v1/agents/{bee['id']}"
             memory = client.post(
                 agent_path + "/memories",

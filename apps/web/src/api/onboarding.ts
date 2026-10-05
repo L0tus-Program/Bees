@@ -16,6 +16,7 @@ export interface ModelConfig {
   timeout_seconds?: number
   deadline_seconds?: number
   max_response_bytes?: number
+  max_catalog_bytes?: number
   max_request_bytes?: number
 }
 
@@ -48,6 +49,7 @@ export function isModelConfig(value: unknown): value is ModelConfig {
     && typeof value.endpoint === 'string' && typeof value.model === 'string'
     && record(value.capabilities) && typeof value.capabilities.text === 'boolean'
     && typeof value.capabilities.tool_calls === 'boolean'
+    && (value.max_catalog_bytes === undefined || (typeof value.max_catalog_bytes === 'number' && Number.isInteger(value.max_catalog_bytes) && value.max_catalog_bytes > 0))
 }
 
 export function isAgent(value: unknown): value is AgentSummary {

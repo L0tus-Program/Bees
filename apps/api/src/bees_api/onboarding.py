@@ -12,13 +12,20 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from bees_api.auth import COOKIE_NAME, require_session
 from bees_core.models import Agent, Conversation
 from bees_core.profiles import memory_enabled
 from bees_core.providers.base import create_adapter
-from bees_core.providers.contracts import ProviderConfig, validate_capabilities
+from bees_core.providers.catalog import (
+    PROVIDERS,
+    ProviderId,
+    connection_for_provider,
+    provider_preset,
+)
+from bees_core.providers.contracts import ConnectionConfig, ProviderConfig, validate_capabilities
+from bees_core.providers.discovery import DiscoveryAdapter
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
 from bees_core.security.identity import Session
@@ -39,6 +46,14 @@ class ModelInput(Input):
     agent_id: UUID | None = None
     config: ProviderConfig
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+
+
+class DiscoverInput(Input):
+    provider_id: ProviderId
+    endpoint: str | None = Field(default=None, min_length=1, max_length=2048)
+    api_key: SecretStr | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+    agent_id: UUID | None = None
+    secret_ref: str | None = Field(default=None, max_length=128)
 
 
 class CreateAgentInput(ModelInput):
@@ -161,13 +176,16 @@ def _connection(request: Request, body: ModelInput):
     return config, resolver
 
 
-def validate_existing_reference(agent: Agent, config: ProviderConfig) -> None:
+def validate_existing_reference(agent: Agent, config: ConnectionConfig) -> None:
     """Credencial existente só é reaproveitada na mesma conexão explicitamente escolhida."""
     if config.secret_ref is None:
         return
-    previous = (
-        ProviderConfig.model_validate(agent.provider_config) if agent.provider_config else None
-    )
+    try:
+        previous = (
+            ProviderConfig.model_validate(agent.provider_config) if agent.provider_config else None
+        )
+    except ValidationError:
+        raise ProviderError("invalid_config") from None
     if (
         previous is None
         or config.secret_ref != previous.secret_ref
@@ -193,6 +211,47 @@ def _summary(unit, agent: Agent) -> dict:
 
 
 router = APIRouter(prefix="/api/v1", tags=["onboarding"])
+
+
+@router.get("/providers")
+def providers(request: Request, session: _SESSION) -> dict:
+    return {"providers": [provider.model_dump(mode="json") for provider in PROVIDERS]}
+
+
+@router.post("/models/discover")
+async def discover_models(body: DiscoverInput, request: Request, session: _SESSION) -> dict:
+    config = connection_for_provider(
+        body.provider_id, endpoint=body.endpoint, secret_ref=body.secret_ref
+    )
+    previous = None
+    if body.secret_ref is not None and (body.agent_id is None or body.api_key is not None):
+        raise ProviderError("invalid_config")
+    if body.agent_id is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            previous = unit.agents.get(body.agent_id)
+            if previous is None:
+                raise NotFoundError("Abelha não encontrada.")
+        if body.secret_ref is not None:
+            validate_existing_reference(previous, config)
+    resolver = request.app.state.resolver
+    if body.api_key is not None:
+        if config.kind == "ollama":
+            raise ProviderError("invalid_config")
+        config = type(config).model_validate(
+            config.model_dump() | {"secret_ref": "env:BEES_REQUEST_KEY"}
+        )
+        resolver = InputResolver(body.api_key, resolver)
+    if provider_preset(body.provider_id).requires_api_key and config.secret_ref is None:
+        raise ProviderError("invalid_config")
+    with request.app.state.receipts.operation():
+        models = await DiscoveryAdapter(resolver).discover(config, body.provider_id)
+    require_session(request)
+    if previous is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            current = unit.agents.get(previous.id)
+            if current is None or current.revision != previous.revision:
+                raise ProviderError("state_conflict")
+    return {"provider_id": body.provider_id, "models": [model.model_dump() for model in models]}
 
 
 @router.get("/onboarding")

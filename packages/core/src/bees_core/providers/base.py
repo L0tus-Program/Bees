@@ -9,8 +9,8 @@ from typing import Any
 import httpx
 
 from bees_core.providers.contracts import (
+    ConnectionConfig,
     ProviderAdapter,
-    ProviderConfig,
     ProviderKind,
     SecretResolver,
 )
@@ -62,7 +62,7 @@ class HTTPAdapter:
         self._transport = transport
 
     @asynccontextmanager
-    async def _session(self, config: ProviderConfig) -> AsyncIterator[httpx.AsyncClient]:
+    async def _session(self, config: ConnectionConfig) -> AsyncIterator[httpx.AsyncClient]:
         headers = {"Accept": "application/json", "Accept-Encoding": "identity"}
         if config.secret_ref is not None:
             if self._resolver is None:
@@ -92,7 +92,7 @@ class HTTPAdapter:
     async def _json(
         self,
         client: httpx.AsyncClient,
-        config: ProviderConfig,
+        config: ConnectionConfig,
         method: str,
         route: str,
         *,

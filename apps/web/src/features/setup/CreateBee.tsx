@@ -25,7 +25,7 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || !connection.validated) return
+    if (busy || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)) return
     setBusy(true); setError(null)
     controller.current = new AbortController()
     try {
@@ -46,12 +46,12 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
       <div className="page-heading"><div><p className="eyebrow">{t('firstBeeEyebrow')}</p><h1 id="setup-heading">{t('firstBeeTitle')}</h1><p>{t('firstBeeDescription')}</p></div>{onCancel && <button type="button" className="text-button" onClick={onCancel} disabled={busy || connection.testing}>{t('back')}</button>}</div>
       {displayedError && <><ErrorNotice error={displayedError} />{['mutation_network', 'mutation_timeout', 'invalid_response'].includes(displayedError.code) && <button type="button" className="button secondary" onClick={onReconcile}>{t('refreshState')}</button>}</>}
       <div className="setup-columns">
-        <form className="surface" onSubmit={(event) => { setError(null); void connection.check(event) }}>
+        <form className="surface" onSubmit={(event) => { if (connection.apiKey && !vault.available) { event.preventDefault(); return }; setError(null); void connection.check(event) }}>
           <div className="number-heading"><span>01</span><h2>{t('connectModel')}</h2></div>
           <p className="form-introduction">{t('modelDescription')}</p>
           <fieldset disabled={busy || connection.testing}>
             <ModelFields connection={connection} vault={vault} />
-            <button type="submit" className="button secondary wide">{t(connection.testing ? 'testing' : 'testConnection')}</button>
+            <button type="submit" className="button secondary wide" disabled={!connection.canTest || (!!connection.apiKey && !vault.available)}>{t(connection.testing ? 'testing' : 'testConnection')}</button>
           </fieldset>
           <p className="quiet-note">{t('testScope')}</p>
           {tested && <p className="form-success" role="status">{t('modelTested')}</p>}
@@ -59,11 +59,11 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
         <form className={`surface profile-form ${tested ? 'profile-ready' : ''}`} onSubmit={(event) => { void save(event) }}>
           <div className="number-heading"><span>02</span><h2>{t('givePurpose')}</h2></div>
           <p className="form-introduction">{t('profileDescription')}</p>
-          <fieldset disabled={busy || connection.testing}>
+          <fieldset disabled={busy || connection.testing || connection.discovering}>
             <label className="field" htmlFor="bee-name"><span>{t('beeName')}</span><input id="bee-name" ref={profileRef} value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} placeholder={t('beeNamePlaceholder')} autoComplete="off" /></label>
             <label className="field" htmlFor="bee-purpose"><span>{t('purpose')}</span><textarea id="bee-purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required maxLength={2000} placeholder={t('purposePlaceholder')} /></label>
             <label className="field" htmlFor="bee-instructions"><span>{t('instructions')} <span className="optional">{t('optional')}</span></span><textarea id="bee-instructions" rows={4} value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={10000} placeholder={t('instructionsPlaceholder')} /><small>{t('instructionsHelp')}</small></label>
-            <button type="submit" className="button primary wide" disabled={!tested}>{t(busy ? 'creating' : 'createBee')}</button>
+            <button type="submit" className="button primary wide" disabled={!tested || (!!connection.apiKey && !vault.available)}>{t(busy ? 'creating' : 'createBee')}</button>
           </fieldset>
           {!tested && <p className="quiet-note">{t('testBeforeCreate')}</p>}
           <p className="quiet-note">{t('noMachineNeeded')}</p>

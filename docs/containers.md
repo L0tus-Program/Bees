@@ -59,7 +59,7 @@ Para restaurar em uma instalação nova, mantenha os serviços parados e os volu
 
 ## Modelos remoto e local
 
-Uma API compatível remota continua usando HTTPS; o usuário informa modelo e chave na interface. O Compose não contrata fornecedor, envia dados ou baixa modelos por conta própria.
+Selecione o provedor na interface, informe a chave quando necessária e use **Buscar modelos** para escolher na lista. OpenAI, OpenRouter e Gemini têm endereços preconfigurados; outro servidor compatível pode ser conectado pelas opções personalizadas. Uma API remota continua usando HTTPS. O Compose não contrata fornecedor, envia dados ou baixa modelos por conta própria.
 
 Ollama é opcional:
 

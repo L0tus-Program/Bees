@@ -21,6 +21,8 @@ flowchart LR
 
 O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, autenticação individual, cofre, onboarding, perfis/memória editáveis e conversa web persistente com contexto limitado, além de packages/core com estado, migrações, repositórios e adaptadores remoto/local de texto e funções. A CLI compartilha referências de credenciais e conversa persistida; funções são pedidos validados, ainda sem execução. Worker, políticas, gateways e ambientes continuam pendentes; artefatos têm metadados persistentes, não publicação de blobs. Veja [primeiro acesso](onboarding.md), [persistência](persistence.md) e [modelos](providers.md).
 
+A comunicação com LLMs usa HTTPX dentro de adaptadores próprios (`packages/core/providers`), com contratos de mensagens, capacidades, credenciais, catálogo e uso independentes do fornecedor. A interface escolhe provedores conhecidos sem expor sua URL como requisito de setup. Não há LangChain, LangGraph, DeepAgents ou outro harness de agentes na implementação atual; adotar uma biblioteca de execução exige avaliar os contratos de políticas, retomada e estado, conforme a ADR.
+
 ## Contratos
 
 | Contrato | Responsabilidade |

@@ -45,10 +45,11 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-class ProviderConfig(Contract):
+class ConnectionConfig(Contract):
+    """Conexão e limites; descoberta não exige nem envia um modelo artificial."""
+
     kind: ProviderKind
     endpoint: str = Field(min_length=1, max_length=2048)
-    model: str = Field(min_length=1, max_length=200)
     secret_ref: str | None = Field(
         default=None,
         max_length=128,
@@ -57,18 +58,11 @@ class ProviderConfig(Contract):
             r"4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
         ),
     )
-    capabilities: ProviderCapabilities
     timeout_seconds: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)
     deadline_seconds: float = Field(default=60, gt=0, le=600, allow_inf_nan=False)
     max_response_bytes: int = Field(default=1048576, ge=1024, le=16777216)
     max_request_bytes: int = Field(default=1048576, ge=1024, le=16777216)
-
-    @field_validator("model")
-    @classmethod
-    def explicit_model(cls, value: str) -> str:
-        if value != value.strip() or any(ord(char) < 32 for char in value):
-            raise ValueError("Modelo precisa ter identificador explícito sem controles.")
-        return value
+    max_catalog_bytes: int = Field(default=4194304, ge=1024, le=4194304)
 
     @model_validator(mode="after")
     def safe_endpoint(self) -> Self:
@@ -98,10 +92,28 @@ class ProviderConfig(Contract):
                 raise ValueError("Ollama exige endpoint loopback neste adaptador.")
             if self.secret_ref is not None:
                 raise ValueError("Ollama local não aceita credencial de serviço cloud.")
-            if "cloud" in self.model.lower() or "@" in self.model or "://" in self.model:
-                raise ValueError("Ollama exige identificador de modelo local.")
         normalized = urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
         object.__setattr__(self, "endpoint", normalized)
+        return self
+
+
+class ProviderConfig(ConnectionConfig):
+    model: str = Field(min_length=1, max_length=200)
+    capabilities: ProviderCapabilities
+
+    @field_validator("model")
+    @classmethod
+    def explicit_model(cls, value: str) -> str:
+        if value != value.strip() or any(ord(char) < 32 for char in value):
+            raise ValueError("Modelo precisa ter identificador explícito sem controles.")
+        return value
+
+    @model_validator(mode="after")
+    def local_model(self) -> Self:
+        if self.kind == "ollama" and (
+            "cloud" in self.model.lower() or "@" in self.model or "://" in self.model
+        ):
+            raise ValueError("Ollama exige identificador de modelo local.")
         return self
 
 

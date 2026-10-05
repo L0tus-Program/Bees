@@ -20,7 +20,7 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || !connection.validated) return
+    if (busy || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)) return
     setBusy(true); setError(null); controller.current = new AbortController()
     try {
       await saveConfiguration(agent.id, agent.revision, connection.config, connection.validated.validation_token, connection.apiKey, controller.current.signal)
@@ -34,15 +34,15 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
   return <section className="surface model-editor" aria-labelledby="model-editor-heading">
     <h2 id="model-editor-heading">{bee('modelTitle')}</h2><p className="form-introduction">{bee('modelDescription')}</p>
     {displayedError && <><ErrorNotice error={displayedError} /><button type="button" className="text-button" onClick={onReload}>{bee('reloadCurrent')}</button></>}
-    <form onSubmit={(event) => { setError(null); void connection.check(event) }}>
-      <fieldset disabled={busy || connection.testing}><ModelFields connection={connection} vault={vault} /><button type="submit" className="button secondary wide">{t(connection.testing ? 'testing' : 'testConnection')}</button></fieldset>
+    <form onSubmit={(event) => { if (connection.apiKey && !vault.available) { event.preventDefault(); return }; setError(null); void connection.check(event) }}>
+      <fieldset disabled={busy || connection.testing}><ModelFields connection={connection} vault={vault} /><button type="submit" className="button secondary wide" disabled={!connection.canTest || (!!connection.apiKey && !vault.available)}>{t(connection.testing ? 'testing' : 'testConnection')}</button></fieldset>
       <p className="quiet-note">{t('testScope')}</p>
     </form>
     {connection.validated && <p className="form-success" role="status">{bee('modelValidated')}</p>}
     <form onSubmit={(event) => { void submit(event) }}>
       <p className="transfer-notice">{bee('transferNotice')}</p>
       {agent.provider_config?.secret_ref && !connection.config.secret_ref && !connection.apiKey && <p className="transfer-notice">{bee('credentialRemoved')}</p>}
-      <button type="submit" className="button primary wide" disabled={busy || connection.testing || !connection.validated}>{busy ? t('working') : bee('saveModel')}</button>
+      <button type="submit" className="button primary wide" disabled={busy || connection.testing || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)}>{busy ? t('working') : bee('saveModel')}</button>
     </form>
   </section>
 }

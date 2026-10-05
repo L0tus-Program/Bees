@@ -62,9 +62,16 @@ class OllamaAdapter(HTTPAdapter):
     async def _local_model(
         self, client: httpx.AsyncClient, config: ProviderConfig
     ) -> ProviderCapabilities:
-        tags = await self._json(client, config, "GET", "api/tags")
+        catalog = ProviderConfig.model_validate(
+            config.model_dump() | {"max_response_bytes": config.max_catalog_bytes}
+        )
+        tags = await self._json(client, catalog, "GET", "api/tags")
         models = tags.get("models")
-        if not isinstance(models, list) or not all(isinstance(item, dict) for item in models):
+        if (
+            not isinstance(models, list)
+            or len(models) > 4096
+            or not all(isinstance(item, dict) for item in models)
+        ):
             raise ProviderError("invalid_response")
         selected = [
             item
