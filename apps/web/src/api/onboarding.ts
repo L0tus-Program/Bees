@@ -95,6 +95,12 @@ export async function testModel(config: ModelConfig, apiKey: string, signal?: Ab
   return value as unknown as Diagnostic
 }
 
+export async function prepareModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string): Promise<{ validation_token: string }> {
+  const value = await request('/models/prepare', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}) }, authenticated: true, signal })
+  if (!record(value) || typeof value.validation_token !== 'string' || !value.validation_token) throw new ApiError('invalid_response')
+  return { validation_token: value.validation_token }
+}
+
 export async function createAgent(body: { name: string; purpose: string; instructions: string; config: ModelConfig; validation_token: string; api_key?: string }, signal?: AbortSignal): Promise<AgentSummary> {
   const value = await request('/agents', { body, authenticated: true, signal, timeoutMs: 15000 })
   if (!isAgent(value)) throw new ApiError('invalid_response')

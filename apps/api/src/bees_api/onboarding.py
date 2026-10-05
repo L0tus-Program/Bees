@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, f
 from bees_api.auth import COOKIE_NAME, require_session
 from bees_core.models import Agent, Conversation
 from bees_core.profiles import memory_enabled
-from bees_core.providers.base import create_adapter
+from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.catalog import (
     PROVIDERS,
     ProviderId,
@@ -78,7 +78,11 @@ class ChatInput(Input):
 
 
 class Receipts:
-    """Confirmações efêmeras de teste, vinculadas à sessão e à configuração."""
+    """Comprovantes locais efêmeros, vinculados à sessão e à configuração.
+
+    Estrutura preparada e diagnóstico opcional podem emitir o mesmo comprovante;
+    nenhum consumidor pode inferir aceitação pelo provedor a partir do token.
+    """
 
     def __init__(self) -> None:
         self._items: dict[str, tuple[float, str]] = {}
@@ -110,7 +114,7 @@ class Receipts:
             now = time.monotonic()
             self._items = {key: value for key, value in self._items.items() if value[0] > now}
             if len(self._items) >= 128:
-                reject("model_busy", "Limite de testes em andamento atingido.", 429)
+                reject("model_busy", "Limite de comprovantes em andamento atingido.", 429)
             self._items[token] = (now + 300, signature)
         return token
 
@@ -122,7 +126,9 @@ class Receipts:
                 or item[0] <= time.monotonic()
                 or not secrets.compare_digest(item[1], signature)
             ):
-                reject("validation_required", "Teste esta configuração novamente antes de salvar.")
+                reject(
+                    "validation_required", "Prepare esta configuração novamente antes de salvar."
+                )
             del self._items[token]
 
 
@@ -161,7 +167,10 @@ def _connection(request: Request, body: ModelInput):
     config = ProviderConfig.model_validate(body.config.model_dump())
     validate_capabilities(config)
     resolver = request.app.state.resolver
+    if config.secret_ref == "env:BEES_REQUEST_KEY":
+        raise ProviderError("invalid_config")
     if body.api_key is not None:
+        validate_bearer_secret(body.api_key)
         if config.kind == "ollama" or config.secret_ref is not None:
             raise ProviderError("invalid_config")
         if not request.app.state.vault.status().available:
@@ -174,6 +183,23 @@ def _connection(request: Request, body: ModelInput):
         )
         resolver = InputResolver(body.api_key, resolver)
     return config, resolver
+
+
+def _model_selection(request: Request, body: ModelInput):
+    previous = None
+    if body.config.secret_ref is not None and body.agent_id is None:
+        raise ProviderError("invalid_config")
+    if body.agent_id is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            previous = unit.agents.get(body.agent_id)
+            if previous is None:
+                raise NotFoundError("Abelha não encontrada.")
+        validate_existing_reference(previous, body.config)
+    config, resolver = _connection(request, body)
+    if config.secret_ref is not None:
+        # Preflight privado local: nenhuma credencial é colocada no comprovante.
+        validate_bearer_secret(resolver.resolve(config.secret_ref))
+    return config, resolver, previous
 
 
 def validate_existing_reference(agent: Agent, config: ConnectionConfig) -> None:
@@ -220,6 +246,8 @@ def providers(request: Request, session: _SESSION) -> dict:
 
 @router.post("/models/discover")
 async def discover_models(body: DiscoverInput, request: Request, session: _SESSION) -> dict:
+    if body.secret_ref == "env:BEES_REQUEST_KEY":
+        raise ProviderError("invalid_config")
     config = connection_for_provider(
         body.provider_id, endpoint=body.endpoint, secret_ref=body.secret_ref
     )
@@ -273,16 +301,7 @@ def onboarding(request: Request, session: _SESSION) -> dict:
 
 @router.post("/models/test")
 async def test_model(body: ModelInput, request: Request, session: _SESSION) -> dict:
-    previous = None
-    if body.agent_id is not None:
-        with request.app.state.store.transaction(write=False) as unit:
-            previous = unit.agents.get(body.agent_id)
-            if previous is None:
-                raise NotFoundError("Abelha não encontrada.")
-        validate_existing_reference(previous, body.config)
-    elif body.config.secret_ref and body.config.secret_ref.startswith("vault:"):
-        raise ProviderError("invalid_config")
-    config, resolver = _connection(request, body)
+    config, resolver, previous = _model_selection(request, body)
     with request.app.state.receipts.operation():
         diagnostic = await create_adapter(config.kind, resolver).diagnose(config)
     # Sessão pode ter sido encerrada enquanto o provedor respondia.
@@ -294,6 +313,20 @@ async def test_model(body: ModelInput, request: Request, session: _SESSION) -> d
                 raise ProviderError("state_conflict")
     token = request.app.state.receipts.issue(_signature(body, _binding(request)))
     return diagnostic.model_dump(mode="json") | {"validation_token": token}
+
+
+@router.post("/models/prepare")
+def prepare_model(body: ModelInput, request: Request, session: _SESSION) -> dict:
+    _, _, previous = _model_selection(request, body)
+    require_session(request)
+    if previous is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            current = unit.agents.get(previous.id)
+            if current is None or current.revision != previous.revision:
+                raise ProviderError("state_conflict")
+    return {
+        "validation_token": request.app.state.receipts.issue(_signature(body, _binding(request)))
+    }
 
 
 @router.post("/agents", status_code=201)
@@ -319,7 +352,7 @@ def create_agent(body: CreateAgentInput, request: Request, session: _SESSION) ->
                 reject("command_conflict", "O pedido já foi usado com outros parâmetros.")
             return _summary(unit, agent)
 
-    _connection(request, body)
+    _model_selection(request, body)
     request.app.state.receipts.consume(body.validation_token, _signature(body, binding))
     reference = None
     committed = False

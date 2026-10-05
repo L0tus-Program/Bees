@@ -406,3 +406,123 @@ def test_provider_failure_releases_conversation_slot_for_next_attempt(client) ->
     second = client.post(url, json=body, headers=headers(client))
     assert second.status_code == 200
     assert len(requests) == 2
+
+
+def local_prepare(client, body=None):
+    response = client.post(
+        "/api/v1/models/prepare", json=body or model_body(), headers=headers(client)
+    )
+    assert response.status_code == 200, response.text
+    assert set(response.json()) == {"validation_token"}
+    return response.json()["validation_token"]
+
+
+def test_prepare_create_manual_model_without_catalog_then_generation_failure(
+    client, environment, monkeypatch
+):
+    def no_network(*_, **__):
+        pytest.fail("Preparar/criar não deve consultar o provedor.")
+
+    monkeypatch.setattr(onboarding, "create_adapter", no_network)
+    monkeypatch.setattr(onboarding, "DiscoveryAdapter", no_network)
+    body = model_body()
+    body["config"]["model"] = "modelo-manual-fora-catalogo"
+    token = local_prepare(client, body)
+    assert list(client.app.state.vault.directory.glob("*.secret")) == []
+    created_body = body | {"name": "Manual", "validation_token": token}
+    response = client.post("/api/v1/agents", json=created_body, headers=headers(client))
+    assert response.status_code == 201, response.text
+    agent = response.json()
+    assert agent["provider_config"]["model"] == body["config"]["model"]
+    assert API_KEY not in response.text and environment[2] == []
+    assert (
+        client.post("/api/v1/agents", json=created_body, headers=headers(client)).json()["id"]
+        == agent["id"]
+    )
+    calls = []
+
+    def reject_generation(request):
+        calls.append(request)
+        assert request.url.path.endswith("chat/completions")
+        return httpx.Response(404, text=API_KEY + " ignored raw error")
+
+    client.app.state.providers.transport = httpx.MockTransport(reject_generation)
+    failure = client.post(
+        f"/api/v1/agents/{agent['id']}/chat",
+        json={
+            "conversation_id": agent["conversation_id"],
+            "content": "Teste",
+        },
+        headers=headers(client),
+    )
+    assert failure.status_code == 502 and failure.json()["error"]["code"] == "model_unavailable"
+    assert failure.json()["error"]["upstream_status"] == 404
+    assert API_KEY not in failure.text and len(calls) == 1
+
+
+@pytest.mark.parametrize("bad_key", [" ", "header\r\nInjected:value", "chave-ç", "key\x00value"])
+def test_prepare_rejects_invalid_bearer_before_receipt(client, environment, bad_key):
+    body = model_body() | {"api_key": bad_key}
+    response = client.post("/api/v1/models/prepare", json=body, headers=headers(client))
+    assert response.status_code == 422 and response.json()["error"]["code"] == "invalid_secret"
+    assert "validation_token" not in response.text and environment[2] == []
+    assert client.app.state.receipts._items == {}
+
+
+@pytest.mark.parametrize("reference", ["env:ANY_SERVER_SECRET", "env:BEES_REQUEST_KEY"])
+def test_prepare_refuses_env_reference_injection_without_existing_agent(
+    client, environment, reference
+):
+    body = model_body()
+    body.pop("api_key")
+    body["config"]["secret_ref"] = reference
+    response = client.post("/api/v1/models/prepare", json=body, headers=headers(client))
+    assert response.status_code == 422 and environment[2] == []
+    assert client.app.state.receipts._items == {}
+
+
+def test_prepare_requires_session_csrf_and_available_vault_for_key_storage(client, monkeypatch):
+    body = model_body()
+    origin = {"origin": ORIGIN}
+    assert client.post("/api/v1/models/prepare", json=body, headers=origin).status_code == 403
+    from bees_core.providers.vault import VaultStatus
+
+    monkeypatch.setattr(
+        client.app.state.vault,
+        "status",
+        lambda: VaultStatus(
+            available=False,
+            backend="fernet",
+            reason="teste",
+        ),
+    )
+    unavailable = client.post("/api/v1/models/prepare", json=body, headers=headers(client))
+    assert (
+        unavailable.status_code == 502
+        and unavailable.json()["error"]["code"] == "secret_unavailable"
+    )
+    client.cookies.clear()
+    assert client.post("/api/v1/models/prepare", json=body, headers=origin).status_code == 401
+
+
+@pytest.mark.parametrize("upstream,code", [(401, "authentication_failed"), (403, "access_denied")])
+def test_optional_diagnostic_preserves_upstream_status_without_echoing_response(
+    client, monkeypatch, upstream, code
+):
+    monkeypatch.setattr(
+        onboarding,
+        "create_adapter",
+        lambda kind, resolver: create_adapter(
+            kind,
+            resolver,
+            transport=httpx.MockTransport(lambda _: httpx.Response(upstream, text=API_KEY)),
+        ),
+    )
+    result = client.post("/api/v1/models/test", json=model_body(), headers=headers(client))
+    assert result.status_code == 502
+    assert (
+        result.json()["error"]["code"] == code
+        and result.json()["error"]["upstream_status"] == upstream
+    )
+    assert API_KEY not in result.text and "validation_token" not in result.text
+    assert len(local_prepare(client)) == 43

@@ -151,7 +151,14 @@ async def run_cli(argv: Sequence[str] | None = None) -> int:
             }
         )
     except ProviderError as error:
-        _write({"status": "error", "code": error.code, "message": str(error)})
+        _write(
+            {"status": "error", "code": error.code, "message": str(error)}
+            | (
+                {"upstream_status": error.upstream_status}
+                if error.upstream_status is not None
+                else {}
+            )
+        )
     except StoreError, DatabaseError:
         _write(
             {

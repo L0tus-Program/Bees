@@ -8,6 +8,7 @@ import type { AgentSummary, Onboarding } from '../../api/onboarding'
 import { ErrorNotice } from '../../components/Feedback'
 import { ModelFields } from '../model/ModelFields'
 import { useModelConnection } from '../model/useModelConnection'
+import { preparedSave } from '../model/preparedSave'
 
 export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentSummary; vault: Onboarding['vault']; onSaved: () => void; onReload: () => void }) {
   const { t } = useTranslation('product')
@@ -20,13 +21,14 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)) return
-    setBusy(true); setError(null); controller.current = new AbortController()
+    if (busy || !connection.canSave(vault.available)) return
+    setBusy(true); setError(null); controller.current = connection.beginSave()
+    const operation = controller.current
     try {
-      await saveConfiguration(agent.id, agent.revision, connection.config, connection.validated.validation_token, connection.apiKey, controller.current.signal)
-      if (!controller.current.signal.aborted) { connection.clear(); onSaved() }
+      await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => saveConfiguration(agent.id, agent.revision, connection.config, validationToken, connection.apiKey, operation.signal), agent.id)
+      if (!operation.signal.aborted) { connection.clear(); onSaved() }
     } catch (failure) {
-      if (!controller.current.signal.aborted) { connection.invalidate(); setError(asApiError(failure)) }
+      if (!operation.signal.aborted) { connection.invalidate(); setError(asApiError(failure)) }
     } finally { setBusy(false) }
   }
 
@@ -41,8 +43,9 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
     {connection.validated && <p className="form-success" role="status">{bee('modelValidated')}</p>}
     <form onSubmit={(event) => { void submit(event) }}>
       <p className="transfer-notice">{bee('transferNotice')}</p>
+      <p className="quiet-note">{t('saveWithoutTest')}</p>
       {agent.provider_config?.secret_ref && !connection.config.secret_ref && !connection.apiKey && <p className="transfer-notice">{bee('credentialRemoved')}</p>}
-      <button type="submit" className="button primary wide" disabled={busy || connection.testing || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)}>{busy ? t('working') : bee('saveModel')}</button>
+      <button type="submit" className="button primary wide" disabled={busy || !connection.canSave(vault.available)}>{busy ? t('working') : bee('saveModel')}</button>
     </form>
   </section>
 }

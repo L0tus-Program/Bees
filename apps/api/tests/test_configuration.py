@@ -111,6 +111,93 @@ def test_switch_model_preserves_graph_and_explicit_credential(configured):
     assert seen[0].headers["authorization"] == f"Bearer {KEY}"
 
 
+def test_prepare_manual_switch_reuses_key_without_querying_catalog(configured):
+    client, agent, conversation, memory, original, headers, seen = configured
+    config = original | {"model": "manual-sem-listagem"}
+    prepared = client.post(
+        "/api/v1/models/prepare",
+        json={
+            "agent_id": str(agent.id),
+            "config": config,
+        },
+        headers=headers,
+    )
+    assert prepared.status_code == 200 and set(prepared.json()) == {"validation_token"}
+    response = client.post(
+        f"/api/v1/agents/{agent.id}/configuration",
+        json={
+            "config": config,
+            "expected_revision": 1,
+            "validation_token": prepared.json()["validation_token"],
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200 and response.json()["revision"] == 2
+    assert response.json()["conversation_id"] == str(conversation.id)
+    assert response.json()["provider_config"]["secret_ref"] == original["secret_ref"]
+    assert response.json()["provider_config"]["model"] == "manual-sem-listagem"
+    assert KEY not in response.text and seen == []
+    reused = client.post(
+        f"/api/v1/agents/{agent.id}/configuration",
+        json={
+            "config": config,
+            "expected_revision": 2,
+            "validation_token": prepared.json()["validation_token"],
+        },
+        headers=headers,
+    )
+    assert reused.status_code == 409 and reused.json()["error"]["code"] == "validation_required"
+    with client.app.state.store.transaction(write=False) as unit:
+        assert unit.memories.get(memory.id) == memory
+        assert len(unit.messages.list(conversation_id=conversation.id)) == 1
+
+
+def test_prepare_credential_reuse_rejects_cross_endpoint_and_revocation(configured):
+    client, agent, _, _, config, headers, seen = configured
+    changed = config | {"endpoint": "https://other.example/v1"}
+    assert (
+        client.post(
+            "/api/v1/models/prepare",
+            json={
+                "agent_id": str(agent.id),
+                "config": changed,
+            },
+            headers=headers,
+        ).status_code
+        == 422
+    )
+    client.app.state.vault.delete(config["secret_ref"])
+    response = client.post(
+        "/api/v1/models/prepare",
+        json={
+            "agent_id": str(agent.id),
+            "config": config,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 502 and response.json()["error"]["code"] == "secret_unavailable"
+    assert seen == []
+
+
+def test_reserved_transient_reference_never_reusable_even_if_domain_record_contains_it(configured):
+    client, agent, _, _, original, headers, seen = configured
+    config = original | {"secret_ref": "env:BEES_REQUEST_KEY"}
+    with client.app.state.store.transaction() as unit:
+        current = unit.agents.get(agent.id)
+        unit.agents.update(
+            current.model_copy(update={"provider_config": config}), expected_revision=1
+        )
+    response = client.post(
+        "/api/v1/models/prepare",
+        json={
+            "agent_id": str(agent.id),
+            "config": config,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 422 and seen == []
+
+
 def test_saved_credential_is_not_forwarded_to_changed_endpoint(configured):
     client, agent, _, _, config, headers, seen = configured
     response = client.post(

@@ -99,6 +99,9 @@ def main():
                 "custom",
                 "custom_ollama",
             }
+            for preset in catalog.json()["providers"]:
+                if preset["id"] in {"openai", "openrouter", "gemini", "ollama"}:
+                    assert preset["models"]
             discovery = {
                 "provider_id": "custom",
                 "endpoint": "http://127.0.0.1:11434/v1",
@@ -116,6 +119,57 @@ def main():
             assert fake_key not in listed.text
             assert "validation_token" not in listed.json()
             assert client.get("/api/v1/onboarding").json()["agents"] == []
+
+            # Um catálogo negado não impede configuração nem geração no endpoint escolhido.
+            denied_endpoint = "http://127.0.0.1:11434/catalog-denied"
+            denied = client.post(
+                "/api/v1/models/discover",
+                json=discovery | {"endpoint": denied_endpoint},
+                headers=headers(),
+            )
+            assert denied.status_code == 502
+            assert denied.json()["error"]["code"] == "access_denied"
+            assert denied.json()["error"]["upstream_status"] == 403
+            manual = {
+                "config": {
+                    "kind": "openai_compatible",
+                    "endpoint": denied_endpoint,
+                    "model": "modelo-manual-nao-listado",
+                    "capabilities": {"text": True, "tool_calls": False},
+                },
+                "api_key": fake_key,
+            }
+            assert (
+                client.post(
+                    "/api/v1/models/prepare", json=manual, headers={"Origin": origin}
+                ).status_code
+                == 403
+            )
+            prepared = client.post("/api/v1/models/prepare", json=manual, headers=headers())
+            assert prepared.status_code == 200
+            assert set(prepared.json()) == {"validation_token"}
+            manual_created = client.post(
+                "/api/v1/agents",
+                json=manual
+                | {
+                    "validation_token": prepared.json()["validation_token"],
+                    "name": "Abelha sem catálogo",
+                },
+                headers=headers(),
+            )
+            assert manual_created.status_code == 201
+            manual_bee = manual_created.json()
+            assert (
+                client.post(
+                    f"/api/v1/agents/{manual_bee['id']}/chat",
+                    json={
+                        "conversation_id": manual_bee["conversation_id"],
+                        "content": "Conversa sem consultar catálogo.",
+                    },
+                    headers=headers(),
+                ).status_code
+                == 200
+            )
 
             model = {
                 "config": {
@@ -190,7 +244,11 @@ def main():
                 compose("exec", "-T", "bees", "bees-auth", "bootstrap", "--format", "json")
             ) == {"configured": True}
             compose("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "120")
-            stored = client.get("/api/v1/onboarding").json()["agents"][0]
+            stored = next(
+                item
+                for item in client.get("/api/v1/onboarding").json()["agents"]
+                if item["id"] == bee["id"]
+            )
             assert stored["id"] == bee["id"] and stored["provider_config"] == bee["provider_config"]
             assert (
                 client.get(
@@ -211,7 +269,10 @@ def main():
                 and password not in logs
                 and authorization["bootstrap_token"] not in logs
             )
-        print("Docker: primeiro acesso, cofre, conversa, fronteiras e persistência aprovados.")
+        print(
+            "Docker: catálogo opcional, modelo manual, primeiro acesso, cofre, conversa, "
+            "fronteiras e persistência aprovados."
+        )
         if args.keep:
             print(f"Projeto de teste mantido: {project}; porta {args.port}.")
     finally:

@@ -6,7 +6,7 @@ O perfil define nome, propósito, instruções permanentes e uso de memória de 
 
 No painel da abelha, abra Perfil, Modelo ou Memórias. O propósito e as instruções são enviados como contexto permanente. O recurso operacional configurável nesta etapa é o uso de memória; conversa por texto está disponível com um modelo configurado. Ferramentas, computadores e tarefas autônomas continuam em preparação e não recebem acesso por uma edição de perfil.
 
-Trocar modelo exige novo teste de conexão, vinculado à sessão, à abelha e à configuração. Para reaproveitar uma credencial salva, selecione isso explicitamente; o servidor só permite reutilizá-la no mesmo protocolo e endpoint. Alterar o endereço exige outra escolha de credencial, sem transportar a chave anterior automaticamente. A nova conexão receberá o contexto selecionado das próximas mensagens.
+Trocar modelo usa preparação local da configuração, vinculada à sessão e à abelha; busca e teste de catálogo são opcionais. Escolha uma sugestão ou digite outro identificador em qualquer provedor. Para reaproveitar uma credencial salva, selecione isso explicitamente; o servidor só permite reutilizá-la no mesmo protocolo e endpoint. Alterar o endereço exige outra escolha de credencial, sem transportar a chave anterior automaticamente. A nova conexão receberá o contexto selecionado das próximas mensagens.
 
 Uma abelha antiga sem conversa ativa recebe sua primeira conversa ao configurar o modelo. Históricos existentes não são recriados. Substituir ou remover uma referência de credencial da conexão não revoga a chave no fornecedor; referências antigas do cofre podem ser compartilhadas ou estar em uso por uma chamada já iniciada e não são apagadas automaticamente.
 

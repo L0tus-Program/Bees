@@ -9,6 +9,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == "/catalog-denied/models":
+            self.reply({"error": "Catálogo indisponível no servidor de teste."}, status=403)
+            return
         self.reply({"data": [{"id": "modelo-controlado"}]})
 
     def do_POST(self):
@@ -32,9 +35,9 @@ class Handler(BaseHTTPRequestHandler):
             }
         )
 
-    def reply(self, value):
+    def reply(self, value, status=200):
         body = json.dumps(value).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

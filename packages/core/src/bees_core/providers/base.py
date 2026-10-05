@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
+from pydantic import SecretStr
 
 from bees_core.providers.contracts import (
     ConnectionConfig,
@@ -15,6 +16,21 @@ from bees_core.providers.contracts import (
     SecretResolver,
 )
 from bees_core.providers.errors import ProviderError
+
+
+def validate_bearer_secret(value: SecretStr) -> str:
+    """Formato privado de header; validar não comprova aceitação pelo provedor."""
+    if not isinstance(value, SecretStr):
+        raise ProviderError("invalid_secret")
+    secret = value.get_secret_value()
+    if (
+        not isinstance(secret, str)
+        or not secret.strip()
+        or len(secret) > 8192
+        or any(ord(char) < 32 or ord(char) > 126 for char in secret)
+    ):
+        raise ProviderError("invalid_secret")
+    return secret
 
 
 def encode_json(body: Any, limit: int) -> bytes:
@@ -68,9 +84,7 @@ class HTTPAdapter:
             if self._resolver is None:
                 raise ProviderError("secret_unavailable")
             try:
-                secret = self._resolver.resolve(config.secret_ref).get_secret_value()
-                if not secret or any(ord(char) < 32 or ord(char) > 126 for char in secret):
-                    raise ValueError("Credencial HTTP inválida.")
+                secret = validate_bearer_secret(self._resolver.resolve(config.secret_ref))
             except Exception:
                 raise ProviderError("secret_unavailable") from None
             headers["Authorization"] = f"Bearer {secret}"
@@ -104,18 +118,22 @@ class HTTPAdapter:
             method, f"{config.endpoint}/{route}", content=encoded, headers=headers
         ) as response:
             status = response.status_code
+            if status < 200 or status > 599:
+                raise ProviderError("invalid_response")
             if 300 <= status < 400:
                 raise ProviderError("redirect_refused")
-            if status in (401, 403):
-                raise ProviderError("authentication_failed")
+            if status == 401:
+                raise ProviderError("authentication_failed", upstream_status=401)
+            if status == 403:
+                raise ProviderError("access_denied", upstream_status=403)
             if status == 429:
-                raise ProviderError("rate_limited", retryable=True)
+                raise ProviderError("rate_limited", retryable=True, upstream_status=status)
             if status == 404:
-                raise ProviderError("model_unavailable")
+                raise ProviderError("model_unavailable", upstream_status=status)
             if status >= 500:
-                raise ProviderError("provider_unavailable", retryable=True)
+                raise ProviderError("provider_unavailable", retryable=True, upstream_status=status)
             if status < 200 or status >= 300:
-                raise ProviderError("provider_rejected")
+                raise ProviderError("provider_rejected", upstream_status=status)
             if response.headers.get("content-encoding", "identity").lower() != "identity":
                 # Não descompactar respostas externas sem limite anterior à expansão.
                 raise ProviderError("invalid_response")

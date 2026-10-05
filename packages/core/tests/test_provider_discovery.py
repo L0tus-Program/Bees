@@ -197,6 +197,7 @@ async def test_custom_catalog_empty_is_list_not_validation_and_name_is_plain_dat
     [
         (302, "redirect_refused"),
         (401, "authentication_failed"),
+        (403, "access_denied"),
         (429, "rate_limited"),
         (503, "provider_unavailable"),
     ],

@@ -13,6 +13,21 @@ export function modelOptions(models: AvailableModel[], selected: string) {
   return selected && !models.some((item) => item.id === selected) ? [{ id: selected, name: selected }, ...models] : models
 }
 
+export function mergeModels(suggested: AvailableModel[], discovered: AvailableModel[]) {
+  const models = new Map(suggested.map((model) => [model.id, model]))
+  for (const model of discovered) models.set(model.id, model)
+  return [...models.values()]
+}
+
+export function canSaveModel(provider: Provider | undefined, config: ModelConfig, apiKey: string, vaultAvailable: boolean) {
+  if (!provider || !config.model.trim() || config.model.trim().length > 200 || !config.endpoint.trim()) return false
+  try {
+    const endpoint = new URL(config.endpoint)
+    if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) return false
+  } catch { return false }
+  return (!provider.requires_api_key || !!apiKey || !!config.secret_ref) && (!apiKey || vaultAvailable)
+}
+
 export function canReuseSecret(initial: ModelConfig | null | undefined, config: Pick<ModelConfig, 'kind' | 'endpoint'>) {
   return !!initial?.secret_ref && initial.kind === config.kind && normalizeEndpoint(initial.endpoint) === normalizeEndpoint(config.endpoint)
 }

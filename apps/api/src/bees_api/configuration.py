@@ -10,7 +10,7 @@ from bees_api.auth import require_session
 from bees_api.onboarding import (
     ModelInput,
     _binding,
-    _connection,
+    _model_selection,
     _signature,
     _summary,
     validate_existing_reference,
@@ -43,7 +43,7 @@ def configure(
         if current.revision != body.expected_revision:
             raise RevisionConflict("Perfil alterado; atualize antes de salvar.")
         validate_existing_reference(current, bound.config)
-    _connection(request, bound)
+    _model_selection(request, bound)
     request.app.state.receipts.consume(body.validation_token, _signature(bound, _binding(request)))
     reference = None
     committed = False

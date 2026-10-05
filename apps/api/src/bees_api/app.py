@@ -146,13 +146,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "unsupported_capability",
                 "request_too_large",
                 "local_model_required",
+                "invalid_secret",
+                "invalid_secret_reference",
             )
             else 409
             if error.code == "state_conflict"
             else 502
         )
         return JSONResponse(
-            {"error": {"code": error.code, "message": str(error)}},
+            {
+                "error": {"code": error.code, "message": str(error)}
+                | (
+                    {"upstream_status": error.upstream_status}
+                    if error.upstream_status is not None
+                    else {}
+                )
+            },
             status_code=status,
         )
 

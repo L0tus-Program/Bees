@@ -7,7 +7,7 @@ import type { Diagnostic, ModelConfig } from '../../api/onboarding'
 import { discoverModels, getProviders } from '../../api/providers'
 import type { AvailableModel } from '../../api/providers'
 import { useResource } from '../../hooks/useResource'
-import { canReuseSecret, connectionConfig, inferProvider, modelOptions } from './connection'
+import { canReuseSecret, canSaveModel, connectionConfig, inferProvider, mergeModels, modelOptions } from './connection'
 import { createRequestGate } from './requestGate'
 
 type Discovery = { state: 'idle' | 'loading' } | { state: 'ready'; models: AvailableModel[] } | { state: 'error'; error: ApiError }
@@ -26,6 +26,7 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
   const [testing, setTesting] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [discovery, setDiscovery] = useState<Discovery>({ state: 'idle' })
+  const [discoveredModels, setDiscoveredModels] = useState<AvailableModel[]>([])
   const [gate] = useState(createRequestGate)
   const running = useRef(false)
   useEffect(() => () => { gate.cancel(); running.current = false }, [gate])
@@ -43,19 +44,19 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
 
   function invalidate() { setReceipt(null); setError(null) }
   function cancelRequests() { gate.cancel(); running.current = false; setTesting(false); setDiscovery((current) => current.state === 'loading' ? { state: 'idle' } : current) }
-  function changeDiscoveryContext(resetModel = false) { cancelRequests(); invalidate(); setDiscovery({ state: 'idle' }); if (resetModel) setModel('') }
+  function changeDiscoveryContext(resetModel = false) { cancelRequests(); invalidate(); setDiscovery({ state: 'idle' }); setDiscoveredModels([]); if (resetModel) setModel('') }
 
   async function discover() {
     if (running.current || !provider || !config.endpoint || !credentialReady) return
     running.current = true
     const controller = gate.begin()
-    setDiscovery({ state: 'loading' }); invalidate()
+    setDiscovery({ state: 'loading' })
     try {
       const models = await discoverModels({ provider_id: provider.id, ...(!provider.endpoint ? { endpoint: config.endpoint } : {}),
         ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}),
         ...(config.secret_ref ? { secret_ref: config.secret_ref } : {}),
       }, controller.signal)
-      if (gate.current(controller)) setDiscovery({ state: 'ready', models })
+      if (gate.current(controller)) { setDiscoveredModels((current) => mergeModels(current, models)); setDiscovery({ state: 'ready', models }) }
     } catch (failure) { if (gate.current(controller)) setDiscovery({ state: 'error', error: asApiError(failure) }) }
     finally { if (gate.current(controller)) running.current = false }
   }
@@ -75,10 +76,12 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
 
   return {
     kind, endpoint, model, tools, apiKey, reuse, config, error, testing, check, provider, catalog, discovery, discovering, discover, manual,
-    options: modelOptions(discovery.state === 'ready' ? discovery.models : [], model),
+    options: modelOptions(mergeModels(provider?.models ?? [], discoveredModels), model),
     canDiscover: !!provider && !!config.endpoint && credentialReady,
     canTest: !!provider && !!config.model && !!config.endpoint && credentialReady && !discovering,
     canReuse: canReuseSecret(initial, config), validated: receipt?.signature === signature ? receipt.diagnostic : null,
+    canSave: (vaultAvailable: boolean) => canSaveModel(provider, config, apiKey, vaultAvailable),
+    beginSave: () => { cancelRequests(); return gate.begin() },
     invalidate,
     clear: () => { changeDiscoveryContext(true); setApiKey(''); setReuse(false) },
     changeProvider: (id: string) => {

@@ -8,6 +8,7 @@ import type { AgentSummary, Onboarding } from '../../api/onboarding'
 import { ErrorNotice } from '../../components/Feedback'
 import { ModelFields } from '../model/ModelFields'
 import { useModelConnection } from '../model/useModelConnection'
+import { preparedSave } from '../model/preparedSave'
 
 export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: Onboarding['vault']; onCreated: (agent: AgentSummary) => void; onCancel?: () => void; onReconcile: () => void }) {
   const { t } = useTranslation('product')
@@ -18,21 +19,21 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const controller = useRef<AbortController | null>(null)
-  const profileRef = useRef<HTMLInputElement>(null)
   const tested = !!connection.validated
+  const canCreate = connection.canSave(vault.available) && !!name.trim() && !!purpose.trim()
   useEffect(() => () => controller.current?.abort(), [])
-  useEffect(() => { if (tested) profileRef.current?.focus() }, [tested])
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || connection.discovering || !connection.validated || (!!connection.apiKey && !vault.available)) return
+    if (busy || !canCreate) return
     setBusy(true); setError(null)
-    controller.current = new AbortController()
+    controller.current = connection.beginSave()
+    const operation = controller.current
     try {
-      const agent = await createAgent({ name: name.trim(), purpose: purpose.trim(), instructions: instructions.trim(), config: connection.config, validation_token: connection.validated.validation_token, ...(connection.apiKey ? { api_key: connection.apiKey } : {}) }, controller.current.signal)
-      if (!controller.current.signal.aborted) { connection.clear(); onCreated(agent) }
+      const agent = await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => createAgent({ name: name.trim(), purpose: purpose.trim(), instructions: instructions.trim(), config: connection.config, validation_token: validationToken, ...(connection.apiKey ? { api_key: connection.apiKey } : {}) }, operation.signal))
+      if (!operation.signal.aborted) { connection.clear(); onCreated(agent) }
     } catch (failure) {
-      if (!controller.current.signal.aborted) {
+      if (!operation.signal.aborted) {
         const apiError = asApiError(failure)
         if (apiError.code.startsWith('validation_') || apiError.code.includes('test_required') || ['mutation_network', 'mutation_timeout', 'invalid_response'].includes(apiError.code)) connection.invalidate()
         setError(apiError)
@@ -56,16 +57,16 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
           <p className="quiet-note">{t('testScope')}</p>
           {tested && <p className="form-success" role="status">{t('modelTested')}</p>}
         </form>
-        <form className={`surface profile-form ${tested ? 'profile-ready' : ''}`} onSubmit={(event) => { void save(event) }}>
+        <form className="surface profile-form profile-ready" onSubmit={(event) => { void save(event) }}>
           <div className="number-heading"><span>02</span><h2>{t('givePurpose')}</h2></div>
           <p className="form-introduction">{t('profileDescription')}</p>
-          <fieldset disabled={busy || connection.testing || connection.discovering}>
-            <label className="field" htmlFor="bee-name"><span>{t('beeName')}</span><input id="bee-name" ref={profileRef} value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} placeholder={t('beeNamePlaceholder')} autoComplete="off" /></label>
+          <fieldset disabled={busy}>
+            <label className="field" htmlFor="bee-name"><span>{t('beeName')}</span><input id="bee-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} placeholder={t('beeNamePlaceholder')} autoComplete="off" /></label>
             <label className="field" htmlFor="bee-purpose"><span>{t('purpose')}</span><textarea id="bee-purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required maxLength={2000} placeholder={t('purposePlaceholder')} /></label>
             <label className="field" htmlFor="bee-instructions"><span>{t('instructions')} <span className="optional">{t('optional')}</span></span><textarea id="bee-instructions" rows={4} value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={10000} placeholder={t('instructionsPlaceholder')} /><small>{t('instructionsHelp')}</small></label>
-            <button type="submit" className="button primary wide" disabled={!tested || (!!connection.apiKey && !vault.available)}>{t(busy ? 'creating' : 'createBee')}</button>
+            <button type="submit" className="button primary wide" disabled={!canCreate}>{t(busy ? 'creating' : 'createBee')}</button>
           </fieldset>
-          {!tested && <p className="quiet-note">{t('testBeforeCreate')}</p>}
+          <p className="quiet-note">{t('saveWithoutTest')}</p>
           <p className="quiet-note">{t('noMachineNeeded')}</p>
         </form>
       </div>

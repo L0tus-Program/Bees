@@ -8,6 +8,7 @@ ErrorCode = Literal[
     "unsupported_capability",
     "secret_unavailable",
     "authentication_failed",
+    "access_denied",
     "rate_limited",
     "model_unavailable",
     "local_model_required",
@@ -34,6 +35,7 @@ MESSAGES: dict[str, str] = {
     "unsupported_capability": "O backend não atende às capacidades solicitadas.",
     "secret_unavailable": "A referência de credencial não está disponível.",
     "authentication_failed": "O provedor recusou a credencial.",
+    "access_denied": "O provedor não autorizou acesso ao recurso solicitado.",
     "rate_limited": "O provedor informou limite de uso.",
     "model_unavailable": "O modelo configurado não está disponível.",
     "local_model_required": "Este adaptador exige modelo instalado e executado localmente.",
@@ -56,9 +58,21 @@ MESSAGES: dict[str, str] = {
 
 
 class ProviderError(RuntimeError):
-    def __init__(self, code: ErrorCode, message: str | None = None, *, retryable: bool = False):
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str | None = None,
+        *,
+        retryable: bool = False,
+        upstream_status: int | None = None,
+    ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
         self.message = MESSAGES[code]
         self.retryable = retryable
+        if upstream_status is not None and (
+            type(upstream_status) is not int or not 400 <= upstream_status <= 599
+        ):
+            raise ValueError("Status do provedor inválido.")
+        self.upstream_status = upstream_status
         super().__init__(self.message)

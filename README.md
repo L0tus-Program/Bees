@@ -2,7 +2,7 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: assistente de texto com perfis e memória editável.** Configure e teste seu modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
+**Estágio atual: assistente de texto com perfis e memória editável.** Escolha um provedor e modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Listas prontas e digitação manual estão disponíveis; busca e teste de catálogo são opcionais. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
 ## Abrir com Docker
 
@@ -61,7 +61,7 @@ Com a API iniciada, gere o código de configuração em outro terminal:
 uv run --locked bees-auth bootstrap
 ```
 
-Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois selecione o provedor, informe sua chave quando necessária e clique em **Buscar modelos**. Escolha um modelo na lista, teste a conexão e crie a abelha. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; conexões personalizadas ficam nas opções avançadas. Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
+Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois selecione o provedor, escolha um modelo na lista pronta ou digite outro e informe sua chave quando necessária. Crie a abelha; **Buscar modelos** e **Testar conexão** são opcionais. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; conexões personalizadas permitem outros servidores. Sugestões não comprovam acesso da conta nem instalação; Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
 
 [Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. Computadores das abelhas e máquina pessoal aparecem como recursos em preparação.
 

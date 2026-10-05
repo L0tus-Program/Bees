@@ -4,7 +4,7 @@
 
 Instale e abra Docker Desktop com containers Linux, Engine 28 ou posterior e Compose 2.20 ou posterior. A validação local usou Engine 28.4.0/Compose 2.39.4 em x64. O checkout precisa estar em uma pasta local. Não é necessário instalar Python, Node ou configurar variáveis para usar esta distribuição.
 
-Dê dois cliques em **Iniciar Bees.vbs**, na raiz do projeto. O launcher prepara a imagem, aguarda o serviço e abre [http://localhost:8080](http://localhost:8080). Na primeira instalação, o navegador já possui autorização temporária: informe nome e senha, configure/teste seu modelo e crie a primeira abelha. Credenciais, perfis e memórias são configurados na interface.
+Dê dois cliques em **Iniciar Bees.vbs**, na raiz do projeto. O launcher prepara a imagem, aguarda o serviço e abre [http://localhost:8080](http://localhost:8080). Na primeira instalação, o navegador já possui autorização temporária: informe nome e senha, escolha seu provedor/modelo e crie a primeira abelha. Credenciais, perfis e memórias são configurados na interface; busca e teste de catálogo são opcionais.
 
 A preparação pode levar alguns minutos na primeira vez. Se falhar, o launcher mostra uma mensagem; detalhes de build/inicialização ficam em `logs/startup.log`. O Docker deve permanecer disponível durante o uso. Fechar o navegador não para a aplicação.
 
@@ -59,7 +59,7 @@ Para restaurar em uma instalação nova, mantenha os serviços parados e os volu
 
 ## Modelos remoto e local
 
-Selecione o provedor na interface, informe a chave quando necessária e use **Buscar modelos** para escolher na lista. OpenAI, OpenRouter e Gemini têm endereços preconfigurados; outro servidor compatível pode ser conectado pelas opções personalizadas. Uma API remota continua usando HTTPS. O Compose não contrata fornecedor, envia dados ou baixa modelos por conta própria.
+Selecione o provedor na interface, escolha uma sugestão pronta ou digite outro modelo e informe a chave quando necessária. **Buscar modelos** agrega opções e **Testar conexão** consulta o catálogo; ambos são opcionais, e suas falhas não impedem salvar. OpenAI, OpenRouter e Gemini têm endereços preconfigurados; outro servidor compatível pode ser conectado pelas opções personalizadas. Uma API remota continua usando HTTPS. O Compose não contrata fornecedor, envia dados ou baixa modelos por conta própria.
 
 Ollama é opcional:
 

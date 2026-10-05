@@ -86,6 +86,23 @@ def test_provider_catalog_is_authenticated_and_explicit(client):
     assert providers["custom"]["endpoint"] == providers["custom_ollama"]["endpoint"] == ""
     assert providers["openai"]["requires_api_key"] is True
     assert providers["ollama"]["requires_api_key"] is False
+    assert [model["id"] for model in providers["openai"]["models"]] == [
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+    ]
+    assert [model["id"] for model in providers["gemini"]["models"]] == [
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+    ]
+    assert {model["id"] for model in providers["ollama"]["models"]} == {
+        "llama3.2:latest",
+        "qwen3:latest",
+    }
+    assert providers["custom"]["models"] == providers["custom_ollama"]["models"] == []
+    assert client.test_state["requests"] == []
     client.cookies.clear()
     assert client.get("/api/v1/providers").status_code == 401
 
