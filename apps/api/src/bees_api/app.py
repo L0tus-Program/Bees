@@ -17,6 +17,7 @@ from bees_api import __version__
 from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
+from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.profiles import router as profiles_router
@@ -25,7 +26,7 @@ from bees_api.safety import RequestSafetyMiddleware
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
-from bees_core.providers.vault import FileSecretVault
+from bees_core.providers.vault import FernetBackend, FileSecretVault
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, StateStore, StoreError
@@ -69,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         validate_sqlite_runtime()
+        if config.deployment_mode == "container":
+            prepare_managed_directories(config.vault_key_file, config.data_dir)
         database = Database(config.data_dir / "bees.sqlite3")
         database.initialize()
         store = StateStore(database, cache_ttl_seconds=config.cache_ttl_seconds)
@@ -76,7 +79,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.store = store
         application.state.database = database
         application.state.identity = IdentityService(database)
-        application.state.vault = FileSecretVault(config.data_dir / "vault", key=config.vault_key)
+        if config.deployment_mode == "container":
+            key = managed_vault_key(config.vault_key_file, config.data_dir, database)
+            application.state.vault = FileSecretVault(
+                config.data_dir / "vault", backend=FernetBackend(key)
+            )
+        else:
+            application.state.vault = FileSecretVault(
+                config.data_dir / "vault", key=config.vault_key
+            )
         application.state.resolver = build_secret_resolver(application.state.vault)
         application.state.providers = ProviderService(database, application.state.resolver)
         application.state.receipts = Receipts()

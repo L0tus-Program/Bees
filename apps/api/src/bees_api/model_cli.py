@@ -11,15 +11,20 @@ from uuid import UUID
 
 from pydantic import SecretStr, ValidationError
 
-from bees_api.config import default_data_dir
+from bees_api.config import Settings, default_data_dir
+from bees_api.managed_key import (
+    ManagedKeyError,
+    managed_vault_key,
+    prepare_managed_directories,
+)
 from bees_core.models import Agent, Conversation
 from bees_core.providers.base import create_adapter
 from bees_core.providers.contracts import ProviderConfig
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
-from bees_core.providers.vault import FileSecretVault
-from bees_core.storage.database import Database
+from bees_core.providers.vault import FernetBackend, FileSecretVault
+from bees_core.storage.database import Database, DatabaseError
 from bees_core.storage.store import StateStore, StoreError
 
 
@@ -41,6 +46,16 @@ def _parser() -> argparse.ArgumentParser:
     chat.add_argument("--conversation", type=UUID, required=True)
     chat.add_argument("--text", help="Sem este argumento, lê o texto da entrada padrão.")
     for command in (diagnose, create, configure, chat):
+        command.add_argument(
+            "--deployment-mode",
+            choices=("local", "container"),
+            default=os.environ.get("BEES_DEPLOYMENT_MODE", "local"),
+        )
+        command.add_argument(
+            "--vault-key-file",
+            type=Path,
+            default=os.environ.get("BEES_VAULT_KEY_FILE"),
+        )
         command.add_argument(
             "--data-dir",
             type=Path,
@@ -66,9 +81,26 @@ async def run_cli(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         vault_key = os.environ.get("BEES_VAULT_KEY")
-        vault = FileSecretVault(
-            args.data_dir / "vault", key=SecretStr(vault_key) if vault_key is not None else None
+        settings = Settings(
+            deployment_mode=args.deployment_mode,
+            data_dir=args.data_dir,
+            vault_key_file=args.vault_key_file,
+            vault_key=SecretStr(vault_key) if vault_key is not None else None,
         )
+        database = None
+        if settings.deployment_mode == "container":
+            prepare_managed_directories(settings.vault_key_file, settings.data_dir)
+            database = Database(settings.data_dir / "bees.sqlite3")
+            if not database.path.is_file() or database.schema_version() < 2:
+                raise ManagedKeyError()
+            # API provisiona/migra offline. CLI pode operar com API ativa sem migrar
+            # nem regenerar segredo; diagnose não cria instalação automaticamente.
+            key = managed_vault_key(
+                settings.vault_key_file, settings.data_dir, database, provision=False
+            )
+            vault = FileSecretVault(settings.data_dir / "vault", backend=FernetBackend(key))
+        else:
+            vault = FileSecretVault(settings.data_dir / "vault", key=settings.vault_key)
         resolver = build_secret_resolver(vault)
         if args.command == "diagnose":
             config = _read_config(args.config)
@@ -76,8 +108,9 @@ async def run_cli(argv: Sequence[str] | None = None) -> int:
             _write(diagnostic.model_dump(mode="json"))
             return 0 if diagnostic.status == "ok" else 1
 
-        database = Database(args.data_dir / "bees.sqlite3")
-        database.initialize()
+        if database is None:
+            database = Database(args.data_dir / "bees.sqlite3")
+            database.initialize()
         service = ProviderService(database, resolver)
         if args.command == "create":
             config = _read_config(args.config)
@@ -109,9 +142,17 @@ async def run_cli(argv: Sequence[str] | None = None) -> int:
             response = await service.chat(args.agent, args.conversation, text)
             _write(response.model_dump(mode="json"))
         return 0
+    except ManagedKeyError:
+        _write(
+            {
+                "status": "error",
+                "code": "secret_unavailable",
+                "message": "Cofre gerenciado indisponível; confira ou recupere a instalação.",
+            }
+        )
     except ProviderError as error:
         _write({"status": "error", "code": error.code, "message": str(error)})
-    except StoreError:
+    except StoreError, DatabaseError:
         _write(
             {
                 "status": "error",

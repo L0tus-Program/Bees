@@ -4,7 +4,13 @@ Assistentes pessoais com estado próprio, modelos substituíveis e dois ambiente
 
 **Estágio atual: assistente de texto com perfis e memória editável.** Configure e teste seu modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
-## Requisitos
+## Abrir com Docker
+
+No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliques em **Iniciar Bees.vbs**. O launcher sobe API/interface, prepara o cofre e abre o navegador com autorização para criar seu acesso. Configure nome, senha, modelo e primeira abelha na interface, sem gerar tokens ou chaves no terminal. Não precisa instalar Python/Node no host.
+
+Operadores também podem subir com `docker compose up --build --detach --wait`. Interface em [localhost:8080](http://localhost:8080); dados e chave ficam em volumes separados e sobrevivem a reinícios. [Distribuição e operação](docs/containers.md) explica primeiro acesso, volumes, backup, Ollama opcional e limites. A instalação nativa abaixo usa outro estado; não há importação automática.
+
+## Requisitos de desenvolvimento
 
 - Python 3.14; desenvolvimento validado com 3.14.4.
 - Node.js 22.17 ou posterior compatível; npm 11.6.2 usado na validação.
@@ -45,7 +51,9 @@ uv run --locked bees-api
 
 Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). O mesmo processo serve API e arquivos estáticos de `apps/web/dist`. Sem build, a API continua disponível; a raiz informa a ausência da interface compilada. `vite preview` não é o servidor de produção.
 
-## Primeiro acesso
+## Primeiro acesso no desenvolvimento
+
+Na distribuição Docker Windows, use o launcher descrito acima. O fluxo abaixo é opcional para desenvolvimento/operação.
 
 Com a API iniciada, gere o código de configuração em outro terminal:
 
@@ -63,7 +71,10 @@ Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 carac
 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
-| `BEES_HOST` | `127.0.0.1` | Bind em loopback, inclusive atrás de proxy HTTPS. |
+| `BEES_HOST` | `127.0.0.1` | Bind local; `0.0.0.0` somente em modo container explícito, com publicação loopback no host. |
+| `BEES_DEPLOYMENT_MODE` | `local` | `container` exige chave em arquivo privado separado e não confia em headers de proxy. |
+| `BEES_BROWSER_PORT` | porta do serviço | Porta externa do navegador; Compose configura 8080 e mantém 8000 interna. |
+| `BEES_VAULT_KEY_FILE` | ausente | Arquivo privado gerenciado do container, fora do volume dos dados. |
 | `BEES_PORT` | `8000` | Porta HTTP; o proxy de desenvolvimento espera 8000. |
 | `BEES_WEB_DIST` | `apps/web/dist` no checkout | Caminho opcional da interface compilada. |
 | `BEES_DATA_DIR` | `data` no checkout | Pasta privada da base SQLite, em filesystem local. |
@@ -108,9 +119,10 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
 - [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
 - [Perfis e memória](docs/memory.md): edição, proveniência, isolamento, contexto e exclusão.
+- [Docker e instalação](docs/containers.md): launcher, distribuição, volumes e recuperação.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 
-Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e setup gráfico completo permanecem planejados; o bootstrap atual ainda usa terminal. Computador próprio e conector pessoal são requisitos do MVP completo.
+Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e launcher Windows entregues; primeiro acesso dessa distribuição é autorizado automaticamente no navegador. Setup gráfico nas demais distribuições e integração dos ambientes futuros continuam em BEES-028. Computador próprio e conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.

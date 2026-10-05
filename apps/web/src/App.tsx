@@ -7,12 +7,16 @@ import { ErrorNotice, LoadingNotice } from './components/Feedback'
 import { AuthForm } from './features/auth/AuthForm'
 import { Dashboard } from './features/dashboard/Dashboard'
 import { useResource } from './hooks/useResource'
+import { setupAuthorization } from './features/auth/setupAuthorization'
 
 export function App() {
   const { t, i18n } = useTranslation('product')
   const { resource, reload } = useResource(authStatus)
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
+  useEffect(() => {
+    if (resource.state === 'ready' && resource.data.configured) setupAuthorization.clear()
+  }, [resource])
   useEffect(() => {
     const expired = () => { setError(null); reload() }
     window.addEventListener('bees:session-expired', expired)

@@ -25,4 +25,5 @@ htmlcov/
 !.env.example
 /data/
 /logs/
+/backups/
 *.log

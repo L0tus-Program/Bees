@@ -1,0 +1,42 @@
+name: bees
+services:
+  bees:
+    image: bees-local:0.1.0
+    build:
+      context: .
+      target: runtime
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BEES_HTTP_PORT:-8080}:8000"
+    environment:
+      BEES_BROWSER_PORT: "${BEES_HTTP_PORT:-8080}"
+    volumes:
+      - bees-data:/var/lib/bees
+      - bees-secrets:/run/bees-secrets
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+  ollama:
+    image: ollama/ollama:latest@sha256:292ee7945dfc3d5840a181f3ab86fedb1e66703e02c8af98b50f4da56b7e278c
+    profiles: [local-model]
+    network_mode: service:bees
+    environment:
+      OLLAMA_HOST: "127.0.0.1:11434"
+      OLLAMA_NO_CLOUD: "1"
+    volumes:
+      - ollama-models:/root/.ollama
+    depends_on:
+      bees:
+        condition: service_healthy
+        restart: true
+    restart: unless-stopped
+volumes:
+  bees-data:
+  bees-secrets:
+  ollama-models:

@@ -159,6 +159,11 @@ footer { display: flex; justify-content: space-between; align-items: center; bor
 .access-copy > .quiet-note { margin-top: 28px; }
 .auth-form h2 { margin-top: 14px; }
 .auth-form .form-introduction { margin-bottom: 25px; }
+.setup-authorization-note { margin: 0 0 22px; }
+.advanced-setup { margin: 0 0 22px; font-size: 12px; }
+.advanced-setup summary { cursor: pointer; color: #5c644d; min-height: 36px; padding: 8px 0; }
+.advanced-setup summary:focus-visible { outline: 2px solid #94711f; outline-offset: 3px; }
+.advanced-setup .field { margin-top: 12px; }
 fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .form-introduction { font-size: 13px; line-height: 1.7; color: var(--muted); margin: 12px 0 23px; }
 .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 19px; min-width: 0; }

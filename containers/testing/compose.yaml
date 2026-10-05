@@ -1,0 +1,14 @@
+# Usar apenas com projeto descartável. Nenhuma chave/modelo real.
+services:
+  fixture:
+    image: bees-local:0.1.0
+    network_mode: service:bees
+    entrypoint: [python, /fixture.py]
+    volumes:
+      - ./containers/testing/fixture.py:/fixture.py:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      bees:
+        condition: service_healthy

@@ -10,7 +10,7 @@ Trocar modelo exige novo teste de conexão, vinculado à sessão, à abelha e à
 
 Uma abelha antiga sem conversa ativa recebe sua primeira conversa ao configurar o modelo. Históricos existentes não são recriados. Substituir ou remover uma referência de credencial da conexão não revoga a chave no fornecedor; referências antigas do cofre podem ser compartilhadas ou estar em uso por uma chamada já iniciada e não são apagadas automaticamente.
 
-O setup gráfico completo e a distribuição por Compose permanecem planejados. Este checkpoint acrescenta edição na interface; o bootstrap de primeiro acesso e o provisionamento externo do cofre Linux ainda seguem o [guia atual](onboarding.md).
+A [distribuição Compose](containers.md) inclui launcher Windows com primeiro acesso autorizado no navegador e cofre preparado automaticamente. O modo nativo mantém bootstrap/cofre como alternativas operacionais no [guia de acesso](onboarding.md). Setup gráfico nas demais distribuições e integração de ambientes continuam em implementação.
 
 ## Escopos e fontes
 

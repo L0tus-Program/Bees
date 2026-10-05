@@ -1,5 +1,7 @@
 # Primeiro acesso e segurança
 
+Na distribuição Docker Windows, abra **Iniciar Bees.vbs** para autorizar o primeiro acesso e configurar tudo no navegador. [Containers](containers.md) descreve launcher, cofre gerenciado e volumes. Os comandos de bootstrap deste guia continuam como alternativa de desenvolvimento/operação.
+
 O Bees possui uma identidade individual com nome e senha. Várias abelhas e sessões usam essa identidade; equipes e tenants ainda não existem. A interface oferece conversa de texto persistida. Perfis e memórias podem ser editados pela interface, conforme [guia de memória](memory.md). Ambientes de computador, execução de ferramentas e tarefas em segundo plano continuam em preparação.
 
 ## Instalação local

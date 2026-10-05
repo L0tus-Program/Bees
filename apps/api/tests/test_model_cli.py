@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from bees_api import model_cli
 from bees_core.providers.service import ProviderService
-from bees_core.providers.vault import FileSecretVault
+from bees_core.providers.vault import FernetBackend, FileSecretVault
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore
 
@@ -364,3 +364,110 @@ def test_missing_vault_secret_refuses_chat_without_fallback(tmp_path, monkeypatc
     with StateStore(Database(data / "bees.sqlite3")).transaction(write=False) as unit:
         assert unit.messages.list(conversation_id=created["conversation_id"]) == []
     assert not (data / "vault").exists()
+
+
+def test_managed_container_cli_uses_same_vault_without_migration_or_env_key(
+    tmp_path, monkeypatch, capsys
+):
+    from bees_core.models import Agent, Conversation
+
+    data = tmp_path / "data"
+    database = Database(data / "bees.sqlite3")
+    database.initialize()
+    key = SecretStr(Fernet.generate_key().decode("ascii"))
+    vault = FileSecretVault(data / "vault", backend=FernetBackend(key))
+    reference = vault.put(SecretStr("managed-vault-only-test"))
+    config_path = config_file(tmp_path, secret_ref=reference)
+    with StateStore(database).transaction() as unit:
+        agent = unit.agents.create(
+            Agent(name="Teste", provider_config=json.loads(config_path.read_text()))
+        )
+        conversation = unit.conversations.create(Conversation(agent_id=agent.id))
+    key_file = tmp_path / "secrets" / "vault.key"
+    monkeypatch.setenv("BEES_DEPLOYMENT_MODE", "container")
+    monkeypatch.setenv("BEES_VAULT_KEY_FILE", str(key_file))
+    calls = []
+
+    def resolve_managed(file, directory, db, *, provision):
+        assert file == key_file and directory == data and db.path == database.path
+        assert provision is False
+        calls.append("read-existing")
+        return key
+
+    monkeypatch.setattr(model_cli, "managed_vault_key", resolve_managed)
+    monkeypatch.setattr(model_cli, "prepare_managed_directories", lambda *_: None)
+    monkeypatch.setattr(
+        Database, "initialize", lambda *_: pytest.fail("CLI não pode migrar API ativa")
+    )
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert request.headers["authorization"] == "Bearer managed-vault-only-test"
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": "test-model"}]})
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "Teste"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+
+    factory = model_cli.create_adapter
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        model_cli,
+        "create_adapter",
+        lambda kind, resolver: factory(kind, resolver, transport=transport),
+    )
+    monkeypatch.setattr(
+        model_cli,
+        "ProviderService",
+        lambda db, resolver: ProviderService(db, resolver, transport=transport),
+    )
+    code, result = run(["diagnose", "--config", str(config_path), "--data-dir", str(data)], capsys)
+    assert code == 0 and result["status"] == "ok"
+    code, result = run(
+        [
+            "chat",
+            "--agent",
+            str(agent.id),
+            "--conversation",
+            str(conversation.id),
+            "--text",
+            "Teste",
+            "--data-dir",
+            str(data),
+        ],
+        capsys,
+    )
+    assert code == 0 and result["message"]["content"] == "Teste"
+    assert len(requests) == 2 and calls == ["read-existing", "read-existing"]
+    assert "managed-vault-only-test" not in json.dumps(result)
+
+
+def test_managed_cli_missing_installation_does_not_create_database(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    monkeypatch.setenv("BEES_DEPLOYMENT_MODE", "container")
+    monkeypatch.setenv("BEES_VAULT_KEY_FILE", str(tmp_path / "secrets" / "vault.key"))
+    monkeypatch.setattr(model_cli, "prepare_managed_directories", lambda *_: None)
+    monkeypatch.setattr(
+        model_cli, "create_adapter", lambda *_: pytest.fail("Sem cofre não há rede.")
+    )
+    code, result = run(
+        [
+            "diagnose",
+            "--config",
+            str(config_file(tmp_path)),
+            "--data-dir",
+            str(data),
+        ],
+        capsys,
+    )
+    assert code == 1 and result["code"] == "secret_unavailable"
+    assert not (data / "bees.sqlite3").exists()

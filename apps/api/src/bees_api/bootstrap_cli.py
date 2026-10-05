@@ -1,6 +1,7 @@
 """Emite bootstrap no terminal do operador; nunca nos logs do serviço HTTP."""
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -16,6 +17,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Gera o código privado do primeiro acesso.")
     parser.add_argument("command", choices=["bootstrap"])
     parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="JSON privado para launcher: configured e bootstrap_token quando necessário.",
+    )
+    parser.add_argument(
         "--data-dir",
         type=Path,
         default=os.environ.get("BEES_DATA_DIR", str(default_data_dir())),
@@ -27,11 +34,18 @@ def main() -> None:
     try:
         if database.schema_version() < 2:
             parser.error("Pare e atualize bees-api para migrar a identidade antes de continuar.")
-        token = IdentityService(database).issue_bootstrap()
+        identity = IdentityService(database)
+        token = identity.issue_bootstrap()
     except AuthError as error:
+        if args.format == "json" and error.code == "already_configured":
+            print(json.dumps({"configured": True}, separators=(",", ":")))
+            return
         parser.error(str(error))
     except DatabaseError:
         parser.error("Estado indisponível; confira o diretório de dados e as migrações.")
+    if args.format == "json":
+        print(json.dumps({"configured": False, "bootstrap_token": token}, separators=(",", ":")))
+        return
     print("Código de configuração, válido por 15 minutos e uma única utilização:")
     print(token)
     print("Cole no primeiro acesso do Bees. Gerar outro código invalida este.")

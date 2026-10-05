@@ -10,5 +10,10 @@ def isolated_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
         "BEES_DATA_DIR",
         "BEES_CACHE_TTL_SECONDS",
         "BEES_CACHE_PRUNE_LIMIT",
+        "BEES_DEPLOYMENT_MODE",
+        "BEES_BROWSER_PORT",
+        "BEES_VAULT_KEY_FILE",
+        "BEES_VAULT_KEY",
+        "BEES_PUBLIC_URL",
     ):
         monkeypatch.delenv(variable, raising=False)
