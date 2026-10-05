@@ -21,11 +21,11 @@ def settings_for(data_dir: Path, prune_limit: int = 1000) -> Settings:
 def test_service_restarts_with_persisted_agent_memory_and_decision(tmp_path: Path) -> None:
     settings = settings_for(tmp_path / "private-state")
     first = create_app(settings)
-    with TestClient(first, base_url="http://127.0.0.1") as client:
+    with TestClient(first, base_url="http://127.0.0.1:8000") as client:
         assert client.get("/api/v1/state/status").json() == {
             "status": "ready",
             "engine": "sqlite",
-            "schema_version": 1,
+            "schema_version": 2,
         }
         with first.state.store.transaction() as uow:
             agent = uow.agents.create(Agent(name="Estado privado de teste"))
@@ -38,11 +38,18 @@ def test_service_restarts_with_persisted_agent_memory_and_decision(tmp_path: Pat
         response = client.get("/api/v1/state/status")
         assert "Conteúdo privado" not in response.text
         assert str(settings.data_dir) not in response.text
-        assert client.post("/api/v1/agents", json={"name": "Externo"}).status_code in (404, 405)
+        assert (
+            client.post(
+                "/api/v1/agents",
+                json={"name": "Externo"},
+                headers={"Origin": "http://127.0.0.1:8000"},
+            ).status_code
+            == 401
+        )
     assert not hasattr(first.state, "store")
 
     second = create_app(settings)
-    with TestClient(second, base_url="http://127.0.0.1"):
+    with TestClient(second, base_url="http://127.0.0.1:8000"):
         with second.state.store.transaction(write=False) as uow:
             assert uow.agents.get(agent.id) == agent
             assert uow.memories.get(memory.id) == memory
@@ -54,7 +61,7 @@ def test_startup_prunes_only_expired_cache_in_configured_batch(
 ) -> None:
     settings = settings_for(tmp_path / "state", prune_limit=1)
     first = create_app(settings)
-    with TestClient(first, base_url="http://127.0.0.1"):
+    with TestClient(first, base_url="http://127.0.0.1:8000"):
         with first.state.store.transaction() as uow:
             agent = uow.agents.create(Agent(name="Canônico"))
         past = datetime.now(UTC) - timedelta(days=2)
@@ -65,7 +72,7 @@ def test_startup_prunes_only_expired_cache_in_configured_batch(
         first.state.store.put_cache("valid", {"keep": True})
 
     second = create_app(settings)
-    with TestClient(second, base_url="http://127.0.0.1"):
+    with TestClient(second, base_url="http://127.0.0.1:8000"):
         with second.state.store.transaction(write=False) as uow:
             assert uow.agents.get(agent.id) == agent
             assert len(uow.events.list()) == 1
@@ -77,11 +84,11 @@ def test_startup_prunes_only_expired_cache_in_configured_batch(
 def test_service_refuses_altered_migration_history(tmp_path: Path) -> None:
     settings = settings_for(tmp_path / "state")
     first = create_app(settings)
-    with TestClient(first, base_url="http://127.0.0.1"):
+    with TestClient(first, base_url="http://127.0.0.1:8000"):
         with first.state.database.transaction() as connection:
             connection.execute("UPDATE schema_migrations SET checksum=?", ("0" * 64,))
     with pytest.raises(MigrationError, match="Checksum"):
-        with TestClient(create_app(settings), base_url="http://127.0.0.1"):
+        with TestClient(create_app(settings), base_url="http://127.0.0.1:8000"):
             pass
 
 

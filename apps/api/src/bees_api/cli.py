@@ -38,6 +38,11 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
         help="Estado local; padrão: BEES_DATA_DIR ou data no checkout.",
     )
     parser.add_argument(
+        "--public-url",
+        default=os.environ.get("BEES_PUBLIC_URL"),
+        help="Origem pública HTTPS explícita, atrás de proxy TLS local. Opcional.",
+    )
+    parser.add_argument(
         "--cache-ttl-seconds",
         type=int,
         default=os.environ.get("BEES_CACHE_TTL_SECONDS", "86400"),
@@ -58,15 +63,23 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
             data_dir=args.data_dir,
             cache_ttl_seconds=args.cache_ttl_seconds,
             cache_prune_limit=args.cache_prune_limit,
+            public_url=args.public_url,
+            vault_key=os.environ.get("BEES_VAULT_KEY"),
         )
     except ValidationError:
         parser.error(
             "Configuração inválida. Bind deve ser 127.0.0.1; porta entre 1 e 65535; "
             "TTL entre 1 e 31536000; limite de limpeza entre 1 e 1000. "
-            "Acesso remoto exige autenticação ainda não implementada."
+            "URL pública deve ser uma origem HTTPS sem credenciais, caminho ou query."
         )
 
 
 def main() -> None:
     settings = parse_settings()
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        proxy_headers=True,
+        forwarded_allow_ips="127.0.0.1",
+    )

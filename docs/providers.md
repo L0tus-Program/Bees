@@ -23,9 +23,9 @@ O subconjunto inicial aceita objetos/propriedades, tipos, itens, enumerações e
 
 Os exemplos em [examples/providers](../examples/providers) são modelos de configuração, não configurações prontas: substitua o campo `model` pelo identificador disponível no seu servidor. Habilite `capabilities.tool_calls` apenas para um modelo que suporte funções.
 
-`secret_ref` aceita somente `env:NOME_DA_VARIAVEL`. O valor é resolvido no processo imediatamente antes da requisição e enviado no cabeçalho de autenticação ao endpoint escolhido. Não copie a chave para o JSON, o banco, o chat ou variáveis `VITE_*`. O resolver não lê `.env` automaticamente e não tenta outras credenciais quando uma referência está ausente. A configuração da abelha guarda somente a referência. Erros públicos não reproduzem corpo de resposta, cabeçalho ou entrada de configuração inválida.
+`secret_ref` aceita `env:NOME_DA_VARIAVEL` ou `vault:UUID` criado pelo cofre do Bees. O valor é resolvido no processo imediatamente antes da requisição e enviado no cabeçalho de autenticação ao endpoint escolhido. Não copie a chave para o JSON, o banco, o chat ou variáveis `VITE_*`. O resolver não lê `.env` automaticamente e não tenta outras credenciais quando uma referência está ausente. A configuração da abelha guarda somente a referência. Erros públicos não reproduzem corpo de resposta, cabeçalho ou entrada de configuração inválida.
 
-O resolver por ambiente é o primeiro SecretStore multiplataforma. O cofre DPAPI no Windows e o cofre/chave separada no Linux permanecem no desenho alvo para o onboarding. Variáveis de ambiente exigem provisionamento e proteção pelo operador; este driver não implementa armazenamento criptografado, exportação nem a interface de credenciais.
+O onboarding guarda chaves em arquivos cifrados pelo DPAPI CurrentUser no Windows ou por Fernet com chave externa no Linux. API e CLI usam o mesmo resolver composto, sem fallback silencioso. Variáveis de ambiente exigem provisionamento e proteção pelo operador; exportação de segredos continua pendente. [Primeiro acesso](onboarding.md) descreve configuração e limites do cofre.
 
 ## Primeiro fluxo pelo terminal
 
@@ -34,7 +34,7 @@ Execute da raiz após `uv sync --locked`. Prepare uma cópia privada do JSON de 
 Verificar disponibilidade, sem gerar uma conversa:
 
 ```sh
-uv run --locked bees-model diagnose --config data/model.json
+uv run --locked bees-model diagnose --config data/model.json --data-dir data
 ```
 
 Criar uma abelha e sua primeira conversa:
@@ -59,7 +59,7 @@ uv run --locked bees-model configure --agent UUID_DA_ABELHA --expected-revision 
 
 A troca preserva o estado e recusa incompatibilidades com funções presentes no histórico. A nova configuração é escolha explícita do operador: a próxima conversa poderá enviar o histórico ao novo endpoint. O Bees não migra dados para outro fornecedor para contornar erro. A criação/configuração não realiza geração; use diagnóstico e uma conversa de teste para comprovar o backend. Instâncias em execução conservam o provedor já selecionado; edição concorrente impede gravar uma resposta como se tivesse usado a nova configuração.
 
-`--data-dir` ou `BEES_DATA_DIR` escolhe o mesmo diretório privado da API. Esta CLI é uma operação de um usuário autorizado do sistema operacional; não há HTTP de escrita nem autenticação web de modelos nesta etapa. Pare o serviço antes de atualizar dependências ou migrar o banco.
+`--data-dir` ou `BEES_DATA_DIR` escolhe o mesmo diretório privado da API. A CLI usa o acesso do operador do sistema; a interface web exige sessão e CSRF. Pare o serviço antes de atualizar dependências ou migrar o banco.
 
 ## Uso, erros e concorrência
 
@@ -75,7 +75,7 @@ A biblioteca interna também aceita mensagens de resultado `tool`. Quando uma re
 
 Testes usam transportes controlados e servidores HTTP de loopback com mensagens de teste. Eles exercitam serialização, conversa/funções/resultados nos dois protocolos, restrições de destino, erros sem credenciais e preservação de estado. Isso comprova o driver e seu contrato, não a qualidade de um modelo nem equivalência completa com Dots/Grok Bot.
 
-Nesta máquina não foi encontrado Ollama instalado/escutando na inspeção inicial; não foi feita geração contra serviço pago. A comprovação com um modelo local e um remoto reais continua necessária para completar o aceite operacional. O onboarding pode integrar estes drivers enquanto essa verificação é preparada.
+Nesta máquina não foi encontrado Ollama instalado/escutando na inspeção inicial; não foi feita geração contra serviço pago. A comprovação com um modelo local e um remoto reais continua necessária para completar o aceite operacional. O onboarding integra estes drivers enquanto essa verificação é preparada.
 
 ## Fontes dos protocolos
 
@@ -86,3 +86,9 @@ Consultadas em 04/10/2026:
 - [Ollama — OpenAPI](https://github.com/ollama/ollama/blob/main/docs/openapi.yaml): capacidades e metadados de modelos remotos.
 - [HTTPX — Environment variables](https://www.python-httpx.org/environment_variables/): proxies implícitos e `trust_env`.
 - [jsonschema — Referencing](https://python-jsonschema.readthedocs.io/en/stable/referencing/): resolução de schemas sem consulta remota.
+
+## Interface autenticada
+
+A interface exige sessão, permite testar a conexão, criar a abelha e enviar texto. O teste consulta disponibilidade/capacidades e gera uma confirmação vinculada à sessão e à configuração por cinco minutos. Alterar endpoint, modelo, capacidades ou chave exige novo teste. Geração ocorre apenas ao enviar a conversa; o teste de catálogo não comprova que o modelo responde corretamente.
+
+Há duas chamadas de modelo simultâneas por processo e uma por conversa na API web. Mensagens são persistidas antes da chamada; falha pode deixar a mensagem enviada sem resposta. Atualize o histórico antes de decidir repetir: timeout não comprova que o fornecedor deixou de processar/cobrar. A aplicação não faz retry automático. Limites aqui não são orçamento de consumo; limites por tarefa serão implementados no executor.

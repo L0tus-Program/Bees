@@ -14,7 +14,7 @@ from bees_api.runtime import validate_sqlite_runtime
 def test_health_without_frontend(tmp_path: Path) -> None:
     with TestClient(
         create_app(Settings(web_dist=tmp_path / "missing", data_dir=tmp_path / "state")),
-        base_url="http://127.0.0.1",
+        base_url="http://127.0.0.1:8000",
     ) as client:
         response = client.get("/api/v1/health")
         assert response.status_code == 200
@@ -33,7 +33,7 @@ def test_spa_does_not_hide_api_or_asset_errors(tmp_path: Path) -> None:
     (tmp_path / "app.js").write_text("console.log('teste');", encoding="utf-8")
     with TestClient(
         create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state")),
-        base_url="http://127.0.0.1",
+        base_url="http://127.0.0.1:8000",
     ) as client:
         assert client.get("/").status_code == 200
         assert "Bees de teste" in client.get("/connections").text
@@ -112,7 +112,7 @@ def test_external_environment_host_is_rejected(monkeypatch: pytest.MonkeyPatch) 
 def test_untrusted_host_is_rejected(tmp_path: Path) -> None:
     with TestClient(
         create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state")),
-        base_url="http://127.0.0.1",
+        base_url="http://127.0.0.1:8000",
     ) as client:
         response = client.get("/api/v1/health", headers={"host": "untrusted.example"})
         assert response.status_code == 400

@@ -55,7 +55,7 @@ Uma revisão desatualizada gera `RevisionConflict`; releia antes de editar. Regi
 
 Mensagens são append-only. Após sair de prepared, ações preservam parâmetros; após despacho, preservam evidências. Resultado `outcome_unknown` não volta para `ready` e não é repetido automaticamente. `actions.reconcile(...)` é uma operação interna explícita, exige revisão e referência de evidência e apenas conclui como `confirmed` ou `failed_no_effect`. Não constitui verificação externa nem aprovação de usuário por si só.
 
-Eventos guardam metadados de mudança, sem copiar textos, parâmetros ou resultados. Não são snapshots integrais de versões anteriores. Conteúdo livre pode ser privado: não coloque credenciais em `provider_config`, memória ou parâmetros; integrações futuras usam referências ao SecretStore. Actor/source/correlation são metadados internos, não prova de identidade ou permissão.
+Eventos guardam metadados de mudança, sem copiar textos, parâmetros ou resultados. Não são snapshots integrais de versões anteriores. Conteúdo livre pode ser privado: não coloque credenciais em `provider_config`, memória ou parâmetros; credenciais usam referências env:VAR ou vault:UUID no SecretStore. Actor/source/correlation são metadados internos, não prova de identidade ou permissão.
 
 ## Migrações e backup
 
@@ -83,6 +83,12 @@ Repositórios não oferecem deleção genérica nem TTL para histórico, aprova�
 
 ## Serviço e validação
 
-`GET /api/v1/state/status` informa apenas disponibilidade, engine e versão de esquema. Não revela textos, IDs de agentes ou caminho da base. Não há HTTP de escrita de registros antes do onboarding/autenticação; os repositórios são uma interface interna confiável.
+`GET /api/v1/state/status` informa apenas disponibilidade, engine e versão de esquema. Não revela textos, IDs de agentes ou caminho da base. A criação de abelhas e as conversas têm endpoints protegidos por sessão e CSRF, descritos em [onboarding](onboarding.md). Os repositórios e a CLI continuam interfaces internas de confiança do operador.
 
 Testes usam bases reais em pastas temporárias: grafo inteiro reaberto em outro processo, rollback de registro/evento, revisões concorrentes, integridade de vínculos, backups/migrações com falha e retenção sem perda de estado canônico. Testes de lifecycle reabrem a API na mesma pasta e comprovam recusa de checksum alterado.
+
+## Identidade e credenciais
+
+A migração 0002 acrescenta identidade individual, bootstrap de uso único, sessões e limites de tentativas. Senhas são hashes Argon2id; tokens de sessão/bootstrap são armazenados por hash. Sessões têm validade absoluta e revogação persistida. Os códigos de teste de conexão ficam em memória por cinco minutos; uma criação confirmada possui evidência de idempotência no banco, permitindo reconhecer o mesmo pedido após reinício.
+
+Chaves de modelo são arquivos cifrados em `BEES_DATA_DIR/vault`; o banco guarda referências opacas. Backup da base sozinho não inclui o cofre. Preserve os arquivos e o acesso à chave externa no Linux ou ao perfil DPAPI original no Windows. Copiar blobs DPAPI para outro usuário/máquina não constitui restauração portável. Não há exportação/restauração guiada de segredos nesta etapa.

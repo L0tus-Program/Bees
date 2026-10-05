@@ -50,7 +50,12 @@ class ProviderConfig(Contract):
     endpoint: str = Field(min_length=1, max_length=2048)
     model: str = Field(min_length=1, max_length=200)
     secret_ref: str | None = Field(
-        default=None, max_length=128, pattern=r"^env:[A-Za-z_][A-Za-z0-9_]*$"
+        default=None,
+        max_length=128,
+        pattern=(
+            r"^(env:[A-Za-z_][A-Za-z0-9_]*|vault:[0-9a-f]{8}-[0-9a-f]{4}-"
+            r"4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"
+        ),
     )
     capabilities: ProviderCapabilities
     timeout_seconds: float = Field(default=30, gt=0, le=300, allow_inf_nan=False)

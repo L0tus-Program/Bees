@@ -2,7 +2,7 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: fundação e drivers de modelos.** API de saúde, painel de diagnóstico e persistência funcionam. Adaptadores remoto/local e uma CLI permitem configurar uma abelha e conversar com um modelo provisionado pelo operador, mantendo o histórico no Bees. Execução autônoma de tarefas, permissões, VM, conector pessoal e onboarding web ainda serão implementados. A validação dos drivers usa protocolos controlados; geração com modelos reais continua pendente. Ainda não há autenticação para publicação na internet.
+**Estágio atual: assistente de texto com primeiro acesso autenticado.** Configure e teste seu modelo na interface, crie uma abelha e converse com histórico persistente. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, memória editável, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
 ## Requisitos
 
@@ -34,7 +34,7 @@ Terminal 2, interface com atualização automática:
 npm --prefix apps/web run dev
 ```
 
-Abrir [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite encaminha `/api` ao serviço em `127.0.0.1:8000`. O painel verifica uma conexão real e permite tentar novamente quando o serviço estiver indisponível.
+Abrir [http://127.0.0.1:5173](http://127.0.0.1:5173). Vite encaminha `/api` ao serviço em `127.0.0.1:8000`. A interface usa a API local e permite tentar novamente quando o serviço estiver indisponível.
 
 ## Interface compilada
 
@@ -45,20 +45,34 @@ uv run --locked bees-api
 
 Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). O mesmo processo serve API e arquivos estáticos de `apps/web/dist`. Sem build, a API continua disponível; a raiz informa a ausência da interface compilada. `vite preview` não é o servidor de produção.
 
+## Primeiro acesso
+
+Com a API iniciada, gere o código de configuração em outro terminal:
+
+```sh
+uv run --locked bees-auth bootstrap
+```
+
+Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois escolha protocolo, endpoint e modelo, teste a conexão e crie a abelha. Uma chave real só é necessária para um provedor que a exija; Ollama precisa de um modelo local instalado.
+
+[Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. Computadores das abelhas e máquina pessoal aparecem como recursos em preparação.
+
 ## Configuração
 
 [.env.example](.env.example) documenta as variáveis sem credenciais. O serviço não carrega `.env` automaticamente; defina variáveis no shell ou supervisor.
 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
-| `BEES_HOST` | `127.0.0.1` | Apenas loopback nesta fundação, enquanto não há autenticação. |
+| `BEES_HOST` | `127.0.0.1` | Bind em loopback, inclusive atrás de proxy HTTPS. |
 | `BEES_PORT` | `8000` | Porta HTTP; o proxy de desenvolvimento espera 8000. |
 | `BEES_WEB_DIST` | `apps/web/dist` no checkout | Caminho opcional da interface compilada. |
 | `BEES_DATA_DIR` | `data` no checkout | Pasta privada da base SQLite, em filesystem local. |
 | `BEES_CACHE_TTL_SECONDS` | `86400` | TTL de cache derivado; estado canônico não expira. |
 | `BEES_CACHE_PRUNE_LIMIT` | `1000` | Lote de limpeza de cache expirado no startup, entre 1 e 1000. |
+| `BEES_PUBLIC_URL` | ausente | Origem HTTPS exata para acesso remoto por proxy local. |
+| `BEES_VAULT_KEY` | ausente | Chave Fernet externa para cofre no Linux; Windows usa DPAPI do usuário atual. |
 
-SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; o banco de domínio é criado/migrado antes de aceitar tráfego. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema. [Persistência e migrações](docs/persistence.md) descrevem os contratos e a manutenção com serviço parado. Não há HTTP de escrita de registros nesta etapa.
+SQLite é fornecido por APSW fixado nas dependências. O serviço verifica a versão efetiva na inicialização e recusa versões inseguras; o banco de domínio é criado/migrado antes de aceitar tráfego. Não troca DLL do Python global nem recorre ao `sqlite3` do sistema. [Persistência e migrações](docs/persistence.md) descrevem os contratos e a manutenção com serviço parado. Identidade, criação de abelhas e conversa possuem endpoints autenticados; ferramentas e tarefas autônomas continuam pendentes.
 
 ## Servidor Linux / VPS
 
@@ -68,7 +82,7 @@ Instale os requisitos, copie o checkout, execute a instalação com lockfiles e 
 ssh -N -L 8000:127.0.0.1:8000 usuario@seu-servidor
 ```
 
-Abra `http://127.0.0.1:8000` localmente. Mantenha a porta HTTP fechada à internet. A instalação pública com identidade, sessão e HTTPS será entregue junto da autenticação; esta etapa não é um deployment de produção. O workflow verifica Windows e Linux quando executado; resultados locais desta rodada foram obtidos no Windows.
+Abra `http://127.0.0.1:8000` localmente. Mantenha a porta HTTP fechada à internet. Para acesso HTTPS direto, siga a configuração de proxy e origem em [onboarding](docs/onboarding.md). Configurar a aplicação não provisiona domínio, certificado ou proxy. O workflow verifica Windows e Linux quando executado; resultados locais desta rodada foram obtidos no Windows.
 
 A futura VM da abelha exige KVM/libvirt no Linux ou Hyper-V suportado no Windows. Uma VPS sem virtualização pode hospedar o serviço e conectar uma VM em outro host do usuário. A fundação não provisiona nenhuma dessas máquinas.
 
@@ -90,11 +104,12 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 
 ## Arquitetura e continuidade
 
-- [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, autenticação planejada, protocolos e limites.
+- [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, fronteiras de autenticação, protocolos e limites.
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
 - [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
+- [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 
-Drivers de BEES-005 implementados, com comprovação operacional remoto/local ainda pendente. O onboarding (BEES-004) pode integrar esses contratos. Computador próprio e conector pessoal são requisitos do MVP completo.
+Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Computador próprio e conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.

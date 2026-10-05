@@ -45,7 +45,7 @@ MESSAGES: dict[str, str] = {
     "provider_unavailable": "O provedor está indisponível.",
     "redirect_refused": "Redirecionamento recusado; revise o endpoint explícito.",
     "provider_rejected": "O provedor recusou a requisição.",
-    "invalid_secret_reference": "Referência de segredo inválida; use env:VAR.",
+    "invalid_secret_reference": "Referência de credencial inválida ou não suportada.",
     "invalid_secret": "Credencial inválida para o transporte configurado.",
     "invalid_history": "Histórico incompatível com o contrato de conversa.",
     "conversation_scope": "Conversa não pertence ao agente solicitado.",

@@ -1,4 +1,4 @@
-"""Operação explícita de modelos pelo terminal, enquanto o onboarding não tem autenticação."""
+"""Operação explícita de modelos persistentes pelo terminal."""
 
 import argparse
 import asyncio
@@ -9,15 +9,16 @@ from collections.abc import Sequence
 from pathlib import Path
 from uuid import UUID
 
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from bees_api.config import default_data_dir
 from bees_core.models import Agent, Conversation
 from bees_core.providers.base import create_adapter
 from bees_core.providers.contracts import ProviderConfig
 from bees_core.providers.errors import ProviderError
-from bees_core.providers.secrets import EnvSecretResolver
+from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
+from bees_core.providers.vault import FileSecretVault
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore, StoreError
 
@@ -39,7 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     chat.add_argument("--agent", type=UUID, required=True)
     chat.add_argument("--conversation", type=UUID, required=True)
     chat.add_argument("--text", help="Sem este argumento, lê o texto da entrada padrão.")
-    for command in (create, configure, chat):
+    for command in (diagnose, create, configure, chat):
         command.add_argument(
             "--data-dir",
             type=Path,
@@ -64,7 +65,11 @@ def _write(value: dict) -> None:
 async def run_cli(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        resolver = EnvSecretResolver()
+        vault_key = os.environ.get("BEES_VAULT_KEY")
+        vault = FileSecretVault(
+            args.data_dir / "vault", key=SecretStr(vault_key) if vault_key is not None else None
+        )
+        resolver = build_secret_resolver(vault)
         if args.command == "diagnose":
             config = _read_config(args.config)
             diagnostic = await create_adapter(config.kind, resolver).diagnose(config)

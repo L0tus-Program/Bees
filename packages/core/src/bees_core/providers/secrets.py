@@ -1,13 +1,19 @@
 """Resolução privada de referências; valores não pertencem ao estado canônico."""
 
+from __future__ import annotations
+
 import os
 import re
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
 
 from bees_core.providers.contracts import SecretResolver
 from bees_core.providers.errors import ProviderError
+
+if TYPE_CHECKING:
+    from bees_core.providers.vault import FileSecretVault
 
 
 class EnvSecretResolver:
@@ -40,3 +46,31 @@ class EnvSecretResolver:
 # Nomes equivalentes para quem chama o contrato de resolver ou secret store.
 EnvSecretStore = EnvSecretResolver
 SecretStore = SecretResolver
+
+
+class CompositeSecretResolver:
+    """Despacha pela referência explícita, sem fallback entre fontes de segredo."""
+
+    def __init__(
+        self,
+        vault: FileSecretVault | None = None,
+        environment: Mapping[str, str] | None = None,
+    ) -> None:
+        self._environment = EnvSecretResolver(environment)
+        self._vault = vault
+
+    def resolve(self, secret_ref: str) -> SecretStr:
+        if isinstance(secret_ref, str) and secret_ref.startswith("env:"):
+            return self._environment.resolve(secret_ref)
+        if isinstance(secret_ref, str) and secret_ref.startswith("vault:"):
+            if self._vault is None:
+                raise ProviderError("secret_unavailable")
+            return self._vault.resolve(secret_ref)
+        raise ProviderError("invalid_secret_reference")
+
+
+def build_secret_resolver(
+    vault: FileSecretVault | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> CompositeSecretResolver:
+    return CompositeSecretResolver(vault, environment)

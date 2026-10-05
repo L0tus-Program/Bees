@@ -5,9 +5,12 @@ from pathlib import Path
 
 import httpx
 import pytest
+from cryptography.fernet import Fernet
+from pydantic import SecretStr
 
 from bees_api import model_cli
 from bees_core.providers.service import ProviderService
+from bees_core.providers.vault import FileSecretVault
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore
 
@@ -193,3 +196,171 @@ def test_empty_stdin_is_safe_error(tmp_path, capsys, monkeypatch):
     )
     assert status == 1
     assert output["code"] == "invalid_configuration"
+
+
+def provision_vault(data: Path, monkeypatch) -> tuple[FileSecretVault, str]:
+    key = Fernet.generate_key().decode("ascii")
+    monkeypatch.setenv("BEES_VAULT_KEY", key)
+    vault = FileSecretVault(data / "vault", key=SecretStr(key))
+    return vault, vault.put(SecretStr("vault-private-test-secret"))
+
+
+def test_switch_to_vault_and_chat_after_reopening(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "private"
+    vault, reference = provision_vault(data, monkeypatch)
+    config = config_file(tmp_path)
+    status, created = run(
+        ["create", "--name", "Abelha", "--config", str(config), "--data-dir", str(data)],
+        capsys,
+    )
+    assert status == 0
+    config_file(tmp_path, secret_ref=reference)
+    status, changed = run(
+        [
+            "configure",
+            "--agent",
+            created["agent_id"],
+            "--expected-revision",
+            "1",
+            "--config",
+            str(config),
+            "--data-dir",
+            str(data),
+        ],
+        capsys,
+    )
+    assert status == 0
+    assert changed == {"agent_id": created["agent_id"], "revision": 2}
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {"role": "assistant", "content": "Resposta"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(
+        model_cli,
+        "ProviderService",
+        lambda database, resolver: ProviderService(
+            database, resolver, transport=httpx.MockTransport(handler)
+        ),
+    )
+    status, response = run(
+        [
+            "chat",
+            "--agent",
+            created["agent_id"],
+            "--conversation",
+            created["conversation_id"],
+            "--text",
+            "Pergunta",
+            "--data-dir",
+            str(data),
+        ],
+        capsys,
+    )
+    assert status == 0
+    assert response["message"]["content"] == "Resposta"
+    assert len(requests) == 1
+    assert requests[0].headers["authorization"] == "Bearer vault-private-test-secret"
+    assert b"vault-private-test-secret" not in requests[0].content
+    assert "vault-private-test-secret" not in json.dumps(response)
+    database = Database(data / "bees.sqlite3")
+    with StateStore(database).transaction(write=False) as unit:
+        agent = unit.agents.get(created["agent_id"])
+        assert agent.provider_config["secret_ref"] == reference
+        assert "vault-private-test-secret" not in agent.model_dump_json()
+        assert [
+            item.content for item in unit.messages.list(conversation_id=created["conversation_id"])
+        ] == ["Pergunta", "Resposta"]
+    assert vault.resolve(reference).get_secret_value() == "vault-private-test-secret"
+    assert b"vault-private-test-secret" not in (data / "bees.sqlite3").read_bytes()
+
+
+@pytest.mark.parametrize("data_dir_source", ["argument", "environment"])
+def test_diagnose_resolves_vault_without_creating_database(
+    tmp_path, monkeypatch, capsys, data_dir_source
+):
+    data = tmp_path / "private"
+    _, reference = provision_vault(data, monkeypatch)
+    config = config_file(tmp_path, secret_ref=reference)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(200, json={"data": [{"id": "test-model"}]})
+
+    factory = model_cli.create_adapter
+    monkeypatch.setattr(
+        model_cli,
+        "create_adapter",
+        lambda kind, resolver: factory(kind, resolver, transport=httpx.MockTransport(handler)),
+    )
+    args = ["diagnose", "--config", str(config)]
+    if data_dir_source == "argument":
+        args.extend(["--data-dir", str(data)])
+    else:
+        monkeypatch.setenv("BEES_DATA_DIR", str(data))
+    status, result = run(args, capsys)
+    assert status == 0
+    assert result["status"] == "ok"
+    assert len(requests) == 1
+    assert requests[0].headers["authorization"] == "Bearer vault-private-test-secret"
+    assert "vault-private-test-secret" not in json.dumps(result)
+    assert not (data / "bees.sqlite3").exists()
+
+
+def test_missing_vault_secret_refuses_chat_without_fallback(tmp_path, monkeypatch, capsys):
+    from uuid import uuid4
+
+    data = tmp_path / "private"
+    monkeypatch.setenv("BEES_TEST_KEY", "fallback-private-test-secret")
+    config = config_file(tmp_path, secret_ref=f"vault:{uuid4()}")
+    status, created = run(
+        ["create", "--name", "Abelha", "--config", str(config), "--data-dir", str(data)],
+        capsys,
+    )
+    assert status == 0
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        pytest.fail("Credencial ausente não pode gerar requisição de rede.")
+
+    monkeypatch.setattr(
+        model_cli,
+        "ProviderService",
+        lambda database, resolver: ProviderService(
+            database, resolver, transport=httpx.MockTransport(handler)
+        ),
+    )
+    status, result = run(
+        [
+            "chat",
+            "--agent",
+            created["agent_id"],
+            "--conversation",
+            created["conversation_id"],
+            "--text",
+            "Pergunta",
+            "--data-dir",
+            str(data),
+        ],
+        capsys,
+    )
+    assert status == 1
+    assert result["code"] == "secret_unavailable"
+    assert "fallback-private-test-secret" not in json.dumps(result)
+    assert not requests
+    with StateStore(Database(data / "bees.sqlite3")).transaction(write=False) as unit:
+        assert unit.messages.list(conversation_id=created["conversation_id"]) == []
+    assert not (data / "vault").exists()

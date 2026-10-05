@@ -368,6 +368,16 @@ def _validate_action_update(previous: Action, updated: Action, *, reconciled: bo
 
 
 class Agents(_Repository[Agent]):
+    def find_onboarding_receipt(self, receipt_hash: str) -> list[Agent]:
+        """Localiza até duas criações para detectar também um estado ambíguo."""
+        self._context.check()
+        rows = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM agents "
+            "WHERE json_extract(metadata_json, '$.onboarding_command.receipt_hash')=? LIMIT 2",
+            (receipt_hash,),
+        )
+        return [self._decode(row) for row in rows]
+
     def list(
         self,
         *,
@@ -380,12 +390,24 @@ class Agents(_Repository[Agent]):
 
 class Conversations(_Repository[Conversation]):
     def list(
-        self, *, agent_id: UUID | None = None, limit: int = 100, offset: int = 0
+        self,
+        *,
+        agent_id: UUID | None = None,
+        status: Literal["active", "archived"] | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[Conversation]:
-        return self._list({"agent_id": agent_id}, limit, offset)
+        return self._list({"agent_id": agent_id, "status": status}, limit, offset)
 
 
 class Messages(_Repository[Message]):
+    def count(self, *, conversation_id: UUID) -> int:
+        self._context.check()
+        return self._context.connection.execute(
+            "SELECT count(*) FROM messages WHERE conversation_id=?",
+            (str(UUID(str(conversation_id))),),
+        ).get
+
     def list(
         self, *, conversation_id: UUID | None = None, limit: int = 100, offset: int = 0
     ) -> list[Message]:
