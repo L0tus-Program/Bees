@@ -294,3 +294,53 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
   .composer-actions { gap: 12px; align-items: flex-start; }
   .composer-actions button { min-width: 85px; }
 }
+
+/* Persistent bee preferences and context. */
+.bee-navigation { display: flex; gap: 5px; flex-wrap: wrap; margin: 0 0 18px; border-bottom: 1px solid var(--line); padding-bottom: 9px; }
+.bee-navigation button { background: transparent; border: 1px solid transparent; padding: 11px 15px; min-height: 44px; border-radius: 8px; color: #60694f; font-size: 12px; font-weight: 600; }
+.bee-navigation button.current { color: #463b20; background: #ede3c8; border-color: #dbc898; }
+.bee-navigation button:hover:not(.current) { background: #eceee3; }
+.saved-notice { margin: 0 0 18px; }
+.transfer-notice { border-left: 3px solid #c8a34e; background: #f7efda; padding: 13px 15px; color: #6b572c; font-size: 12px; line-height: 1.8; margin: 20px 0; }
+.form-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.form-heading .section-label { color: var(--muted); margin-bottom: 10px; }
+.form-heading h2 { line-height: 1.4; }
+.form-heading > button { flex-shrink: 0; }
+.form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.memory-toolbar { display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; padding-top: 5px; }
+.memory-empty { padding: 40px 15px; text-align: center; }
+.memory-empty h3 { font-size: 19px; margin-bottom: 12px; }
+.memory-empty p { font-size: 13px; line-height: 1.8; color: var(--muted); max-width: 390px; margin: 0 auto; }
+.memory-list { display: grid; gap: 16px; margin-top: 7px; }
+.memory-card { background: #f5f5ee; border: 1px solid #e0e3d7; padding: 20px; border-radius: 10px; }
+.memory-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 13px; }
+.memory-badges span { font-size: 10px; background: #e7ebdb; color: #5b674c; border-radius: 4px; padding: 4px 7px; }
+.memory-badges span:last-child { background: #ede6d5; color: #755e2d; }
+.memory-content { font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-details { margin: 16px 0 0; display: grid; gap: 8px; font-size: 11px; color: var(--muted); }
+.memory-details > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.memory-details dd { overflow-wrap: anywhere; line-height: 1.65; }
+.memory-details a { color: #65783d; text-underline-offset: 3px; }
+.memory-actions { display: flex; justify-content: flex-end; gap: 15px; border-top: 1px solid #dfe2d5; margin-top: 14px; padding-top: 6px; }
+.destructive-text { color: #8d4838; }
+.confirm-dialog { max-width: 510px; width: calc(100% - 36px); padding: 30px; background: #fffef9; color: var(--ink); border: 1px solid var(--line); border-radius: 15px; }
+.confirm-dialog::backdrop { background: #26302599; }
+.confirm-dialog h2 { font-size: 23px; letter-spacing: -.5px; margin-bottom: 16px; }
+.confirm-dialog > p { font-size: 13px; line-height: 1.8; color: var(--muted); }
+.confirm-dialog blockquote { margin: 20px 0; padding: 14px 16px; border-left: 3px solid #c1c9b1; background: #f0f3e8; font-size: 13px; white-space: pre-wrap; line-height: 1.8; max-height: 210px; overflow: auto; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 22px; }
+.button.danger { background: #994e3d; color: #fff; border-color: #994e3d; min-height: 44px; }
+.button.danger:hover:not(:disabled) { background: #804233; }
+.memory-form h2:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
+@media (max-width: 550px) {
+  .bee-navigation { gap: 3px; }
+  .bee-navigation button { padding: 10px 11px; font-size: 11px; flex: 1; }
+  .form-row, .memory-toolbar { grid-template-columns: 1fr; gap: 0; }
+  .form-heading { align-items: flex-start; gap: 15px; }
+  .memory-panel .form-heading { flex-direction: column; }
+  .memory-card { padding: 16px 13px; }
+  .memory-details > div { grid-template-columns: 80px minmax(0, 1fr); gap: 10px; }
+  .memory-actions { justify-content: space-between; gap: 8px; }
+  .confirm-dialog { padding: 25px 21px; }
+  .dialog-actions { flex-wrap: wrap; }
+}

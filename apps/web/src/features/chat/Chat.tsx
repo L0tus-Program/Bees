@@ -10,6 +10,7 @@ import { useResource } from '../../hooks/useResource'
 
 export function Chat({ agent }: { agent: AgentSummary & { conversation_id: string } }) {
   const { t, i18n } = useTranslation('product')
+  const { t: bee } = useTranslation('bee')
   const load = useCallback((signal: AbortSignal) => messages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const { resource, reload } = useResource(load)
   const [draft, setDraft] = useState('')
@@ -25,7 +26,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || resource.state !== 'ready' || !draft.trim()) return
+    if (busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active') return
     setBusy(true); setError(null)
     controller.current = new AbortController()
     try {
@@ -44,6 +45,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
     <section className="surface conversation" aria-labelledby="conversation-heading">
       <div className="conversation-heading"><div><p className="section-label">{t('conversation')}</p><h2 id="conversation-heading">{agent.name}</h2></div><button type="button" className="text-button" onClick={reload} disabled={busy || resource.state === 'loading'}>{t('refreshHistory')}</button></div>
       <p className="conversation-scope">{t('chatScope')}</p>
+      {agent.status !== 'active' && <p className="transfer-notice">{bee('inactiveConversation', { status: bee(`status_${agent.status}`) })}</p>}
       {error && <ErrorNotice error={error} />}
       {resource.state === 'loading' && <LoadingNotice />}
       {resource.state === 'error' && <><ErrorNotice error={resource.error} /><button className="button secondary" type="button" onClick={reload}>{t('retry')}</button></>}
@@ -63,8 +65,8 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
       {busy && <p className="chat-pending" role="status">{t('waitingModel')}</p>}
       <form className="chat-composer" onSubmit={(event) => { void submit(event) }}>
         <label htmlFor="chat-input" className="sr-only">{t('messageLabel')}</label>
-        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
-        <div className="composer-actions"><small id="chat-help">{t('chatCost')}</small><button className="button primary" type="submit" disabled={busy || resource.state !== 'ready' || !draft.trim()}>{t(busy ? 'sending' : 'send')}</button></div>
+        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy || agent.status !== 'active'} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
+        <div className="composer-actions"><small id="chat-help">{t('chatCost')}</small><button className="button primary" type="submit" disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{t(busy ? 'sending' : 'send')}</button></div>
       </form>
     </section>
   )

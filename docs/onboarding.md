@@ -1,6 +1,6 @@
 # Primeiro acesso e segurança
 
-O Bees possui uma identidade individual com nome e senha. Várias abelhas e sessões usam essa identidade; equipes e tenants ainda não existem. A interface oferece conversa de texto persistida. Ambientes de computador, execução de ferramentas e tarefas em segundo plano continuam em preparação.
+O Bees possui uma identidade individual com nome e senha. Várias abelhas e sessões usam essa identidade; equipes e tenants ainda não existem. A interface oferece conversa de texto persistida. Perfis e memórias podem ser editados pela interface, conforme [guia de memória](memory.md). Ambientes de computador, execução de ferramentas e tarefas em segundo plano continuam em preparação.
 
 ## Instalação local
 

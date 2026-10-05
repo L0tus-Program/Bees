@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from bees_api.auth import COOKIE_NAME, require_session
 from bees_core.models import Agent, Conversation
+from bees_core.profiles import memory_enabled
 from bees_core.providers.base import create_adapter
 from bees_core.providers.contracts import ProviderConfig, validate_capabilities
 from bees_core.providers.errors import ProviderError
@@ -35,6 +36,7 @@ class Input(BaseModel):
 
 
 class ModelInput(Input):
+    agent_id: UUID | None = None
     config: ProviderConfig
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=8192, repr=False)
 
@@ -56,6 +58,7 @@ class CreateAgentInput(ModelInput):
 
 class ChatInput(Input):
     conversation_id: UUID
+    task_id: UUID | None = None
     content: str = Field(min_length=1, max_length=32768)
 
 
@@ -117,6 +120,8 @@ def _signature(body: ModelInput, binding: str, *, creation: bool = False) -> str
         "config": body.config.model_dump(mode="json"),
         "api_key": body.api_key.get_secret_value() if body.api_key is not None else None,
     }
+    if body.agent_id is not None:
+        data["agent_id"] = str(body.agent_id)
     if creation:
         data.update(name=body.name, purpose=body.purpose, instructions=body.instructions)
     raw = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -156,6 +161,22 @@ def _connection(request: Request, body: ModelInput):
     return config, resolver
 
 
+def validate_existing_reference(agent: Agent, config: ProviderConfig) -> None:
+    """Credencial existente só é reaproveitada na mesma conexão explicitamente escolhida."""
+    if config.secret_ref is None:
+        return
+    previous = (
+        ProviderConfig.model_validate(agent.provider_config) if agent.provider_config else None
+    )
+    if (
+        previous is None
+        or config.secret_ref != previous.secret_ref
+        or config.kind != previous.kind
+        or config.endpoint != previous.endpoint
+    ):
+        raise ProviderError("invalid_config")
+
+
 def _summary(unit, agent: Agent) -> dict:
     conversations = unit.conversations.list(agent_id=agent.id, status="active", limit=1)
     return {
@@ -165,6 +186,7 @@ def _summary(unit, agent: Agent) -> dict:
         "instructions": agent.instructions,
         "revision": agent.revision,
         "status": agent.status,
+        "memory_enabled": memory_enabled(agent),
         "provider_config": agent.provider_config or None,
         "conversation_id": str(conversations[0].id) if conversations else None,
     }
@@ -192,17 +214,33 @@ def onboarding(request: Request, session: _SESSION) -> dict:
 
 @router.post("/models/test")
 async def test_model(body: ModelInput, request: Request, session: _SESSION) -> dict:
+    previous = None
+    if body.agent_id is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            previous = unit.agents.get(body.agent_id)
+            if previous is None:
+                raise NotFoundError("Abelha não encontrada.")
+        validate_existing_reference(previous, body.config)
+    elif body.config.secret_ref and body.config.secret_ref.startswith("vault:"):
+        raise ProviderError("invalid_config")
     config, resolver = _connection(request, body)
     with request.app.state.receipts.operation():
         diagnostic = await create_adapter(config.kind, resolver).diagnose(config)
     # Sessão pode ter sido encerrada enquanto o provedor respondia.
     require_session(request)
+    if previous is not None:
+        with request.app.state.store.transaction(write=False) as unit:
+            current = unit.agents.get(previous.id)
+            if current is None or current.revision != previous.revision:
+                raise ProviderError("state_conflict")
     token = request.app.state.receipts.issue(_signature(body, _binding(request)))
     return diagnostic.model_dump(mode="json") | {"validation_token": token}
 
 
 @router.post("/agents", status_code=201)
 def create_agent(body: CreateAgentInput, request: Request, session: _SESSION) -> dict:
+    if body.agent_id is not None:
+        raise ProviderError("invalid_config")
     store: StateStore = request.app.state.store
     binding = _binding(request)
     token_hash = hashlib.sha256(body.validation_token.encode()).hexdigest()
@@ -289,6 +327,8 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
 async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESSION) -> dict:
     with request.app.state.receipts.operation(body.conversation_id):
         provider: ProviderService = request.app.state.providers
-        response = await provider.chat(agent_id, body.conversation_id, body.content)
+        response = await provider.chat(
+            agent_id, body.conversation_id, body.content, task_id=body.task_id
+        )
     require_session(request)
     return response.model_dump(mode="json")

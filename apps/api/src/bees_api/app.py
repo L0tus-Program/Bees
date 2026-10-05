@@ -16,8 +16,10 @@ from starlette.types import Scope
 from bees_api import __version__
 from bees_api.auth import install_auth
 from bees_api.config import Settings
+from bees_api.configuration import router as configuration_router
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
+from bees_api.profiles import router as profiles_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
 from bees_core.providers.errors import ProviderError
@@ -99,6 +101,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestSafetyMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
     app.include_router(onboarding_router)
+    app.include_router(configuration_router)
+    app.include_router(profiles_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:

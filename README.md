@@ -2,7 +2,7 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: assistente de texto com primeiro acesso autenticado.** Configure e teste seu modelo na interface, crie uma abelha e converse com histórico persistente. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, memória editável, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
+**Estágio atual: assistente de texto com perfis e memória editável.** Configure e teste seu modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Execução autônoma, políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
 ## Requisitos
 
@@ -53,7 +53,7 @@ Com a API iniciada, gere o código de configuração em outro terminal:
 uv run --locked bees-auth bootstrap
 ```
 
-Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois escolha protocolo, endpoint e modelo, teste a conexão e crie a abelha. Uma chave real só é necessária para um provedor que a exija; Ollama precisa de um modelo local instalado.
+Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois escolha protocolo, endpoint e modelo, teste a conexão e crie a abelha. Uma chave real só é necessária para um provedor que a exija; Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
 
 [Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. Computadores das abelhas e máquina pessoal aparecem como recursos em preparação.
 
@@ -107,9 +107,10 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, fronteiras de autenticação, protocolos e limites.
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
 - [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
+- [Perfis e memória](docs/memory.md): edição, proveniência, isolamento, contexto e exclusão.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 
-Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Computador próprio e conector pessoal são requisitos do MVP completo.
+Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e setup gráfico completo permanecem planejados; o bootstrap atual ainda usa terminal. Computador próprio e conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.

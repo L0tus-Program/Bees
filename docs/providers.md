@@ -1,6 +1,6 @@
 # Modelos substituíveis
 
-O Bees mantém configuração, histórico, memória e tarefas no próprio banco. Nesta etapa o driver envia texto e declarações de funções para um único endpoint escolhido pelo operador. Receber uma chamada de função não executa ferramenta: permissões, plugins e executores são entregas posteriores.
+O Bees mantém configuração, histórico, memória e tarefas no próprio banco. A conversa envia uma janela recente e memórias selecionadas, descritas em [perfis e memória](memory.md); o histórico canônico completo permanece preservado. Nesta etapa o driver envia texto e declarações de funções para um único endpoint escolhido pelo operador. Receber uma chamada de função não executa ferramenta: permissões, plugins e executores são entregas posteriores.
 
 ## Protocolos e capacidades
 
@@ -67,7 +67,7 @@ Tokens são informados quando a resposta do fornecedor contém contadores válid
 
 Timeout, falha de conexão, autenticação, modelo ausente, capacidade incompatível, limite de payload e resposta inválida têm diagnóstico próprio. O padrão é 30 segundos por operação HTTP, deadline de 60 segundos para a sessão (incluindo probes), e 1 MiB por requisição/resposta. Esses valores são configuráveis. Respostas comprimidas são recusadas; parsing e validação síncronos têm limites de estrutura/tamanho, mas o deadline assíncrono não preempta CPU. Limites por tarefa e orçamento virão com o executor. Não há repetição automática, inclusive após timeout: o fornecedor pode já ter processado a solicitação.
 
-A entrada do usuário fica preservada quando uma solicitação aceita falha. Não existe fila/retomada automática nesta CLI. Nenhuma transação SQLite permanece aberta durante a rede. Respostas são gravadas somente se agente e conversa continuam na revisão observada. Conflito/cancelamento pode descartar uma resposta já gerada, com consumo externo possível; o processo informa falha e não repete.
+A entrada do usuário fica preservada quando uma solicitação aceita falha. Não existe fila/retomada automática nesta CLI. Nenhuma transação SQLite permanece aberta durante a rede. Respostas são gravadas somente se agente e conversa continuam na revisão observada e o contexto de memória selecionado permanece o mesmo. Conflito/cancelamento pode descartar uma resposta já gerada, com consumo externo possível; o processo informa falha e não repete.
 
 A biblioteca interna também aceita mensagens de resultado `tool`. Quando uma resposta solicita várias funções, o chamador fornece todos os resultados em um lote; lote incompleto, duplicado ou sem chamada correspondente é recusado antes da gravação/rede. O Bees valida a associação e adapta a ordem para o protocolo de destino. Este contrato não autoriza nem realiza o efeito descrito pela função.
 
@@ -89,6 +89,6 @@ Consultadas em 04/10/2026:
 
 ## Interface autenticada
 
-A interface exige sessão, permite testar a conexão, criar a abelha e enviar texto. O teste consulta disponibilidade/capacidades e gera uma confirmação vinculada à sessão e à configuração por cinco minutos. Alterar endpoint, modelo, capacidades ou chave exige novo teste. Geração ocorre apenas ao enviar a conversa; o teste de catálogo não comprova que o modelo responde corretamente.
+A interface exige sessão, permite testar a conexão, criar a abelha e enviar texto. O teste consulta disponibilidade/capacidades e gera uma confirmação vinculada à sessão e à configuração por cinco minutos; na edição, também à abelha. Alterar endpoint, modelo, capacidades ou chave exige novo teste. Geração ocorre apenas ao enviar a conversa; o teste de catálogo não comprova que o modelo responde corretamente.
 
 Há duas chamadas de modelo simultâneas por processo e uma por conversa na API web. Mensagens são persistidas antes da chamada; falha pode deixar a mensagem enviada sem resposta. Atualize o histórico antes de decidir repetir: timeout não comprova que o fornecedor deixou de processar/cobrar. A aplicação não faz retry automático. Limites aqui não são orçamento de consumo; limites por tarefa serão implementados no executor.

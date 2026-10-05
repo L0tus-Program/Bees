@@ -19,7 +19,7 @@ flowchart LR
     VIEW --> LOCAL
 ```
 
-O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, autenticação individual, cofre, onboarding e conversa web persistente, além de packages/core com estado, migrações, repositórios e adaptadores remoto/local de texto e funções. A CLI compartilha referências de credenciais e conversa persistida; funções são pedidos validados, ainda sem execução. Worker, políticas, gateways e ambientes continuam pendentes; artefatos têm metadados persistentes, não publicação de blobs. Veja [primeiro acesso](onboarding.md), [persistência](persistence.md) e [modelos](providers.md).
+O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, autenticação individual, cofre, onboarding, perfis/memória editáveis e conversa web persistente com contexto limitado, além de packages/core com estado, migrações, repositórios e adaptadores remoto/local de texto e funções. A CLI compartilha referências de credenciais e conversa persistida; funções são pedidos validados, ainda sem execução. Worker, políticas, gateways e ambientes continuam pendentes; artefatos têm metadados persistentes, não publicação de blobs. Veja [primeiro acesso](onboarding.md), [persistência](persistence.md) e [modelos](providers.md).
 
 ## Contratos
 

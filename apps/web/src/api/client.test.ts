@@ -4,7 +4,7 @@ import { authStatus, configurationSignature, createAgent, isAgent, messages, tes
 import type { ModelConfig } from './onboarding'
 
 const config: ModelConfig = { kind: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'test-model', capabilities: { text: true, tool_calls: false } }
-const agent = { id: 'bee-1', name: 'Test bee', purpose: 'Tests', instructions: '', provider_config: config, conversation_id: 'conversation-1', revision: 1 }
+const agent = { id: 'bee-1', name: 'Test bee', purpose: 'Tests', instructions: '', provider_config: config, conversation_id: 'conversation-1', revision: 1, status: 'active', memory_enabled: true }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); setCsrfToken() })
 

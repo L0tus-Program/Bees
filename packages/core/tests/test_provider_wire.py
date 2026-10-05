@@ -136,12 +136,21 @@ def test_real_http_tool_roundtrip_switch_and_reopen(tmp_path, monkeypatch, first
             provider_config=config(first_kind, endpoint).model_dump(mode="json"),
         )
         conversation = Conversation(agent_id=agent.id)
-        memory = Memory(agent_id=agent.id, scope="agent", content="Memória não solicitada")
+        memory = Memory(
+            agent_id=agent.id,
+            scope="agent",
+            content="Memória não solicitada",
+            source="external_unconfirmed",
+        )
+        preference = Memory(
+            agent_id=agent.id, scope="agent", content="Prefiro respostas em português."
+        )
         task = Task(agent_id=agent.id, title="Tarefa preservada", objective="Objetivo preservado")
         with StateStore(database).transaction() as unit:
             unit.agents.create(agent)
             unit.conversations.create(conversation)
             unit.memories.create(memory)
+            unit.memories.create(preference)
             unit.tasks.create(task)
         service = ProviderService(database)
 
@@ -167,12 +176,14 @@ def test_real_http_tool_roundtrip_switch_and_reopen(tmp_path, monkeypatch, first
         assert len(chats) == 3
         assert chats[0]["messages"][0]["content"] == agent.instructions
         assert "Memória não solicitada" not in json.dumps(chats, ensure_ascii=False)
+        assert all(preference.content in json.dumps(body, ensure_ascii=False) for body in chats)
         assert all(body["stream"] is False for body in chats)
     reopened = StateStore(Database(database.path))
     with reopened.transaction(write=False) as unit:
         assert unit.agents.get(agent.id).id == agent.id
         assert unit.agents.get(agent.id).revision == 2
         assert unit.memories.get(memory.id) == memory
+        assert unit.memories.get(preference.id) == preference
         assert unit.tasks.get(task.id) == task
         messages = unit.messages.list(conversation_id=conversation.id)
         assert len(messages) == 6

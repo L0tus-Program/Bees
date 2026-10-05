@@ -13,6 +13,10 @@ export interface ModelConfig {
   model: string
   secret_ref?: string | null
   capabilities: { text: boolean; tool_calls: boolean }
+  timeout_seconds?: number
+  deadline_seconds?: number
+  max_response_bytes?: number
+  max_request_bytes?: number
 }
 
 export interface AgentSummary {
@@ -23,6 +27,8 @@ export interface AgentSummary {
   provider_config: ModelConfig | null
   conversation_id: string | null
   revision: number
+  status: 'active' | 'paused' | 'archived'
+  memory_enabled: boolean
 }
 
 export interface Onboarding {
@@ -48,6 +54,7 @@ export function isAgent(value: unknown): value is AgentSummary {
   return record(value) && ['id', 'name', 'purpose', 'instructions'].every((key) => typeof value[key] === 'string')
     && (value.conversation_id === null || typeof value.conversation_id === 'string')
     && (value.provider_config === null || isModelConfig(value.provider_config)) && typeof value.revision === 'number'
+    && ['active', 'paused', 'archived'].includes(String(value.status)) && typeof value.memory_enabled === 'boolean'
 }
 
 export async function authStatus(signal?: AbortSignal): Promise<AuthStatus> {
@@ -78,8 +85,8 @@ export async function onboarding(signal?: AbortSignal): Promise<Onboarding> {
   return value as unknown as Onboarding
 }
 
-export async function testModel(config: ModelConfig, apiKey: string, signal?: AbortSignal): Promise<Diagnostic> {
-  const value = await request('/models/test', { body: { config, ...(apiKey ? { api_key: apiKey } : {}) }, authenticated: true, signal, timeoutMs: 40000 })
+export async function testModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string): Promise<Diagnostic> {
+  const value = await request('/models/test', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}) }, authenticated: true, signal, timeoutMs: 40000 })
   if (!record(value) || value.status !== 'ok' || typeof value.code !== 'string' || !record(value.capabilities)
     || typeof value.capabilities.text !== 'boolean' || typeof value.capabilities.tool_calls !== 'boolean'
     || typeof value.validation_token !== 'string' || !value.validation_token) throw new ApiError('invalid_response')

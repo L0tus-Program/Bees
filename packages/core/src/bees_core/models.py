@@ -204,6 +204,18 @@ class Memory(Record):
     status: Literal["active", "archived"] = "active"
     deleted_at: AwareDatetime | None = None
 
+    @field_validator("metadata")
+    @classmethod
+    def validated_memory_details(cls, value):
+        if "memory_details" in value:
+            from bees_core.memory import MemoryDetails
+
+            value = dict(value)
+            value["memory_details"] = MemoryDetails.model_validate(
+                value["memory_details"]
+            ).model_dump(mode="json")
+        return value
+
     @model_validator(mode="after")
     def consistent_scope(self) -> Self:
         if self.scope == "user" and (self.agent_id is not None or self.task_id is not None):
@@ -243,7 +255,7 @@ class DomainEvent(BaseModel):
     created_at: AwareDatetime
     entity_type: EntityType
     entity_id: UUID
-    event_type: Literal["created", "updated", "reconciled"]
+    event_type: Literal["created", "updated", "reconciled", "deleted"]
     payload: dict[str, JsonValue]
     actor: str
     source: str

@@ -79,7 +79,7 @@ Dados canônicos e ledger ficam preservados por padrão. Apenas `cache_entries` 
 - BEES_CACHE_TTL_SECONDS / --cache-ttl-seconds: TTL padrão de 86400 segundos; de 1 a 31536000.
 - BEES_CACHE_PRUNE_LIMIT / --cache-prune-limit: até 1000 entradas expiradas por inicialização; de 1 a 1000.
 
-Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
+Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Memórias possuem exclusão explícita com revisão: registro removido e evento sem conteúdo confirmados na mesma transação. Isso não elimina backups, páginas livres ou WAL; veja [memória](memory.md). Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
 
 ## Serviço e validação
 

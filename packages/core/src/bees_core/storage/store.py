@@ -487,15 +487,93 @@ class Routines(_Repository[Routine]):
 
 
 class Memories(_Repository[Memory]):
+    def delete(self, id: UUID | str, *, expected_revision: int) -> None:
+        """Apaga o registro canônico; o ledger conserva apenas identidade e revisão."""
+        if (
+            isinstance(expected_revision, bool)
+            or not isinstance(expected_revision, int)
+            or expected_revision < 1
+        ):
+            raise ValueError("expected_revision precisa ser inteiro positivo.")
+        with self._mutation():
+            previous = self.get(id)
+            if previous is None:
+                raise NotFoundError("Memória não encontrada.")
+            if previous.revision != expected_revision:
+                raise RevisionConflict("A memória mudou; releia antes de apagar.")
+            self._context.connection.execute(
+                "DELETE FROM memories WHERE id=? AND revision=?",
+                (str(previous.id), expected_revision),
+            )
+            if self._context.connection.changes() != 1:
+                raise RevisionConflict("A memória mudou durante a exclusão.")
+            self._context.connection.execute(
+                "INSERT INTO domain_events(id,created_at,entity_type,entity_id,event_type,"
+                "payload_json,actor,source,correlation_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    str(uuid4()),
+                    _timestamp(utc_now()),
+                    "memory",
+                    str(previous.id),
+                    "deleted",
+                    _json(
+                        {
+                            "revision": expected_revision + 1,
+                            "previous_revision": expected_revision,
+                            "scope": previous.scope,
+                        }
+                    ),
+                    self._context.actor,
+                    self._context.source,
+                    self._context.correlation_id,
+                ),
+            )
+
+    def visible(
+        self,
+        *,
+        agent_id: UUID,
+        task_id: UUID | None = None,
+        all_tasks: bool = False,
+        active_only: bool = False,
+    ) -> Iterator[Memory]:
+        """Percorre apenas os escopos elegíveis, sem carregar dados de outra abelha."""
+        self._context.check()
+        agent_id = UUID(str(agent_id))
+        task_id = UUID(str(task_id)) if task_id is not None else None
+        task_clause = "1=1" if all_tasks else "task_id=?"
+        values: tuple = (str(agent_id), str(agent_id))
+        if not all_tasks:
+            values += (str(task_id) if task_id is not None else None,)
+        active = (
+            " AND status='active' AND deleted_at IS NULL AND source='user'" if active_only else ""
+        )
+        rows = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM memories "
+            "WHERE (scope='user' OR (scope='agent' AND agent_id=?) "
+            f"OR (scope='task' AND agent_id=? AND {task_clause})){active} "
+            "ORDER BY created_at,id",
+            values,
+        )
+        for row in rows:
+            self._context.check()
+            yield self._decode(row)
+
     def list(
         self,
         *,
         agent_id: UUID | None = None,
         task_id: UUID | None = None,
+        scope: Literal["user", "agent", "task"] | None = None,
+        status: Literal["active", "archived"] | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Memory]:
-        return self._list({"agent_id": agent_id, "task_id": task_id}, limit, offset)
+        return self._list(
+            {"agent_id": agent_id, "task_id": task_id, "scope": scope, "status": status},
+            limit,
+            offset,
+        )
 
 
 class Artifacts(_Repository[Artifact]):
