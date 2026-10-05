@@ -19,7 +19,7 @@ flowchart LR
     VIEW --> LOCAL
 ```
 
-O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, frontend de diagnóstico e packages/core com estado persistente, migrações e repositórios. Os outros componentes ainda serão implementados; artefatos têm metadados persistentes, não publicação de blobs. Veja [persistência](persistence.md).
+O diagrama mostra o desenho alvo. A base atual contém API de saúde/status, frontend de diagnóstico e packages/core com estado persistente, migrações, repositórios e adaptadores remoto/local de texto e funções. A CLI oferece conversa persistida; funções são pedidos validados, ainda sem execução. Worker, políticas, gateways e ambientes continuam pendentes; artefatos têm metadados persistentes, não publicação de blobs. Veja [persistência](persistence.md) e [modelos](providers.md).
 
 ## Contratos
 
@@ -41,7 +41,7 @@ Um controle por tela. Uma conexão não concede acesso. Nenhum fallback silencio
 ## Organização prevista
 
 - apps/api e apps/web: primeira base executável.
-- packages/core, apps/worker, apps/connector e runtime: criar conforme a implementação do comportamento.
+- packages/core: persistência e contratos/drivers de modelo implementados; apps/worker, apps/connector e runtime serão criados conforme a implementação do comportamento.
 - docs: decisões, instalação e contratos públicos, sem depender dos arquivos locais ignorados.
 
 O plano de controle pode rodar localmente ou em VPS. Computador próprio é VM, hospedada no mesmo host quando suportado ou em infraestrutura do usuário. Banco não é compartilhado com executores e não fica em filesystem de rede.

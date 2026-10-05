@@ -2,14 +2,14 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: fundação técnica.** A API de saúde, o painel de diagnóstico e a camada interna de persistência funcionam. Registros de agentes, conversas, tarefas, decisões e resultados sobrevivem ao reinício. Onboarding, modelos, execução de tarefas, políticas de autorização, VM e conector pessoal serão implementados nas próximas etapas. Ainda não há um assistente utilizável nem autenticação para publicação na internet.
+**Estágio atual: fundação e drivers de modelos.** API de saúde, painel de diagnóstico e persistência funcionam. Adaptadores remoto/local e uma CLI permitem configurar uma abelha e conversar com um modelo provisionado pelo operador, mantendo o histórico no Bees. Execução autônoma de tarefas, permissões, VM, conector pessoal e onboarding web ainda serão implementados. A validação dos drivers usa protocolos controlados; geração com modelos reais continua pendente. Ainda não há autenticação para publicação na internet.
 
 ## Requisitos
 
 - Python 3.14; desenvolvimento validado com 3.14.4.
 - Node.js 22.17 ou posterior compatível; npm 11.6.2 usado na validação.
 - [uv](https://docs.astral.sh/uv/getting-started/installation/), validado com 0.7.21.
-- Git e terminal. Docker, hipervisor e chave de modelo não são necessários para esta etapa.
+- Git e terminal. Para testes da fundação, Docker, hipervisor e chave não são necessários. Para conversar, configure uma API remota acessível ou Ollama com um modelo local instalado.
 
 Os comandos abaixo partem da raiz do checkout. Python usa a `.venv` da raiz; frontend usa `apps/web/node_modules`. `uv.lock` e `apps/web/package-lock.json` controlam as dependências. Não instalar pacotes Python globais para executar o Bees.
 
@@ -93,7 +93,8 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [ADR 0001](docs/adr/0001-foundation.md): stack, isolamento, autenticação planejada, protocolos e limites.
 - [Mapa da arquitetura](docs/architecture.md): componentes e contratos do desenho alvo.
 - [Persistência](docs/persistence.md): transações, migrações, backup, retenção e limites atuais.
+- [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 
-Próxima entrega implementável: adaptadores de modelo remoto/local (BEES-005), antes de concluir o onboarding (BEES-004) que depende deles. O computador próprio e o conector pessoal são requisitos do MVP completo.
+Drivers de BEES-005 implementados, com comprovação operacional remoto/local ainda pendente. O onboarding (BEES-004) pode integrar esses contratos. Computador próprio e conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.

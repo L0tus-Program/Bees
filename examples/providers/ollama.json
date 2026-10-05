@@ -1,0 +1,6 @@
+{
+  "kind": "ollama",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "SUBSTITUA_PELO_MODELO_LOCAL_INSTALADO",
+  "capabilities": { "text": true, "tool_calls": false }
+}

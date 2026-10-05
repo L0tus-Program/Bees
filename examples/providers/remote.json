@@ -1,0 +1,7 @@
+{
+  "kind": "openai_compatible",
+  "endpoint": "https://api.openai.com/v1",
+  "model": "SUBSTITUA_PELO_MODELO_ESCOLHIDO",
+  "secret_ref": "env:BEES_REMOTE_API_KEY",
+  "capabilities": { "text": true, "tool_calls": false }
+}

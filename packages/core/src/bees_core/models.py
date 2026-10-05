@@ -75,11 +75,29 @@ class Record(BaseModel):
 
 
 class Agent(Record):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     name: str = Field(min_length=1, max_length=200)
     purpose: str = ""
     instructions: str = ""
     provider_config: dict[str, JsonValue] = Field(default_factory=dict)
     status: Literal["active", "paused", "archived"] = "active"
+
+    @field_validator("provider_config", mode="before")
+    @classmethod
+    def validated_provider_config(cls, value):
+        if value == {}:
+            return {}
+        # Importação tardia mantém o contrato de provedor independente de Agent.
+        from bees_core.providers.contracts import ProviderConfig
+
+        try:
+            data = value.model_dump(mode="python") if isinstance(value, ProviderConfig) else value
+            return ProviderConfig.model_validate(data).model_dump(mode="json")
+        except ValueError, TypeError:
+            raise ValueError(
+                "Configuração de provedor inválida; credenciais exigem referência privada."
+            ) from None
 
 
 class Conversation(Record):

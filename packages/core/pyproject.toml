@@ -5,6 +5,8 @@ description = "Estado e contratos de domínio independentes de modelos e transpo
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "apsw==3.53.4.0",
+    "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
     "pydantic>=2.12,<3",
     "tzdata>=2025.2",
 ]

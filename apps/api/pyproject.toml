@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 bees-api = "bees_api.cli:main"
+bees-model = "bees_api.model_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]
