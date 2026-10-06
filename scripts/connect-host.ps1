@@ -7,6 +7,15 @@
 $ErrorActionPreference = 'Stop'
 $hostTaskRoot = Split-Path -Parent $PSScriptRoot
 $hostTaskPython = Join-Path $hostTaskRoot '.venv\Scripts\python.exe'
+$hostTaskExecutable = Join-Path $hostTaskRoot 'runtime\bees-host\bees-host.exe'
+if (-not (Test-Path -LiteralPath (Split-Path -Parent $hostTaskExecutable))) {
+    $hostTaskExecutable = Join-Path $hostTaskRoot 'dist\host-windows\bees-host-windows\runtime\bees-host\bees-host.exe'
+    if (-not (Test-Path -LiteralPath (Split-Path -Parent $hostTaskExecutable))) {
+        $hostTaskExecutable = $hostTaskPython
+    }
+}
+$hostTaskPrefix = @()
+if ($hostTaskExecutable -eq $hostTaskPython) { $hostTaskPrefix = @('-m', 'bees_host') }
 $hostTaskState = Join-Path $hostTaskRoot "data\host-links\$ProjectName-$Port"
 $hostTaskBootstrap = $null
 $hostTaskPreviousPort = $env:BEES_HTTP_PORT
@@ -22,7 +31,7 @@ function Set-HostPrivateDirectory([string]$Directory) {
         $hostTaskCursor = $hostTaskCursor.Parent
     }
     if (Test-Path -LiteralPath $Directory) {
-        & $hostTaskPython -c 'from pathlib import Path; import sys; from bees_host.security import check_private; check_private(Path(sys.argv[1]), directory=True)' $Directory *> $null
+        & $hostTaskExecutable @hostTaskPrefix --check-private $Directory --directory *> $null
         if ($LASTEXITCODE -ne 0) { throw 'Diretório existente não é privado.' }
         return
     }
@@ -38,7 +47,7 @@ function Set-HostPrivateDirectory([string]$Directory) {
 }
 
 try {
-    if (-not (Test-Path -LiteralPath $hostTaskPython -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $hostTaskExecutable -PathType Leaf)) {
         $hostTaskFailure = 'O runtime local de diagnóstico não está instalado nesta distribuição. A conversa por Docker continua disponível.'
         throw 'Runtime local ausente.'
     }
@@ -49,7 +58,7 @@ try {
     $hostTaskPublic = Join-Path $hostTaskState 'public-status.json'
     $hostTaskStatus = $null
     if (Test-Path -LiteralPath $hostTaskPublic -PathType Leaf) {
-        & $hostTaskPython -c 'from pathlib import Path; import sys; from bees_host.security import check_private; check_private(Path(sys.argv[1]))' $hostTaskPublic *> $null
+        & $hostTaskExecutable @hostTaskPrefix --check-private $hostTaskPublic *> $null
         if ($LASTEXITCODE -ne 0) { throw 'Estado público não é privado.' }
         try {
             $hostTaskCandidate = Get-Content -LiteralPath $hostTaskPublic -Raw | ConvertFrom-Json
@@ -83,14 +92,14 @@ try {
         $hostTaskFileAcl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($hostTaskFileSid, 'FullControl', 'Allow'))
         Set-Acl -LiteralPath $hostTaskBootstrap -AclObject $hostTaskFileAcl
     }
-    $hostTaskArguments = @('-m', 'bees_host', '--state-dir', ('"' + $hostTaskState + '"'))
+    $hostTaskArguments = $hostTaskPrefix + @('--state-dir', ('"' + $hostTaskState + '"'))
     if ($hostTaskBootstrap) { $hostTaskArguments += @('--bootstrap-file', ('"' + $hostTaskBootstrap + '"')) }
     if ($hostTaskNewPair) {
         $hostTaskArguments += '--new-pair'
         Remove-Item -LiteralPath $hostTaskPublic -Force -ErrorAction SilentlyContinue
         $hostTaskStatus = $null
     }
-    Start-Process -FilePath $hostTaskPython -ArgumentList $hostTaskArguments -WorkingDirectory $hostTaskRoot -WindowStyle Hidden | Out-Null
+    Start-Process -FilePath $hostTaskExecutable -ArgumentList $hostTaskArguments -WorkingDirectory $hostTaskRoot -WindowStyle Hidden | Out-Null
     # Só o código público é lido. Nenhuma credencial sai do arquivo cifrado.
     for ($hostTaskAttempt = 0; $hostTaskAttempt -lt 20; $hostTaskAttempt++) {
         if (Test-Path -LiteralPath $hostTaskPublic -PathType Leaf) {

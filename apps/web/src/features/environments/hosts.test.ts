@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setCsrfToken } from '../../api/client'
 import { confirmHostPair, getPairedHosts, revokeHostPair } from '../../api/environments'
 import type { PairedHost } from '../../api/environments'
-import { loadPairedHosts, pairedHostStatus, sameHostAuthority } from './hosts'
+import { hostStatusObserver, loadPairedHosts, pairedHostStatus, readInstallationHost, sameHostAuthority } from './hosts'
 
 const now = Date.parse('2026-10-06T18:00:00Z')
 const pending: PairedHost = {
@@ -108,5 +108,36 @@ describe('host freshness and reconciliation', () => {
   it('rejects mixed installations or duplicate hosts across pages during concurrent changes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(Response.json(url.includes('offset=1') ? page([pending]) : page([pending], true, 1)))))
     await expect(loadPairedHosts()).rejects.toMatchObject({ code: 'state_conflict' })
+  })
+  it('updates installation diagnostics on the first report and TTL expiry without rereading VM requests for heartbeats', async () => {
+    const absent = { driver: 'none', status: 'host_setup_required', probe: null, provisionable: false }
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ templates: [], host: absent }))
+      .mockResolvedValueOnce(Response.json({ templates: [], host: active.diagnostic }))
+      .mockResolvedValueOnce(Response.json({ templates: [], host: absent }))
+    vi.stubGlobal('fetch', fetcher)
+    const observe = hostStatusObserver(); let refresh: Promise<unknown> | null = null
+    const changed = () => { refresh = readInstallationHost() }
+    const waitingReport: PairedHost = { ...active, last_seen: null, diagnostic: null, online: false, report_revision: 0 }
+    observe([waitingReport], now, false, changed); expect(await refresh).toEqual(absent)
+    // The human confirmation already succeeded, but the first helper report arrives in the following poll.
+    observe([active], now + 1000, false, changed); expect(await refresh).toEqual(active.diagnostic)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    const heartbeat = { ...active, report_revision: 2, last_seen: new Date(now + 10_000).toISOString() }
+    observe([heartbeat], now + 10_000, false, changed); expect(fetcher).toHaveBeenCalledTimes(2)
+    observe([heartbeat], now + 69_999, false, changed); expect(fetcher).toHaveBeenCalledTimes(2)
+    observe([heartbeat], now + 70_000, false, changed); expect(await refresh).toEqual(absent)
+    observe([heartbeat], now + 71_000, false, changed); expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(fetcher.mock.calls.every((call) => call[0] === '/api/v1/environments/catalog' && call[1].method === 'GET')).toBe(true)
+  })
+  it('does not refetch when a parent rerender changes callback identity; refreshes meaningful diagnostic changes and revocation', () => {
+    const observe = hostStatusObserver(); const changed = vi.fn()
+    observe([active], now, false, () => changed())
+    observe([active], now + 1000, false, () => changed())
+    expect(changed).toHaveBeenCalledTimes(1)
+    const capable: PairedHost = { ...active, diagnostic: { ...active.diagnostic!, status: 'guest_bridge_required', probe: { platform: true, module: true, service: true } } }
+    observe([capable], now + 1000, false, () => changed()); expect(changed).toHaveBeenCalledTimes(2)
+    observe([{ ...capable, report_revision: 3, last_seen: new Date(now + 2000).toISOString() }], now + 2000, false, () => changed())
+    expect(changed).toHaveBeenCalledTimes(2)
+    observe([revoked], now + 3000, false, () => changed()); expect(changed).toHaveBeenCalledTimes(3)
   })
 })

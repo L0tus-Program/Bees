@@ -8,15 +8,19 @@ import { ErrorNotice } from '../../components/Feedback'
 import { HostCard } from './HostCard'
 import { HostConfirmation } from './HostConfirmation'
 import type { HostChange } from './HostConfirmation'
-import { loadPairedHosts, pairedHostStatus, sameHostAuthority } from './hosts'
+import { hostStatusObserver, loadPairedHosts, pairedHostStatus, sameHostAuthority } from './hosts'
 import { uncertainEnvironmentMutation } from './state'
 
-export function HostPanel({ onChanged }: { onChanged: () => void }) {
+export function HostPanel({ onHostStatusChanged }: { onHostStatusChanged: () => void }) {
   const { t, i18n } = useTranslation('environments')
   const [hosts, setHosts] = useState<PairedHost[] | null>(null); const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false); const [error, setError] = useState<ApiError | null>(null); const [notice, setNotice] = useState<string | null>(null)
   const [change, setChange] = useState<HostChange | null>(null); const [now, setNow] = useState(Date.now)
   const read = useRef<AbortController | null>(null); const mutation = useRef<AbortController | null>(null); const readSequence = useRef(0)
+  const observeHostStatus = useRef(hostStatusObserver())
+  useEffect(() => {
+    if (hosts !== null) observeHostStatus.current(hosts, now, error !== null, onHostStatusChanged)
+  }, [hosts, now, error, onHostStatusChanged])
   const readHosts = useCallback(async (showLoading = false, reconcile?: string) => {
     read.current?.abort(); const controller = new AbortController(); read.current = controller; const sequence = ++readSequence.current
     if (showLoading) setLoading(true)
@@ -54,14 +58,14 @@ export function HostPanel({ onChanged }: { onChanged: () => void }) {
       await (current.operation === 'confirm' ? confirmHostPair(current.host, current.requestId, controller.signal) : revokeHostPair(current.host, current.requestId, controller.signal))
       if (!controller.signal.aborted) {
         setChange(null); setNotice(current.operation === 'confirm' ? 'pairSaved' : 'hostRevoked')
-        await readHosts(true); onChanged()
+        await readHosts(true)
       }
     } catch (failure) {
       if (!controller.signal.aborted) {
         const issue = asApiError(failure)
         if (uncertainEnvironmentMutation(issue) || issue.status === 409) {
           setChange(null); setNotice(uncertainEnvironmentMutation(issue) ? 'hostUncertain' : 'hostConflict')
-          await readHosts(true, uncertainEnvironmentMutation(issue) ? 'hostReconciled' : 'hostConflict'); onChanged()
+          await readHosts(true, uncertainEnvironmentMutation(issue) ? 'hostReconciled' : 'hostConflict')
         } else { setError(issue); setChange(null) }
       }
     } finally { if (!controller.signal.aborted) setBusy(false) }

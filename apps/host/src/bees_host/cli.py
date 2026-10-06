@@ -7,17 +7,37 @@ from pathlib import Path
 
 from bees_host.errors import HostError
 from bees_host.runtime import Runtime
-from bees_host.security import native_cipher
+from bees_host.security import check_private, native_cipher
 from bees_host.state import StateStore
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Ponte de diagnóstico local Bees")
     parser.add_argument("--bootstrap-file", type=Path)
-    parser.add_argument("--state-dir", type=Path, required=True)
+    parser.add_argument("--state-dir", type=Path)
+    parser.add_argument("--check-private", type=Path)
+    parser.add_argument("--directory", action="store_true")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--new-pair", action="store_true")
     args = parser.parse_args(argv)
+    if args.check_private is not None:
+        if (
+            args.state_dir is not None
+            or args.bootstrap_file is not None
+            or args.once
+            or args.new_pair
+        ):
+            parser.error("Não combine verificação privada com execução do runtime.")
+        try:
+            check_private(args.check_private.absolute(), directory=args.directory)
+            return 0
+        except HostError, OSError, ValueError:
+            print("Bees host: private_path_required", file=sys.stderr)
+            return 1
+    if args.directory:
+        parser.error("--directory exige --check-private.")
+    if args.state_dir is None:
+        parser.error("Informe --state-dir para executar o runtime.")
     try:
         store = StateStore(args.state_dir, native_cipher())
         with store.lock():

@@ -8,6 +8,8 @@ Assistentes pessoais com estado próprio, modelos substituíveis e dois ambiente
 
 No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliques em **Iniciar Bees.vbs**. O launcher sobe API/interface e executor de tarefas, prepara o cofre e abre o navegador com autorização para criar seu acesso. Configure nome, senha, modelo e primeira abelha na interface, sem gerar tokens ou chaves no terminal. Não precisa instalar Python/Node no host.
 
+O [pacote local do helper Windows](docs/host-package.md) permite vincular o diagnóstico pela interface sem Python instalado: extraia o ZIP e abra **Conectar host Bees.vbs** com a aplicação já em execução. Ele ainda não provisiona o computador da abelha.
+
 Operadores também podem subir com `docker compose up --build --detach --wait`. Interface em [localhost:8080](http://localhost:8080); dados e chave ficam em volumes separados e sobrevivem a reinícios. [Distribuição e operação](docs/containers.md) explica primeiro acesso, volumes, backup, Ollama opcional e limites. A instalação nativa abaixo usa outro estado; não há importação automática.
 
 ## Requisitos de desenvolvimento

@@ -6,6 +6,7 @@ requires-python = ">=3.14,<3.15"
 dependencies = ["bees-api==0.1.0", "bees-worker==0.1.0", "bees-host==0.1.0"]
 
 [dependency-groups]
+packaging = ["pyinstaller==6.22.3; sys_platform == 'win32'"]
 dev = [
     "httpx2>=2.13,<3",
     "pytest>=8,<10",
@@ -25,7 +26,7 @@ bees-worker = { workspace = true }
 bees-host = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "packages/core/tests"]
+testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "packages/core/tests", "scripts/tests"]
 addopts = "-ra"
 
 [tool.ruff]
