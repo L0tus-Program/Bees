@@ -460,7 +460,7 @@ def test_upgrade_three_to_four_backup_preserves_actions_and_grants_integrity(tmp
     path.mkdir()
     original = resources.files("bees_core.storage.migrations")
     for file in original.iterdir():
-        if file.name.endswith(".sql") and not file.name.startswith("0004"):
+        if file.name.endswith(".sql") and file.name.startswith(("0001", "0002", "0003")):
             (path / file.name).write_bytes(file.read_bytes())
     monkeypatch.setattr(module.resources, "files", lambda _: path)
     db = Database(tmp_path / "upgrade.sqlite3")

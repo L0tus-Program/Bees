@@ -249,13 +249,13 @@ def test_require_current_schema_never_creates_or_migrates(tmp_path):
     assert not path.parent.exists()
     db = Database(tmp_path / "existing.sqlite3")
     db.initialize()
-    assert db.require_current_schema() == 4
+    assert db.require_current_schema() == 5
     with db.transaction() as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version=4")
+        connection.execute("DELETE FROM schema_migrations WHERE version=5")
     with pytest.raises(MigrationError):
         db.require_current_schema()
     with db.transaction(write=False) as connection:
-        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 3
+        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 4
     assert not list(tmp_path.glob("*.backup-*.sqlite3"))
 
 
@@ -378,10 +378,10 @@ def test_migration_cannot_disable_constraints(tmp_path, monkeypatch):
     files.mkdir()
     for migration in original:
         (files / migration.name).write_text(migration.sql, encoding="utf-8")
-    (files / "0005_unsafe.sql").write_text("PRAGMA foreign_keys=OFF;", encoding="utf-8")
+    (files / "0006_unsafe.sql").write_text("PRAGMA foreign_keys=OFF;", encoding="utf-8")
     monkeypatch.setattr(database_module.resources, "files", lambda _: files)
     with pytest.raises(MigrationError):
         db.initialize()
-    assert db.schema_version() == 4
+    assert db.schema_version() == 5
     with db.transaction() as connection:
         assert connection.execute("PRAGMA foreign_keys").get == 1

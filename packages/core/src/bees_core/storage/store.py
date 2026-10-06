@@ -22,7 +22,9 @@ from bees_core.models import (
     Conversation,
     DomainEvent,
     EntityType,
+    Environment,
     ExecutionClaim,
+    HostJob,
     LeaseToken,
     Memory,
     Message,
@@ -237,6 +239,28 @@ class _Repository[T: Record]:
                     "enabled": record.enabled,
                 }
             )
+        if isinstance(record, Environment):
+            payload.update(
+                {
+                    "agent_id": str(record.agent_id),
+                    "template_id": record.template_id,
+                    "cpu_count": record.cpu_count,
+                    "memory_mib": record.memory_mib,
+                    "disk_gib": record.disk_gib,
+                    "reason_code": record.reason_code,
+                }
+            )
+        if isinstance(record, HostJob):
+            payload.update(
+                {
+                    "environment_id": str(record.environment_id),
+                    "correlation_id": str(record.correlation_id),
+                    "owner_id": str(record.owner_id) if record.owner_id else None,
+                    "recovery_evidence": str(record.recovery_evidence)
+                    if record.recovery_evidence
+                    else None,
+                }
+            )
         if isinstance(previous, (PluginInstallation, ToolGrant)):
             payload["previous_enabled"] = previous.enabled
         if previous is not None and hasattr(previous, "status"):
@@ -361,6 +385,29 @@ class _Repository[T: Record]:
                     raise IntegrityError("Vínculo de aprovação não pode ser substituído.")
             if isinstance(previous, Action) and isinstance(validated, Action):
                 _validate_action_update(previous, validated, reconciled=reconciled)
+            if isinstance(previous, Environment):
+                transitions = {
+                    "awaiting_host": {"cancelled", "provisioning"},
+                    "provisioning": {"outcome_unknown"},
+                    "outcome_unknown": set(),
+                    "cancelled": set(),
+                }
+                if validated.status not in transitions[previous.status]:
+                    raise InvalidTransition("Ambiente terminal ou transição sem evidência.")
+            if isinstance(previous, HostJob):
+                transitions = {
+                    "awaiting_host": {"cancelled", "dispatch_started"},
+                    "dispatch_started": {"outcome_unknown"},
+                    "outcome_unknown": set(),
+                    "cancelled": set(),
+                }
+                if validated.status not in transitions[previous.status]:
+                    raise InvalidTransition("Job terminal não pode repetir provisionamento.")
+                if previous.status == "dispatch_started" and (
+                    previous.owner_id != validated.owner_id
+                    or previous.dispatched_at != validated.dispatched_at
+                ):
+                    raise IntegrityError("Evidência de despacho do host é imutável.")
             if isinstance(previous, Artifact) and previous.status == "ready":
                 if validated.status not in ("ready", "deleted"):
                     raise InvalidTransition("Artefato pronto não volta ao rascunho.")
@@ -1003,6 +1050,21 @@ class Policies(_Repository[Policy]):
         return self._list({"agent_id": agent_id}, limit, offset)
 
 
+class Environments(_Repository[Environment]):
+    def list(self, agent_id=None, limit=100, offset=0):
+        return self._list({"agent_id": agent_id}, limit, offset, newest_first=True)
+
+    def request(self, agent_id: UUID, client_request_id: UUID) -> Environment | None:
+        records = self._list({"agent_id": agent_id, "client_request_id": client_request_id}, 1, 0)
+        return records[0] if records else None
+
+
+class HostJobs(_Repository[HostJob]):
+    def for_environment(self, environment_id: UUID) -> HostJob | None:
+        records = self._list({"environment_id": environment_id}, 1, 0)
+        return records[0] if records else None
+
+
 class Plugins(_Repository[PluginInstallation]):
     def list(self, *, limit: int = 100, offset: int = 0) -> list[PluginInstallation]:
         return self._list({}, limit, offset)
@@ -1207,6 +1269,30 @@ class UnitOfWork:
         self.policies = Policies(context, _Spec("policies", "policy", Policy, ("agent_id",)))
         self.plugins = Plugins(
             context, _Spec("plugins", "plugin", PluginInstallation, ("manifest", "manifest_hash"))
+        )
+        self.environments = Environments(
+            context,
+            _Spec(
+                "environments",
+                "environment",
+                Environment,
+                (
+                    "agent_id",
+                    "name",
+                    "template_id",
+                    "cpu_count",
+                    "memory_mib",
+                    "disk_gib",
+                    "client_request_id",
+                    "request_hash",
+                ),
+            ),
+        )
+        self.host_jobs = HostJobs(
+            context,
+            _Spec(
+                "host_jobs", "host_job", HostJob, ("environment_id", "operation", "correlation_id")
+            ),
         )
         self.tool_grants = ToolGrants(
             context,

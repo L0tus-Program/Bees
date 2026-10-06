@@ -147,8 +147,6 @@ class Database:
         with os.fdopen(descriptor, "r+b", buffering=0) as lock:
             if os.name != "nt":
                 lock_path.chmod(0o600)
-            if lock.seek(0, os.SEEK_END) == 0:
-                lock.write(b"0")
             deadline = time.monotonic() + self.busy_timeout_ms / 1000
             while True:
                 lock.seek(0)
@@ -167,6 +165,11 @@ class Database:
                         raise MigrationError("Outra manutenção está usando esta base.") from error
                     time.sleep(min(0.05, max(0, deadline - time.monotonic())))
             try:
+                # Windows pode bloquear um byte além do EOF. Inicializar antes
+                # de adquirir a trava permite que outro escritor tente gravar
+                # o byte já bloqueado pelo primeiro migrador.
+                if lock.seek(0, os.SEEK_END) == 0:
+                    lock.write(b"0")
                 yield
             finally:
                 lock.seek(0)

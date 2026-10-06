@@ -13,6 +13,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | actions | Intenção, parâmetros, estado de efeito, resultado e evidências de despacho. |
 | policies / approvals | Escolhas registradas, revisão, escopo e decisão da ação. |
 | plugins / tool_grants | Manifestos locais imutáveis e concessões por ferramenta/abelha; revisão, habilitação e vínculo canônico (migração 0004). |
+| environments / host_jobs | Pedidos de computador e journal da operação no host, sem provisionador ativo (migração 0005). |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
 | artifacts | Metadados versionados de resultado, referência de armazenamento e hash. |
@@ -68,6 +69,8 @@ Ao iniciar, histórico adulterado, versão desconhecida ou base sem histórico r
 A migração 0003 acrescenta fila/controladores, orçamento básico, comandos e journal de modelos. O worker usa `require_current_schema()` em modo somente leitura e recusa migrações pendentes. Consulte [tarefas](tasks.md) para interrupção e resultado desconhecido.
 
 A migração 0004 acrescenta instalações declarativas e concessões locais por ferramenta/abelha. Manifesto/hash e identidade da concessão são imutáveis; habilitação muda com revisão. Eventos conservam digest, escopo e mudanças de habilitação sem conteúdo processado. Consulte [ferramentas](tools.md).
+
+A migração 0005 acrescenta pedidos imutáveis de computador e jobs de host vinculados, com estados/revisões, UUIDs idempotentes e cancelamento atômico. Não existe provisionador ativo. Consulte [computadores](environments.md). O lock Windows inicializa seu byte de manutenção somente depois de adquirir a trava, evitando a corrida entre migradores diante de arquivo vazio.
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

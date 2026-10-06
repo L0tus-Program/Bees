@@ -440,6 +440,29 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 @media (max-width: 520px) { .approval-target { grid-template-columns: minmax(0, 1fr); } .approval-actions .button { width: 100%; } }
 
 .tools-section-heading { margin: 26px 0 14px; }
+.computer-host { background: #f6f2e6; border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 20px; }
+.computer-host h3 { font-size: 15px; margin-bottom: 10px; }
+.computer-host > p, .computer-card > p { font-size: 12px; line-height: 1.8; margin-top: 8px; overflow-wrap: anywhere; }
+.computer-status { font-size: 11px; color: #69552c; }
+.computer-list { display: grid; gap: 12px; }
+.computer-active-plan { margin-top: 18px; }
+.computer-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: #f8f8ef; }
+.computer-card-heading { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.computer-card-heading h4 { font-size: 15px; overflow-wrap: anywhere; }
+.environment-form { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 22px; }
+.environment-form h3 { font-size: 16px; margin-bottom: 18px; }
+.environment-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 18px; }
+.environment-form .field { margin: 0; }
+.environment-form fieldset > .button { justify-self: end; }
+.environment-template { display: grid; gap: 6px; font-size: 12px; line-height: 1.6; }
+.environment-template strong { font-size: 11px; color: var(--muted); }
+.environment-resources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.environment-card > .button { width: 100%; margin-top: 12px; font-size: 11px; min-height: 44px; padding: 8px 10px; }
+@media (max-width: 550px) {
+  .computer-panel .form-heading { flex-direction: column; }
+  .computer-panel .form-heading > button, .environment-form fieldset > .button { width: 100%; }
+  .environment-resources { grid-template-columns: minmax(0, 1fr); }
+}
 .tools-section-heading h3 { font-size: 15px; }
 .tool-list { display: grid; gap: 14px; }
 .tool-card { border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: #f8f8ef; }

@@ -51,6 +51,8 @@ EntityType = Literal[
     "task_command",
     "plugin",
     "tool_grant",
+    "environment",
+    "host_job",
 ]
 
 
@@ -286,6 +288,46 @@ class ToolGrant(Record):
     plugin_id: UUID
     tool_name: str = Field(min_length=1, max_length=200)
     enabled: bool = Field(default=False, strict=True)
+
+
+class Environment(Record):
+    agent_id: UUID
+    name: str = Field(min_length=1, max_length=100)
+    template_id: Literal["linux-desktop-v1"] = "linux-desktop-v1"
+    cpu_count: int = Field(default=2, ge=1, le=4, strict=True)
+    memory_mib: int = Field(default=4096, ge=2048, le=8192, strict=True)
+    disk_gib: int = Field(default=30, ge=20, le=100, strict=True)
+    status: Literal["awaiting_host", "provisioning", "outcome_unknown", "cancelled"] = (
+        "awaiting_host"
+    )
+    reason_code: str = "host_setup_required"
+    client_request_id: UUID
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class HostJob(Record):
+    environment_id: UUID
+    operation: Literal["create"] = "create"
+    status: Literal["awaiting_host", "dispatch_started", "outcome_unknown", "cancelled"] = (
+        "awaiting_host"
+    )
+    correlation_id: UUID
+    owner_id: UUID | None = None
+    dispatched_at: AwareDatetime | None = None
+    recovery_evidence: UUID | None = None
+
+    @model_validator(mode="after")
+    def dispatch_evidence(self) -> Self:
+        started = self.status in ("dispatch_started", "outcome_unknown")
+        if started != (self.owner_id is not None and self.dispatched_at is not None):
+            raise ValueError("Despacho exige identidade do dono e instante comprovado.")
+        if not started and (self.owner_id is not None or self.dispatched_at is not None):
+            raise ValueError("Pedido não iniciado não pode conter evidência de despacho.")
+        if self.status == "outcome_unknown" and self.recovery_evidence is None:
+            raise ValueError("Recuperação exige evidência opaca do supervisor.")
+        if self.status != "outcome_unknown" and self.recovery_evidence is not None:
+            raise ValueError("Evidência de recuperação exige resultado desconhecido.")
+        return self
 
 
 class Approval(Record):

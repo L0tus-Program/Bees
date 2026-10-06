@@ -18,6 +18,7 @@ from bees_api.approvals import router as approvals_router
 from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
+from bees_api.environments import router as environments_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
@@ -28,6 +29,7 @@ from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
 from bees_core.approvals import ApprovalError
+from bees_core.environments import EnvironmentError
 from bees_core.policies import PolicyError
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
@@ -126,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(policies_router)
     app.include_router(approvals_router)
     app.include_router(tools_router)
+    app.include_router(environments_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -221,6 +224,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "error": {
                     "code": error.code,
                     "message": "Confira a ferramenta e atualize seu estado.",
+                }
+            },
+            status_code=409,
+        )
+
+    @app.exception_handler(EnvironmentError)
+    async def environment_error(request: Request, error: EnvironmentError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Confira o pedido do computador e atualize seu estado.",
                 }
             },
             status_code=409,

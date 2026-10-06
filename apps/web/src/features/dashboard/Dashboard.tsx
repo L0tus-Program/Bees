@@ -11,16 +11,19 @@ import { MemoryPanel } from '../memory/MemoryPanel'
 import { TaskPanel } from '../tasks/TaskPanel'
 import { PolicyPanel } from '../policies/PolicyPanel'
 import { ToolsPanel } from '../tools/ToolsPanel'
+import { EnvironmentPanel } from '../environments/EnvironmentPanel'
+import { EnvironmentSummary } from '../environments/EnvironmentSummary'
 
 export function Dashboard({ userName }: { userName: string }) {
   const { t } = useTranslation('product')
   const { t: bee } = useTranslation('bee')
   const { t: policies } = useTranslation('policies')
   const { t: tools } = useTranslation('tools')
+  const { t: environments } = useTranslation('environments')
   const { resource, reload } = useResource(onboarding)
   const [creating, setCreating] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view, setView] = useState<'conversation' | 'profile' | 'model' | 'memories' | 'policies' | 'tools'>('conversation')
+  const [view, setView] = useState<'conversation' | 'profile' | 'model' | 'memories' | 'policies' | 'tools' | 'computer'>('conversation')
   const [notice, setNotice] = useState<string | null>(null)
   if (resource.state === 'loading') return <LoadingNotice />
   if (resource.state === 'error') return <div className="surface resource-error"><ErrorNotice error={resource.error} /><button className="button secondary" onClick={reload} type="button">{t('retry')}</button></div>
@@ -37,16 +40,17 @@ export function Dashboard({ userName }: { userName: string }) {
           {data.has_more && <p className="quiet-note">{t('limitedAgents')}</p>}
           <div className="bee-list">{data.agents.map((agent) => <button type="button" key={agent.id} className={`bee-select ${agent.id === selected.id ? 'selected' : ''}`} aria-pressed={agent.id === selected.id} onClick={() => { setSelectedId(agent.id); setView('conversation'); setNotice(null) }}><img src="/bee.svg" alt="" width="32" height="32" /><span><strong>{agent.name}</strong><small>{agent.purpose}</small>{agent.status !== 'active' && <small>{bee(`status_${agent.status}`)}</small>}</span></button>)}</div>
           <section className="model-summary" aria-labelledby="model-summary-heading"><h2 className="section-label" id="model-summary-heading">{t('connectedModel')}</h2>{selected.provider_config ? <><strong>{selected.provider_config.model}</strong><span className="provider-label">{t(selected.provider_config.kind === 'ollama' ? 'localProvider' : 'remoteProvider')}</span><code>{selected.provider_config.endpoint}</code><p>{t('connectionSaved')}</p></> : <p>{t('modelNotConfigured')}</p>}</section>
-          <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2>{['ownComputer', 'personalComputer'].map((key) => <div className="environment-card" key={key}><h3>{t(key)}</h3><span>{t('preparing')}</span><p>{t(`${key}Description`)}</p></div>)}<p className="quiet-note">{t('environmentScope')}</p></section>
+          <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><EnvironmentSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /><div className="environment-card"><h3>{t('personalComputer')}</h3><span>{t('preparing')}</span><p>{t('personalComputerDescription')}</p></div><p className="quiet-note">{t('environmentScope')}</p></section>
         </aside>
         <div className="conversation-column">
-          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies', 'tools'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : item === 'tools' ? tools('navigation') : bee(`view_${item}`)}</button>)}</nav>
+          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
           {view === 'tools' && <ToolsPanel key={selected.id} agent={selected} />}
+          {view === 'computer' && <EnvironmentPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && (selected.provider_config && selected.conversation_id ? <Chat key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id }} /> : <div className="surface legacy-agent"><h2>{t('modelNotConfigured')}</h2><p>{bee('legacyConfigure')}</p><button className="button primary" type="button" onClick={() => setView('model')}>{bee('configureModel')}</button></div>)}
           <div className="next-step-note"><span aria-hidden="true">↗</span><p><strong>{t('nextStepTitle')}</strong>{t('nextStepDescription')}</p></div>

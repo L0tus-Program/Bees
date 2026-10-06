@@ -61,7 +61,7 @@ def main():
         with httpx.Client(base_url=origin, trust_env=False, timeout=15) as client:
             assert client.get("/").status_code == 200
             state = client.get("/api/v1/state/status")
-            assert state.json()["schema_version"] == 4
+            assert state.json()["schema_version"] == 5
             assert client.get("/api/v1/onboarding").status_code == 401
             assert client.get("/api/v1/auth/status").json()["configured"] is False
             authorization = json.loads(
@@ -443,6 +443,33 @@ def main():
                 client.get(task_path).json()["task"]["latest_run"]["result"]
                 == task_detail["task"]["latest_run"]["result"]
             )
+            # Pedido de computador persiste sem afirmar VM disponível ou executar no host.
+            environment_catalog = client.get("/api/v1/environments/catalog").json()
+            assert environment_catalog["host"]["provisionable"] is False
+            assert environment_catalog["templates"][0]["status"] == "planned"
+            environment_collection = agent_path + "/environments"
+            environment_body = {
+                "name": "Computador descartável",
+                "client_request_id": str(uuid4()),
+            }
+            assert client.post(environment_collection, json=environment_body).status_code == 403
+            planned = client.post(environment_collection, json=environment_body, headers=headers())
+            assert planned.status_code == 201, planned.text
+            environment_plan = planned.json()
+            assert environment_plan["status"] == "awaiting_host"
+            assert environment_plan["operation_status"] == "awaiting_host"
+            assert environment_plan["usable"] is False
+            assert (
+                client.post(environment_collection, json=environment_body, headers=headers()).json()
+                == environment_plan
+            )
+            environment_path = environment_collection + "/" + environment_plan["id"]
+            assert (
+                client.get(
+                    f"/api/v1/agents/{manual_bee['id']}/environments/{environment_plan['id']}"
+                ).status_code
+                == 404
+            )
             # Decisão humana durável, pontual e reutilização explícita de regra.
             asked = client.post(
                 agent_path + "/policies",
@@ -518,6 +545,30 @@ def main():
             )
             compose("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "120")
             assert client.get(approve_path).json()["consumed_at"]
+            assert client.get(environment_path).json() == environment_plan
+            cancel_environment = {
+                "client_request_id": str(uuid4()),
+                "expected_revision": environment_plan["revision"],
+            }
+            cancelled_environment = client.post(
+                environment_path + "/cancel", json=cancel_environment, headers=headers()
+            )
+            assert cancelled_environment.status_code == 200
+            assert cancelled_environment.json()["status"] == "cancelled"
+            assert (
+                client.post(
+                    environment_path + "/cancel", json=cancel_environment, headers=headers()
+                ).json()
+                == cancelled_environment.json()
+            )
+            assert (
+                client.post(
+                    environment_path + "/cancel",
+                    json=cancel_environment | {"client_request_id": str(uuid4())},
+                    headers=headers(),
+                ).status_code
+                == 409
+            )
             assert client.get("/api/v1/plugins").json()["plugins"] == [plugin]
             tools = client.get(agent_path + "/tools").json()["tools"]
             assert (
@@ -550,7 +601,7 @@ def main():
             )
         print(
             "Docker: catálogo opcional, modelo manual, primeiro acesso, cofre, conversa, "
-            "tarefas em processo separado, políticas, ferramentas locais, "
+            "tarefas em processo separado, políticas, ferramentas locais, pedidos de computador, "
             "fronteiras e persistência aprovados."
         )
         if args.keep:

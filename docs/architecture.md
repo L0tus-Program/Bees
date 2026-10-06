@@ -38,6 +38,7 @@ Os [contratos locais de ferramentas](tools.md) têm catálogo, instalação decl
 | TaskService/TaskWorker | Comandos idempotentes, fila durável, snapshot de contexto, limites, leases e journal de chamadas de modelo. |
 | ActionJournal | Intenção, início, confirmação e resultado desconhecido; reconciliar antes de repetir. |
 | EnvironmentAdapter | Provisionamento/status, persistência, controle e limites reais. |
+| EnvironmentService | Pedidos de computador, catálogo planejado, diagnóstico somente leitura, cancelamento CAS e journal durável; provisionador/ponte/VM ainda pendentes. |
 | SecretStore | Referências opacas, acesso controlado, rotação e ausência no contexto/log. |
 | ArtifactStore | Staging/publicação, versões, hashes e download autorizado. |
 | EventStore/Outbox | Eventos de estado duráveis e entrega deduplicável. |
