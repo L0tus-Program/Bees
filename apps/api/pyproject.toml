@@ -14,6 +14,7 @@ dependencies = [
 bees-api = "bees_api.cli:main"
 bees-model = "bees_api.model_cli:main"
 bees-auth = "bees_api.bootstrap_cli:main"
+bees-host-link = "bees_api.host_cli:main"
 
 [build-system]
 requires = ["hatchling>=1.27,<2"]

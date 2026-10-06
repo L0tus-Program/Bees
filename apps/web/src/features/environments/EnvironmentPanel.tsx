@@ -7,6 +7,7 @@ import { cancelEnvironment, createEnvironment } from '../../api/environments'
 import type { EnvironmentPlan, EnvironmentRecord } from '../../api/environments'
 import { ErrorNotice } from '../../components/Feedback'
 import { EnvironmentForm } from './EnvironmentForm'
+import { HostPanel } from './HostPanel'
 import { loadEnvironments, planIdentity, uncertainEnvironmentMutation } from './state'
 import type { EnvironmentWorkspace } from './state'
 
@@ -58,6 +59,7 @@ export function EnvironmentPanel({ agent }: { agent: AgentSummary }) {
     {notice && <p className={['uncertain', 'conflict'].includes(notice) ? 'form-error' : 'form-success'} role="status">{t(notice)}</p>}
     {loading && <p className="loading-notice" role="status">{t('loading')}</p>}
     {error && <>{knownError ? <p className="form-error" role="alert">{t(`error_${error.code}`)}</p> : <ErrorNotice error={error} />}{data && <p className="quiet-note">{t('stale')}</p>}</>}
+    <HostPanel onChanged={refresh} />
     {data && <><section className="computer-host" aria-labelledby="computer-host-heading"><h3 id="computer-host-heading">{t('hostTitle')}</h3><p className="computer-status">{t(`host_${data.host.status}`)}</p><p>{t(`driver_${data.host.driver}`)}</p><p className="quiet-note">{t('hostDescription')}</p></section>
       <div className="tools-section-heading"><h3>{t('plans')}</h3></div>{data.environments.length === 0 && <div className="tool-empty"><p>{t('empty')}</p><p>{t('emptyHelp')}</p></div>}
       <div className="computer-list">{data.environments.map((environment) => <article className="computer-card" key={environment.id}><div className="computer-card-heading"><h4>{environment.name}</h4><span className="computer-status">{t(`status_${environment.status}`)}</span></div><p>{t('resources', { cpu: environment.cpu_count, memory: environment.memory_mib, disk: environment.disk_gib })}</p><p className="quiet-note">{i18n.exists(`reason_${environment.reason_code}`, { ns: 'environments' }) ? t(`reason_${environment.reason_code}`) : t('noReason')}</p><p className="quiet-note">{t('created', { date: new Date(environment.created_at).toLocaleString(i18n.resolvedLanguage) })}</p>{environment.status === 'outcome_unknown' && <p className="form-error">{t('unknown')}</p>}{environment.status === 'awaiting_host' && <div className="tool-actions"><button type="button" className="button secondary" disabled={locked} onClick={() => { cancellationId.current = crypto.randomUUID(); setCancelling(environment); setNotice(null) }}>{t('cancelPlan')}</button></div>}</article>)}</div>

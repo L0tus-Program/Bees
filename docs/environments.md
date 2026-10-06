@@ -8,7 +8,23 @@ Abra a aba **Computador** da abelha. Escolha nome e recursos, confira o aviso e 
 
 O perfil inicial pede 2 CPUs, 4 GiB de memória e 30 GiB de disco. Os limites de entrada são 1–4 CPUs, 2–8 GiB e 20–100 GiB. São limites do pedido, **não recursos alocados ou limites de uma VM em execução**. Nenhum arquivo, sessão de navegador ou credencial pessoal é disponibilizado.
 
-Compose mantém o driver de host como `none`. Docker não fornece automaticamente acesso ao Hyper-V, KVM ou desktop do hospedeiro. Não monte socket Docker, discos pessoais, serviços administrativos ou credenciais de hipervisor na API/worker para contornar essa separação.
+Sem host pareado com diagnóstico recente, o driver aparece como `none`. Docker não fornece automaticamente acesso ao Hyper-V, KVM ou desktop do hospedeiro. Não monte socket Docker, discos pessoais, serviços administrativos ou credenciais de hipervisor na API/worker para contornar essa separação.
+
+## Vínculo de diagnóstico do host
+
+Com Bees aberto e acesso configurado, dê dois cliques em **Conectar host Bees.vbs**. O launcher mostra um código público de comparação. Na aba **Computador**, confira esse código, marque a confirmação e autorize o diagnóstico. Revogue o vínculo pela mesma interface. Essa autorização permite somente enviar booleanos de disponibilidade da virtualização; não cria VM nem concede acesso pessoal.
+
+O helper `apps/host` roda fora do Docker, na conta atual e sem administrador. Este checkout usa o runtime `.venv` do desenvolvimento. Distribuições Docker sem esse runtime continuam com conversa/tarefas funcionando; o launcher informa sua ausência. Empacotamento do helper para usuário final, instalação guiada e autostart após boot continuam em BEES-028. Não exigir que o usuário configure credenciais no terminal como fluxo de produto.
+
+O operador emite um convite pela CLI interna do container, somente com identidade já configurada e schema atual. O convite de alta entropia dura 5 minutos; a confirmação humana do pareamento dura 15 minutos. O arquivo temporário tem ACL exclusiva da conta atual e é removido antes da rede. O helper grava sua credencial própria com DPAPI CurrentUser antes da troca. Linux exige chave Fernet externa explícita. Nem ticket nem credencial entram em URL, argumentos, logs ou formulário; SQLite armazena hashes. O código é derivado independentemente pelo helper, vinculado à instalação, convite e credencial.
+
+A migração `0006_hosts.sql` registra instalação, convites, vínculos, comandos e receipts de diagnóstico. Há um host ativo por instalação. Uma credencial de host não autentica rotas humanas; cookies de usuário não substituem a credencial do helper. Confirmar/revogar exige sessão/Origin/CSRF, UUID e revisão humana. Relatórios têm sequência/revisão próprias para não invalidar a edição humana.
+
+Depois da confirmação, o helper envia diagnóstico somente leitura a cada 15 segundos. Sem relatório recente por 60 segundos, a UI mostra offline e descarta a disponibilidade. Replay não renova esse prazo. Revogação bloqueia novos relatórios, inclusive replay, e encerra o helper. Resultado incerto é reconciliado por consulta e receipt persistido; nunca causa pareamento automático. Reabrir explicitamente o launcher permite solicitar novo vínculo após expiração/revogação na mesma instalação; não troca de instalação silenciosamente.
+
+Os receipts de diagnóstico ficam preservados, até cerca de 5760 por dia com um helper continuamente ativo. A retenção precisa de política própria antes de operação prolongada; limpeza futura não poderá renovar disponibilidade pelo replay de um relatório antigo. Não são entradas de cache.
+
+Os canais próprios são `POST /api/v1/host-link/runtime/exchange` (convite obrigatório), `GET .../session` e `POST .../report` (bearer próprio). A interface usa `GET /api/v1/environments/hosts` e `POST .../{id}/confirm` ou `.../{id}/revoke`. Host/Origin/JSON e limites globais permanecem aplicados. O helper só aceita origem HTTP loopback local; não segue redirects, proxies do ambiente ou comandos do servidor. Não recebe `host_jobs` de criação, shell, caminhos ou segredos de modelos.
 
 ## Estado e consistência
 
@@ -41,7 +57,7 @@ Habilitar Hyper-V exige decisão explícita do operador. Windows 11 Pro é uma e
 
 Para concluir BEES-011 faltam:
 
-- Provisionador separado no host, pareado com identidade própria e escopo explícito; instalação guiada pela interface.
+- Provisionador de VM separado no host com concessão específica, independente do vínculo de diagnóstico já entregue; instalação empacotada/guiada.
 - Imagem Linux fixada por versão/hash confiável, armazenamento persistente, Chromium/LibreOffice e ponte autenticada no guest.
 - Rede filtrada fora do guest, com bloqueios demonstrados para host, redes privadas, link-local e metadados; exceção exata para o plano de controle. [Filtros de libvirt](https://libvirt.org/formatnwfilter.html) são uma referência ainda sem implementação.
 - Journal e fencing de operações reais, reconciliação de efeitos desconhecidos, limites medidos e controle visual autorizado.
@@ -56,3 +72,5 @@ Antes de migrar, pare API, worker e demais escritores; preserve dados e chave do
 Testes de core/API verificam idempotência, CAS, FKs, rollback, isolamento entre abelhas, recuperação conservadora e entradas negativas. Testes de interface verificam aviso, recursos, estados e respostas incertas. `scripts/check-container.py` usa conta/volumes descartáveis para persistência após recriação, cancelamento e sessão/CSRF. Nenhum desses testes afirma provisionamento físico.
 
 Checkpoint de 06/10/2026: 747 testes Python, 289 web e 364 Linux aprovados (24/4 skips de plataforma). Ruff, ESLint, typecheck e build aprovados. Compose descartável comprovou pedidos/replay/escopo/recriação/CAS/cancelamento. Navegador comprovou perfil de recursos, cadastro, reload e confirmação de cancelamento; pt-BR/en/es e viewport390 sem overflow horizontal (client/scroll375). Evidências locais ignoradas em `data/validation/bees-environments-desktop.png` e `bees-environments-mobile.png`. Instalação padrão atualizada pelo launcher ao schema5, com backup, identidade/cofre preservados e API/worker saudáveis.
+
+Checkpoint de vínculo de diagnóstico, 06/10/2026: suíte completa com 828 testes Python aprovados e 26 skips; após os ajustes finais, 56 testes afetados aprovados com 2 skips. Interface: 330 testes, ESLint, typecheck e build aprovados. Linux: 449 testes aprovados com 6 skips; Ruff e formato aprovados. Integração nativa Windows comprovou DPAPI/ACL, troca, confirmação, diagnóstico real e encerramento após revogação. Launcher PowerShell 5.1 com Docker descartável comprovou criação, remoção do bootstrap e reuso da identidade sem duplicar helper. Navegador comprovou comparação do código, confirmação, persistência após reload, cancelamento e confirmação da revogação, idiomas pt-BR/en/es e viewport390 sem overflow (client/scroll375). Evidências ignoradas: `data/validation/bees-host-pairing-desktop.png` e `bees-host-pairing-mobile.png`. O invólucro VBS não foi acionado. A instalação padrão foi atualizada ao schema6 com backup e identidade/cofre preservados; nenhum host de teste foi vinculado nela. O diagnóstico real encontrou módulo/serviço Hyper-V indisponíveis; VM e isolamento continuam sem aceite.

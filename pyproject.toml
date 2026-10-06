@@ -3,7 +3,7 @@ name = "bees-workspace"
 version = "0.1.0"
 description = "Fundação local da plataforma Bees"
 requires-python = ">=3.14,<3.15"
-dependencies = ["bees-api==0.1.0", "bees-worker==0.1.0"]
+dependencies = ["bees-api==0.1.0", "bees-worker==0.1.0", "bees-host==0.1.0"]
 
 [dependency-groups]
 dev = [
@@ -16,15 +16,16 @@ dev = [
 package = false
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/worker", "packages/core"]
+members = ["apps/api", "apps/worker", "apps/host", "packages/core"]
 
 [tool.uv.sources]
 bees-api = { workspace = true }
 bees-core = { workspace = true }
 bees-worker = { workspace = true }
+bees-host = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "apps/worker/tests", "packages/core/tests"]
+testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "packages/core/tests"]
 addopts = "-ra"
 
 [tool.ruff]

@@ -19,6 +19,7 @@ from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.environments import router as environments_router
+from bees_api.host_links import router as host_links_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
@@ -35,6 +36,7 @@ from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
 from bees_core.providers.vault import FernetBackend, FileSecretVault
+from bees_core.security.hosts import HostLinkError
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, StateStore, StoreError
@@ -129,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(approvals_router)
     app.include_router(tools_router)
     app.include_router(environments_router)
+    app.include_router(host_links_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -239,6 +242,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
             },
             status_code=409,
+        )
+
+    @app.exception_handler(HostLinkError)
+    async def host_link_error(request: Request, error: HostLinkError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Atualize o vínculo do host e confira sua autorização.",
+                }
+            },
+            status_code=401
+            if error.code in ("host_credentials_invalid", "host_invite_invalid")
+            else 409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

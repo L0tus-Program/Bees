@@ -6,6 +6,7 @@ requires-python = "==3.14.*"
 members = [
     "bees-api",
     "bees-core",
+    "bees-host",
     "bees-worker",
     "bees-workspace",
 ]
@@ -174,6 +175,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "bees-host"
+version = "0.1.0"
+source = { editable = "apps/host" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=46,<51" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
+]
+
+[[package]]
 name = "bees-worker"
 version = "0.1.0"
 source = { editable = "apps/worker" }
@@ -194,6 +212,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "bees-api" },
+    { name = "bees-host" },
     { name = "bees-worker" },
 ]
 
@@ -207,6 +226,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bees-api", editable = "apps/api" },
+    { name = "bees-host", editable = "apps/host" },
     { name = "bees-worker", editable = "apps/worker" },
 ]
 

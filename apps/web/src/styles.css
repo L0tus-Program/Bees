@@ -446,6 +446,21 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .computer-status { font-size: 11px; color: #69552c; }
 .computer-list { display: grid; gap: 12px; }
 .computer-active-plan { margin-top: 18px; }
+.host-panel { margin: 26px 0; border-top: 1px solid var(--line); padding-top: 22px; }
+.host-panel .form-heading h3 { font-size: 17px; }
+.host-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: #f8f8ef; margin-top: 14px; }
+.host-identification { margin: 14px 0; }
+.host-identification dt, .host-checks dt { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.host-identification dd { margin-top: 6px; }
+.host-identification code, .host-code code { font-size: 15px; letter-spacing: .08em; overflow-wrap: anywhere; }
+.host-driver { font-size: 12px; line-height: 1.8; margin-top: 10px; }
+.host-checks { display: grid; gap: 10px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+.host-checks dd { font-size: 12px; margin-top: 4px; }
+.host-checks.stale dd { color: var(--muted); }
+.host-code { display: grid; gap: 6px; margin: 14px 0; }
+.host-code strong { font-size: 11px; color: var(--muted); }
+.host-confirmation h4:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
+.host-confirmation .checkbox-row { margin: 16px 0; font-size: 12px; line-height: 1.7; }
 .computer-card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: #f8f8ef; }
 .computer-card-heading { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: baseline; gap: 10px; }
 .computer-card-heading h4 { font-size: 15px; overflow-wrap: anywhere; }
@@ -462,6 +477,9 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
   .computer-panel .form-heading { flex-direction: column; }
   .computer-panel .form-heading > button, .environment-form fieldset > .button { width: 100%; }
   .environment-resources { grid-template-columns: minmax(0, 1fr); }
+  .host-panel .form-heading { flex-direction: column; }
+  .host-panel .form-heading > button { width: 100%; }
+  .host-checks { grid-template-columns: minmax(0, 1fr); }
 }
 .tools-section-heading h3 { font-size: 15px; }
 .tool-list { display: grid; gap: 14px; }

@@ -14,6 +14,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | policies / approvals | Escolhas registradas, revisão, escopo e decisão da ação. |
 | plugins / tool_grants | Manifestos locais imutáveis e concessões por ferramenta/abelha; revisão, habilitação e vínculo canônico (migração 0004). |
 | environments / host_jobs | Pedidos de computador e journal da operação no host, sem provisionador ativo (migração 0005). |
+| host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
 | artifacts | Metadados versionados de resultado, referência de armazenamento e hash. |
@@ -71,6 +72,8 @@ A migração 0003 acrescenta fila/controladores, orçamento básico, comandos e 
 A migração 0004 acrescenta instalações declarativas e concessões locais por ferramenta/abelha. Manifesto/hash e identidade da concessão são imutáveis; habilitação muda com revisão. Eventos conservam digest, escopo e mudanças de habilitação sem conteúdo processado. Consulte [ferramentas](tools.md).
 
 A migração 0005 acrescenta pedidos imutáveis de computador e jobs de host vinculados, com estados/revisões, UUIDs idempotentes e cancelamento atômico. Não existe provisionador ativo. Consulte [computadores](environments.md). O lock Windows inicializa seu byte de manutenção somente depois de adquirir a trava, evitando a corrida entre migradores diante de arquivo vazio.
+
+A migração 0006 acrescenta identidade da instalação, convites, vínculos de diagnóstico, comandos humanos e receipts de relatórios. Credenciais são hashes; confirmação e relatórios têm revisões separadas. Há um host ativo por instalação, e revogação é terminal para o vínculo. Receipts são canônicos e não entram na limpeza de cache. O helper mantém estado cifrado próprio fora do banco do serviço; não recebe acesso a SQLite. Consulte [vínculo do host](environments.md#vínculo-de-diagnóstico-do-host).
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

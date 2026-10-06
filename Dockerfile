@@ -15,9 +15,11 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
 COPY apps/worker/pyproject.toml ./apps/worker/pyproject.toml
+COPY apps/host/pyproject.toml ./apps/host/pyproject.toml
 COPY packages/core/pyproject.toml ./packages/core/pyproject.toml
 COPY apps/api/src ./apps/api/src
 COPY apps/worker/src ./apps/worker/src
+COPY apps/host/src ./apps/host/src
 COPY packages/core/src ./packages/core/src
 RUN uv sync --locked --no-dev --no-editable
 
@@ -44,5 +46,6 @@ FROM python-build AS verification
 RUN uv sync --locked --no-editable
 COPY apps/api/tests ./apps/api/tests
 COPY apps/worker/tests ./apps/worker/tests
+COPY apps/host/tests ./apps/host/tests
 COPY packages/core/tests ./packages/core/tests
-CMD ["/app/.venv/bin/python", "-m", "pytest", "apps/api/tests/test_managed_key.py", "apps/api/tests/test_model_cli.py", "apps/api/tests/test_container_config.py", "apps/api/tests/test_bootstrap_cli.py", "apps/api/tests/test_policies_api.py", "apps/api/tests/test_approvals_api.py", "apps/api/tests/test_tools_api.py", "apps/api/tests/test_environments_api.py", "apps/worker/tests/test_worker_cli.py", "packages/core/tests/test_provider_vault.py", "packages/core/tests/test_execution_store.py", "packages/core/tests/test_tasks_execution.py", "packages/core/tests/test_policies.py", "packages/core/tests/test_execution_policies.py", "packages/core/tests/test_approvals.py", "packages/core/tests/test_execution_approvals.py", "packages/core/tests/test_tools.py", "packages/core/tests/test_environments.py", "packages/core/tests/test_database.py"]
+CMD ["/app/.venv/bin/python", "-m", "pytest", "apps/api/tests/test_managed_key.py", "apps/api/tests/test_model_cli.py", "apps/api/tests/test_container_config.py", "apps/api/tests/test_bootstrap_cli.py", "apps/api/tests/test_policies_api.py", "apps/api/tests/test_approvals_api.py", "apps/api/tests/test_tools_api.py", "apps/api/tests/test_environments_api.py", "apps/api/tests/test_host_links_api.py", "apps/api/tests/test_host_link_cli.py", "apps/host/tests", "apps/worker/tests/test_worker_cli.py", "packages/core/tests/test_provider_vault.py", "packages/core/tests/test_execution_store.py", "packages/core/tests/test_tasks_execution.py", "packages/core/tests/test_policies.py", "packages/core/tests/test_execution_policies.py", "packages/core/tests/test_approvals.py", "packages/core/tests/test_execution_approvals.py", "packages/core/tests/test_tools.py", "packages/core/tests/test_environments.py", "packages/core/tests/test_hosts.py", "packages/core/tests/test_database.py"]

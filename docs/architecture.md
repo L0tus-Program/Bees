@@ -39,6 +39,7 @@ Os [contratos locais de ferramentas](tools.md) têm catálogo, instalação decl
 | ActionJournal | Intenção, início, confirmação e resultado desconhecido; reconciliar antes de repetir. |
 | EnvironmentAdapter | Provisionamento/status, persistência, controle e limites reais. |
 | EnvironmentService | Pedidos de computador, catálogo planejado, diagnóstico somente leitura, cancelamento CAS e journal durável; provisionador/ponte/VM ainda pendentes. |
+| HostService / bees-host | Vínculo humano, credencial própria, relatórios booleanos recentes e revogação; helper nativo sem banco/modelos ou autorização de VM. |
 | SecretStore | Referências opacas, acesso controlado, rotação e ausência no contexto/log. |
 | ArtifactStore | Staging/publicação, versões, hashes e download autorizado. |
 | EventStore/Outbox | Eventos de estado duráveis e entrega deduplicável. |

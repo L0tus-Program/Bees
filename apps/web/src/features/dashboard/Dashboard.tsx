@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { onboarding } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
@@ -10,9 +10,16 @@ import { ModelEditor } from '../bee/ModelEditor'
 import { MemoryPanel } from '../memory/MemoryPanel'
 import { TaskPanel } from '../tasks/TaskPanel'
 import { PolicyPanel } from '../policies/PolicyPanel'
-import { ToolsPanel } from '../tools/ToolsPanel'
-import { EnvironmentPanel } from '../environments/EnvironmentPanel'
 import { EnvironmentSummary } from '../environments/EnvironmentSummary'
+
+const EnvironmentPanel = lazy(async () => {
+  const module = await import('../environments/EnvironmentPanel')
+  return { default: module.EnvironmentPanel }
+})
+const ToolsPanel = lazy(async () => {
+  const module = await import('../tools/ToolsPanel')
+  return { default: module.ToolsPanel }
+})
 
 export function Dashboard({ userName }: { userName: string }) {
   const { t } = useTranslation('product')
@@ -49,8 +56,8 @@ export function Dashboard({ userName }: { userName: string }) {
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
-          {view === 'tools' && <ToolsPanel key={selected.id} agent={selected} />}
-          {view === 'computer' && <EnvironmentPanel key={selected.id} agent={selected} />}
+          {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /></Suspense>}
+          {view === 'computer' && <Suspense fallback={<LoadingNotice />}><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && (selected.provider_config && selected.conversation_id ? <Chat key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id }} /> : <div className="surface legacy-agent"><h2>{t('modelNotConfigured')}</h2><p>{bee('legacyConfigure')}</p><button className="button primary" type="button" onClick={() => setView('model')}>{bee('configureModel')}</button></div>)}
           <div className="next-step-note"><span aria-hidden="true">↗</span><p><strong>{t('nextStepTitle')}</strong>{t('nextStepDescription')}</p></div>

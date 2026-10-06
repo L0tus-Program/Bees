@@ -16,6 +16,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from bees_core.models import Environment, HostJob
+from bees_core.security.hosts import HostService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
 
@@ -129,11 +130,22 @@ def preflight_host(configuration: HostConfiguration | None = None) -> dict:
 
 
 class EnvironmentService:
-    def __init__(self, database: Database, host_config: HostConfiguration | None = None) -> None:
+    def __init__(
+        self,
+        database: Database,
+        host_config: HostConfiguration | None = None,
+        *,
+        host_service: HostService | None = None,
+    ) -> None:
         self.store = StateStore(database)
         self.host_config = host_config or HostConfiguration()
+        self.host_service = host_service or HostService(database)
 
     def host_status(self) -> dict:
+        if self.host_config.driver == "none":
+            paired = self.host_service.paired_status()
+            if paired is not None:
+                return paired
         return preflight_host(self.host_config)
 
     def catalog(self) -> dict:

@@ -53,6 +53,7 @@ EntityType = Literal[
     "tool_grant",
     "environment",
     "host_job",
+    "host_link",
 ]
 
 
