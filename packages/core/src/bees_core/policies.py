@@ -292,6 +292,46 @@ def _matches(scope: PolicyScope, intent: ActionIntent) -> bool:
     )
 
 
+def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int]]:
+    """Exceções são emitidas pelo canal de decisão humana, nunca por PolicyInput.
+
+    Editar a regra de permissão desativa a exceção: não conserva silenciosamente
+    uma concessão ao ampliar o escopo na interface comum de políticas.
+    """
+    grant = policy.metadata.get("approval_grant")
+    if not isinstance(grant, dict) or policy.effect != "allow":
+        return set()
+    if grant.get("policy_revision") != policy.revision:
+        return set()
+    scope = PolicyScope.model_validate(policy.scope)
+    if (
+        any(
+            getattr(scope, field) is None
+            for field in ("tool_name", "action", "environment_id", "resource", "identity")
+        )
+        or set(scope.parameters) != {"model"}
+        or hashlib.sha256(_canonical(policy.scope).encode()).hexdigest() != grant.get("scope_hash")
+    ):
+        return set()
+    try:
+        approval = unit.approvals.get(UUID(grant["approval_id"]))
+        exceptions = {(str(UUID(entry["id"])), entry["revision"]) for entry in grant["ask_rules"]}
+    except KeyError, ValueError, TypeError:
+        return set()
+    if (
+        approval is None
+        or approval.actor != "user"
+        or approval.status != "approved"
+        or approval.decision != "allow_rule"
+        or approval.policy_id != policy.id
+        or approval.metadata.get("authorized_ask_rules") != grant.get("ask_rules")
+        or approval.metadata.get("authorized_scope") != policy.scope
+        or any(type(revision) is not int or revision < 1 for _, revision in exceptions)
+    ):
+        return set()
+    return exceptions
+
+
 class PolicyService:
     """Mutação exclusiva do canal confiável de usuário; avaliação nunca escreve regras."""
 
@@ -468,8 +508,16 @@ class PolicyService:
             return PolicyDecision(
                 effect=descriptor.default_effect, reason_code="default", rules_hash=rules_hash
             )
-        effect = max((p.effect for p in matches), key={"allow": 0, "ask": 1, "deny": 2}.get)
-        deciding = [policy for policy in matches if policy.effect == effect]
+        exceptions = set().union(
+            *(_approval_exceptions(unit, policy) for policy in matches if policy.effect == "allow")
+        )
+        effective = [
+            policy
+            for policy in matches
+            if not (policy.effect == "ask" and (str(policy.id), policy.revision) in exceptions)
+        ]
+        effect = max((p.effect for p in effective), key={"allow": 0, "ask": 1, "deny": 2}.get)
+        deciding = [policy for policy in effective if policy.effect == effect]
         return PolicyDecision(
             effect=effect,
             reason_code="matched_rule",

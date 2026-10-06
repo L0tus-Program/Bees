@@ -77,6 +77,7 @@ export function PolicyPanel({ agent }: { agent: AgentSummary }) {
       return <article className={`policy-card ${policy.status === 'revoked' ? 'revoked' : ''}`} key={policy.id}>
         <div className="policy-card-heading"><h3>{policy.name}</h3><span className={`policy-effect effect-${policy.effect}`}>{t(policy.effect)}</span></div>
         <p className="quiet-note">{t(policy.status === 'active' ? 'active' : 'revokedStatus')} · {new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(policy.updated_at))}</p>
+        {policy.origin === 'approval' && <p className="transfer-notice">{t('approvalOrigin')}</p>}
         {policy.agent_id === null && <p className="quiet-note">{t('global')}</p>}{policy.agent_id !== null && !editable && <p className="quiet-note">{t('unsupported')}</p>}
         {editable && <div className="policy-target">{policy.scope.resource && <p><strong>{t('connection')}</strong><code>{policy.scope.resource}</code></p>}{typeof policy.scope.parameters?.model === 'string' && <p><strong>{t('model')}</strong><span>{policy.scope.parameters.model}</span></p>}{!policy.scope.resource && !policy.scope.parameters?.model && <p>{t('allGeneration')}</p>}</div>}
         {policy.reason && <p className="policy-reason">{policy.reason}</p>}

@@ -320,6 +320,17 @@ class _Repository[T: Record]:
             for name in ("created_at", *self._spec.immutable):
                 if getattr(previous, name) != getattr(validated, name):
                     raise IntegrityError("Vínculos e identidade canônica são imutáveis.")
+            if isinstance(previous, Approval) and previous.policy_id != validated.policy_id:
+                # Uma decisão pode criar seu vínculo pela primeira vez; uma
+                # autorização já vinculada nunca é transferida para outra regra.
+                if (
+                    previous.policy_id is not None
+                    or previous.status != "pending"
+                    or validated.status != "approved"
+                    or validated.decision != "allow_rule"
+                    or validated.actor != "user"
+                ):
+                    raise IntegrityError("Vínculo de aprovação não pode ser substituído.")
             if isinstance(previous, Action) and isinstance(validated, Action):
                 _validate_action_update(previous, validated, reconciled=reconciled)
             if isinstance(previous, Artifact) and previous.status == "ready":
@@ -838,6 +849,30 @@ class Execution:
                 self.calls._change(
                     call, status="outcome_unknown", error_code="worker_lost", finished_at=now
                 )
+                # A decisão já foi consumida no mesmo commit de begin_call. Uma
+                # morte do processo deve preservar também seu journal de ação.
+                if call.metadata.get("approval_id"):
+                    approvals = Approvals(
+                        self._context,
+                        _Spec("approvals", "approval", Approval, ("action_id",)),
+                    )
+                    actions = Actions(
+                        self._context,
+                        _Spec("actions", "action", Action, ("run_id",)),
+                    )
+                    approval = approvals.get(call.metadata["approval_id"])
+                    action = actions.get(approval.action_id) if approval else None
+                    if (
+                        action is None
+                        or action.run_id != run.id
+                        or approval.metadata.get("model_call_id") != str(call.id)
+                    ):
+                        raise IntegrityError("Journal de aprovação incompatível com a chamada.")
+                    if action.status == "dispatch_started":
+                        actions.update(
+                            action.model_copy(update={"status": "outcome_unknown"}),
+                            action.revision,
+                        )
                 if call.started_at is not None:
                     duration = min(
                         int(call.provider_config.get("deadline_seconds", 60) * 1000),
@@ -1123,7 +1158,7 @@ class UnitOfWork:
         self.actions = Actions(context, _Spec("actions", "action", Action, ("run_id",)))
         self.policies = Policies(context, _Spec("policies", "policy", Policy, ("agent_id",)))
         self.approvals = Approvals(
-            context, _Spec("approvals", "approval", Approval, ("action_id", "policy_id"))
+            context, _Spec("approvals", "approval", Approval, ("action_id",))
         )
         self.routines = Routines(context, _Spec("routines", "routine", Routine, ("agent_id",)))
         self.memories = Memories(

@@ -1,6 +1,6 @@
 # Autonomia e políticas
 
-BEES-008 entrega avaliação determinística de regras e sua aplicação nas gerações de chat e de tarefas textuais. Regras são estado canônico do Bees, com revisão e auditoria, independentes do fornecedor. Esta etapa não fornece ferramentas, acesso a computadores ou aprovações pontuais na conversa; esses fluxos pertencem a BEES-009/010 e aos ambientes reais.
+BEES-008 entrega avaliação determinística de regras e sua aplicação nas gerações de chat e de tarefas textuais. Regras são estado canônico do Bees, com revisão e auditoria, independentes do fornecedor. BEES-009 acrescenta [decisões pontuais de tarefas](approvals.md) e regras persistentes pela conversa. Ferramentas e acesso a computadores continuam nas histórias dos executores e ambientes reais.
 
 ## Uso pela interface
 
@@ -9,12 +9,12 @@ Abra **Autonomia** na abelha e crie uma regra para gerar respostas. Escolha a co
 | Efeito | Comportamento |
 | --- | --- |
 | Permitir | Executa dentro do escopo se nenhuma regra restritiva também se aplicar. |
-| Perguntar | Impede a geração e deixa a tarefa aguardando decisão. Neste checkpoint, revise/edite a regra para continuar; autorização pontual será acrescentada em BEES-009. |
+| Perguntar | Impede a geração e deixa a tarefa aguardando decisão. O cartão da tarefa permite uma decisão pontual ou regra de escopo explícito; também é possível editar a regra em Autonomia. |
 | Bloquear | Impede a geração e pausa a tarefa, sem consumir uma chamada. |
 
 Sem regra restritiva, gerar texto com a conexão selecionada é permitido. Isso não autoriza ferramentas ou acesso ao computador. A regra por conexão/modelo permanece vinculada ao destino e identificador exatos; trocar o provedor não transfere a regra silenciosamente. Para bloquear gerações também após mudanças de modelo, escolha todas as gerações da abelha.
 
-Regras globais e da abelha são avaliadas juntas. **Qualquer negativa aplicável vence; perguntar vence permitir.** Uma permissão específica não anula uma negativa geral. Edite ou revogue a restrição para abrir uma exceção. Campos vazios abrangem qualquer valor, sem regex, glob ou interpretação especial de `*`.
+Regras globais e da abelha são avaliadas juntas. **Qualquer negativa aplicável vence; perguntar vence uma permissão comum.** Uma regra salva por decisão humana pode excluir apenas as revisões de Perguntar autorizadas naquele escopo; [operação e limites](approvals.md). Uma permissão específica não anula uma negativa geral. Edite ou revogue a restrição para abrir uma exceção. Campos vazios abrangem qualquer valor, sem regex, glob ou interpretação especial de `*`.
 
 Editar e revogar exige a revisão atual. A interface não repete mutações automaticamente; se a resposta se perder, atualize os dados antes de tentar novamente. Criações têm ID idempotente e alterações usam CAS. A listagem tem paginação; regras de páginas posteriores continuam aplicadas pelo executor e podem ser consultadas e revogadas.
 
@@ -48,4 +48,4 @@ Testes usam SQLite e HTTP controlado, sem chave ou geração real de LLM. Cobrem
 
 O checkpoint de 05/10/2026 aprovou 612 casos Python no Windows, 161 de frontend e 201 no alvo Linux, com 24/4 skips de plataforma. Ruff, ESLint, typecheck/build e imagens Docker passaram. O Compose descartável comprovou espera/bloqueio sem geração, revogação seguida de retomada, regras/resultado/cofre após restart/recreate e proteção CSRF. A interface comprovou cadastro, recuperação após reload, edição e revogação confirmada, usando somente conta e servidor de protocolo de teste.
 
-BEES-008 permanece em andamento para comprovar a aplicação online no executor de ferramentas/ambientes reais. BEES-009 acrescentará perguntas concretas, aprovação única vinculada a ação/snapshot/revisão e edição pela conversa; nenhuma retomada atual cria essa autorização. Rotinas ainda não executam e usarão a mesma avaliação antes de cada efeito quando implementadas. Aceite com modelos reais permanece separado em BEES-005.
+BEES-008 permanece em andamento para comprovar a aplicação online no executor de ferramentas/ambientes reais. BEES-009 entrega perguntas concretas para tarefas, aprovação única vinculada a ação/snapshot/revisão e edição pela conversa; Retomar continua sem conceder essa autorização. Rotinas ainda não executam e usarão a mesma avaliação antes de cada efeito quando implementadas. Aceite com modelos reais permanece separado em BEES-005.

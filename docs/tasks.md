@@ -15,7 +15,7 @@ O painel consulta estado por GET a cada cinco segundos enquanto está visível. 
 | Redirecionar | Registra uma instrução na tarefa. Resposta anterior obsoleta não conclui o novo objetivo. |
 | Cancelar | Encerra a tarefa e interrompe a espera local; isso não garante cancelamento ou estorno no provedor. |
 
-Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_resource`, `paused`, `completed`, `failed` e `cancelled`. Uma regra **Perguntar** para geração deixa a tarefa em `waiting_approval`; uma negativa a pausa. Revise a regra em **Autonomia** e depois retome: retomada não concede permissão pontual nem contorna políticas. Ver [políticas](policies.md). Este executor textual não solicita aprovação de ferramentas. O status concluído significa resposta persistida, sem avaliação automática de sua qualidade.
+Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_resource`, `paused`, `completed`, `failed` e `cancelled`. Uma regra **Perguntar** para geração deixa a tarefa em `waiting_approval`; uma negativa a pausa. O cartão da tarefa permite autorizar uma vez ou salvar uma regra no escopo explícito; a confirmação válida volta à fila automaticamente. Também é possível revisar a regra em **Autonomia** e depois retomar: retomada não concede permissão pontual nem contorna políticas. Ver [aprovações](approvals.md) e [políticas](policies.md). Este executor textual não solicita aprovação de ferramentas. O status concluído significa resposta persistida, sem avaliação automática de sua qualidade.
 
 ## Limites e falhas
 
@@ -58,3 +58,9 @@ A suíte Windows aprovou 535 casos Python, com 24 skips de plataforma; quatro no
 O aceite Docker descartável confirmou pausa/retomada da fila, geração pelo processo worker, chat separado e resultado/cofre preservados após reinício e recriação. Pela interface, delegação e resposta controlada reapareceram após reload. Testes negativos incluem interrupção real de subprocesso antes/depois do despacho, efeito aceito sem resposta, dois workers, fencing antigo, comandos repetidos, cancelamento, redirecionamento, snapshot alterado, limites e rollback da confirmação do journal.
 
 BEES-007 permanece em andamento para integrar esperas de aprovação/recurso e coordenação de ambientes reais nas próximas histórias. Este checkpoint não demonstra ferramentas, computadores, orçamento financeiro ou geração com um modelo real.
+
+## Decisões de tarefas — BEES-009
+
+Uma política Perguntar cria um cartão persistente na conversa e no detalhe da tarefa. Permitir uma vez ou salvar autorização no escopo concreto coloca a mesma execução na fila, preservando seu contexto. Sempre perguntar e bloquear salvam regras sem gerar. [Aprovações](approvals.md) descreve validade, efeitos e revogação. Retomar continua sem conceder autorização; uma execução nova não carrega os IDs da aprovação anterior. Recuperação após queda preserva também o journal da ação autorizada.
+
+BEES-007 passa a ter espera e decisão humana para gerações textuais. Recursos e coordenação dos ambientes reais permanecem pendentes; não se trata de execução de ferramentas ou modelo real comprovado.

@@ -19,7 +19,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 
 UUIDs, datas UTC com timezone, validação de tipos e revisões fazem parte dos contratos. SQLite também verifica FKs, vínculos entre agentes/tarefas, estados e JSON. `tzdata` acompanha as dependências para validar fusos no Windows.
 
-Rotinas e políticas aqui são **registros**, não agenda em execução nem mecanismo de autorização. Metadados de artefato `ready` exigem referência/hash, mas não comprovam a presença do blob: publicação/download de arquivos entram na implementação do ArtifactStore. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
+Os repositórios armazenam **registros**; não executam agenda ou autorização por si. [Políticas](policies.md) e [aprovações](approvals.md) compõem a autorização das gerações no executor. Rotinas ainda não possuem agenda em execução. Metadados de artefato `ready` exigem referência/hash, mas não comprovam a presença do blob: publicação/download de arquivos entram na implementação do ArtifactStore. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
 
 ## Transações e revisões
 

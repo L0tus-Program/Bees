@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from bees_core.approvals import ApprovalService
 from bees_core.models import ExecutionClaim, ModelCall, utc_now
 from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.contracts import SecretResolver
@@ -41,6 +42,7 @@ class TaskWorker:
             raise ValueError("Cadência ou lease de worker inválida.")
         self.store = StateStore(database)
         self.providers = ProviderService(database, resolver, transport=transport)
+        self.approvals = ApprovalService(database, resolver=resolver)
         self.owner_id = owner_id or uuid4()
         self.poll_seconds = poll_seconds
         self.lease_seconds = lease_seconds
@@ -87,7 +89,7 @@ class TaskWorker:
                 return None
             calls = uow.model_calls.list(run_id=run.id, limit=1000)
             prepared_calls = [call for call in calls if call.status == "prepared"]
-            prepared = None
+            prepared = self.approvals.prepared_for_run(uow, task, run)
             for previous in prepared_calls:
                 if prepared is None and previous.snapshot.get(
                     "directive_revision"
@@ -129,6 +131,12 @@ class TaskWorker:
                 expected_revision=run.revision,
             )
             return call, prepared
+
+    def _wait_for_approval(self, uow, claim, prepared, decision):
+        task = uow.tasks.get(claim.task.id)
+        run = uow.runs.get(claim.run.id)
+        self.approvals.request(uow, task, run, prepared, decision)
+        self._settle_local(uow, claim, code="policy_approval_required")
 
     def _settle_local(self, uow, claim, *, code: str | None) -> None:
         """Parada antes de despacho; não há chamada a repetir/reconciliar."""
@@ -194,17 +202,38 @@ class TaskWorker:
                 raise ProviderError("state_conflict")
             with self.store.transaction(actor="worker", source="task_dispatch") as uow:
                 decision = self.providers.model_policy(uow, prepared)
-                self.providers.require_model_policy(decision)
                 uow.execution.assert_claim(claim, now=utc_now())
                 task = uow.tasks.get(claim.task.id)
+                run = uow.runs.get(claim.run.id)
+                if (
+                    task.desired_state != "running"
+                    or task.control_revision != calls[0].task_control_revision
+                ):
+                    raise RevisionConflict("Controle mudou antes da geração autorizada.")
+                approval = self.approvals.check(uow, task, run, prepared, decision)
+                if approval is None:
+                    self.providers.require_model_policy(decision)
                 if time.monotonic() - started >= (
                     task.max_active_seconds - task.active_milliseconds / 1000
                 ):
                     raise ProviderError("timeout")
+                consumed = (
+                    self.approvals.consume(
+                        uow,
+                        task,
+                        run,
+                        prepared,
+                        decision,
+                        call_id=calls[0].id,
+                    )
+                    if approval is not None
+                    else None
+                )
                 call = uow.execution.begin_call(claim, calls[0], now=utc_now())
                 call = uow.model_calls._change(
                     call,
                     metadata=call.metadata
+                    | ({"approval_id": str(consumed.id)} if consumed is not None else {})
                     | {
                         "policy": {
                             "rules_hash": decision.rules_hash,
@@ -287,6 +316,12 @@ class TaskWorker:
                 now=now,
                 obsolete=obsolete,
             )
+            if call.metadata.get("approval_id"):
+                self.approvals.finish(
+                    uow,
+                    UUID(call.metadata["approval_id"]),
+                    "confirmed" if response is not None else "outcome_unknown",
+                )
             checkpoint = run.checkpoint | {"attention_required": False}
             status = "completed"
             desired = task.desired_state
@@ -388,13 +423,22 @@ class TaskWorker:
                     self._settle_local(uow, claim, code="task_limit_reached")
                     return True
                 decision = self.providers.model_policy(uow, prepared)
-                if not decision.allowed:
+                current_task = uow.tasks.get(claim.task.id)
+                current_run = uow.runs.get(claim.run.id)
+                if (
+                    current_task.desired_state != "running"
+                    or current_task.control_revision != call.task_control_revision
+                ):
+                    raise RevisionConflict("Controle mudou antes de pedir uma decisão.")
+                approval = self.approvals.check(uow, current_task, current_run, prepared, decision)
+                if decision.effect == "ask" and approval is None:
+                    self._wait_for_approval(uow, claim, prepared, decision)
+                    return True
+                if decision.effect == "deny":
                     self._settle_local(
                         uow,
                         claim,
-                        code="policy_approval_required"
-                        if decision.effect == "ask"
-                        else "policy_denied",
+                        code="policy_denied",
                     )
                     return True
         except ProviderError, RevisionConflict:
@@ -452,7 +496,26 @@ class TaskWorker:
                 uow.execution.charge_active(
                     claim, math.ceil((time.monotonic() - start) * 1000), now=utc_now()
                 )
-                self._settle_local(uow, claim, code=error_code or "internal_error")
+                if error_code == "policy_approval_required":
+                    task = uow.tasks.get(claim.task.id)
+                    if (
+                        task.desired_state != "running"
+                        or task.control_revision != dispatched[0].task_control_revision
+                    ):
+                        self._settle_conflict(uow, claim, dispatched[0], 0)
+                    else:
+                        try:
+                            decision = self.providers.model_policy(uow, prepared)
+                        except ProviderError:
+                            self._settle_local(uow, claim, code="context_changed")
+                        else:
+                            if decision.effect == "ask":
+                                self._wait_for_approval(uow, claim, prepared, decision)
+                            else:
+                                # Uma mudança depois da guarda não dispara retry.
+                                self._settle_local(uow, claim, code="policy_denied")
+                else:
+                    self._settle_local(uow, claim, code=error_code or "internal_error")
             return True
         self._finish(
             claim,

@@ -8,6 +8,7 @@ export interface PolicyScope extends Record<string, unknown> {
 export interface PolicyRecord {
   id: string; agent_id: string | null; name: string; effect: PolicyEffect; scope: Record<string, unknown>
   status: 'active' | 'revoked'; revision: number; reason: string; created_at: string; updated_at: string
+  origin?: 'approval' | 'manual'
 }
 export interface PolicyCollection { policies: PolicyRecord[]; has_more: boolean; next_offset: number | null }
 export interface PolicyInput { name: string; effect: PolicyEffect; scope: PolicyScope; reason: string }
@@ -20,6 +21,7 @@ export function isPolicy(value: unknown): value is PolicyRecord {
     && (value.agent_id === null || typeof value.agent_id === 'string')
     && ['allow', 'ask', 'deny'].includes(String(value.effect)) && ['active', 'revoked'].includes(String(value.status))
     && Number.isInteger(value.revision) && (value.revision as number) > 0 && date(value.created_at) && date(value.updated_at)
+    && (value.origin === undefined || value.origin === 'approval' || value.origin === 'manual')
 }
 const base = (agentId: string) => `/agents/${encodeURIComponent(agentId)}/policies`
 function checked(value: unknown, agentId: string, policyId?: string, allowGlobal = false): PolicyRecord {

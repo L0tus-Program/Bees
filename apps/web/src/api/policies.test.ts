@@ -84,6 +84,7 @@ describe('policy editor boundaries', () => {
     expect(editableGenerationPolicy({ ...policy, agent_id: null }, 'bee-1')).toBe(false)
     expect(editableGenerationPolicy({ ...policy, scope: { ...policy.scope, tool_name: 'shell' } }, 'bee-1')).toBe(false)
     expect(editableGenerationPolicy({ ...policy, scope: { ...policy.scope, identity: 'another-account' } }, 'bee-1')).toBe(false)
+    expect(editableGenerationPolicy({ ...policy, scope: { ...policy.scope, identity: 'bees_user' } }, 'bee-1')).toBe(true)
     expect(editableGenerationPolicy({ ...policy, scope: { ...policy.scope, parameters: { model: 'x', cost: 100 } } }, 'bee-1')).toBe(false)
   })
   it('explicit create retries reuse the UUID only for identical input', () => {

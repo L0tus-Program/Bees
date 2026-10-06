@@ -14,6 +14,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from bees_api import __version__
+from bees_api.approvals import router as approvals_router
 from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
@@ -25,6 +26,7 @@ from bees_api.profiles import router as profiles_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
+from bees_core.approvals import ApprovalError
 from bees_core.policies import PolicyError
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
@@ -120,6 +122,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(profiles_router)
     app.include_router(tasks_router)
     app.include_router(policies_router)
+    app.include_router(approvals_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -199,6 +202,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
             },
             status_code=409 if error.code == "idempotency_conflict" else 422,
+        )
+
+    @app.exception_handler(ApprovalError)
+    async def approval_error(request: Request, error: ApprovalError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Atualize a decisão e confira seu escopo."}},
+            status_code=422 if error.code == "invalid_approval" else 409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

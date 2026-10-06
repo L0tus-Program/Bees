@@ -7,15 +7,20 @@ import { messages, sendChat } from '../../api/onboarding'
 import type { AgentSummary } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { useResource } from '../../hooks/useResource'
+import { ApprovalPanel } from '../approvals/ApprovalPanel'
+import { PolicyPanel } from '../policies/PolicyPanel'
+import { isAutonomyCommand } from '../approvals/state'
 
 export function Chat({ agent }: { agent: AgentSummary & { conversation_id: string } }) {
   const { t, i18n } = useTranslation('product')
   const { t: bee } = useTranslation('bee')
+  const { t: approvals } = useTranslation('approvals')
   const load = useCallback((signal: AbortSignal) => messages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const { resource, reload } = useResource(load)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
+  const [editingPolicies, setEditingPolicies] = useState(false)
   const controller = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -26,6 +31,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (!busy && isAutonomyCommand(draft)) { setEditingPolicies(true); setDraft(''); return }
     if (busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active') return
     setBusy(true); setError(null)
     controller.current = new AbortController()
@@ -45,6 +51,10 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
     <section className="surface conversation" aria-labelledby="conversation-heading">
       <div className="conversation-heading"><div><p className="section-label">{t('conversation')}</p><h2 id="conversation-heading">{agent.name}</h2></div><button type="button" className="text-button" onClick={reload} disabled={busy || resource.state === 'loading'}>{t('refreshHistory')}</button></div>
       <p className="conversation-scope">{t('chatScope')}</p>
+      <p className="quiet-note">{approvals('policiesHelp')}</p>
+      <button type="button" className="text-button" onClick={() => setEditingPolicies((value) => !value)} disabled={busy}>{approvals(editingPolicies ? 'closePolicies' : 'editPolicies')}</button>
+      {editingPolicies && <PolicyPanel agent={agent} />}
+      <ApprovalPanel agentId={agent.id} onChanged={reload} />
       {agent.status !== 'active' && <p className="transfer-notice">{bee('inactiveConversation', { status: bee(`status_${agent.status}`) })}</p>}
       {error && <ErrorNotice error={error} />}
       {resource.state === 'loading' && <LoadingNotice />}

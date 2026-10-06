@@ -15,7 +15,8 @@ export function editableGenerationPolicy(policy: PolicyRecord, agentId: string):
   const scope = policy.scope
   const keys = Object.keys(scope).filter((key) => scope[key] !== null && scope[key] !== undefined)
   return policy.agent_id === agentId && scope.tool_name === 'model' && scope.action === 'generate' && scope.environment_id === 'control_plane'
-    && keys.every((key) => ['tool_name', 'action', 'environment_id', 'resource', 'parameters'].includes(key))
+    && keys.every((key) => ['tool_name', 'action', 'environment_id', 'resource', 'parameters', 'identity'].includes(key))
+    && (scope.identity === undefined || scope.identity === null || scope.identity === 'bees_user')
     && (scope.resource === undefined || scope.resource === null || (typeof scope.resource === 'string' && scope.resource.length > 0))
     && (scope.parameters === undefined || (record(scope.parameters) && (Object.keys(scope.parameters).length === 0 || (Object.keys(scope.parameters).length === 1 && typeof scope.parameters.model === 'string' && scope.parameters.model.length > 0))))
 }

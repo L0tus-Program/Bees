@@ -35,6 +35,7 @@ export function PolicyForm({ agent, policy, onSaved, onCancel, onReload }: { age
   }
   return <form className="policy-form" onSubmit={(event) => { void submit(event) }} aria-busy={busy}>
     <h3 ref={heading} tabIndex={-1}>{t(policy ? 'editRule' : 'newRule')}</h3>
+    {policy?.origin === 'approval' && <p className="transfer-notice">{t('approvalEditImpact')}</p>}
     <fieldset disabled={busy}>
       <label className="field" htmlFor="policy-effect"><span>{t('effect')}</span><select id="policy-effect" value={effect} onChange={(event) => setEffect(event.target.value as PolicyEffect)}>{(['allow', 'ask', 'deny'] as const).map((choice) => <option key={choice} value={choice}>{t(choice)}</option>)}</select></label>
       {effect === 'ask' && <p className="quiet-note">{t('askHelp')}</p>}

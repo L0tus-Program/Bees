@@ -415,3 +415,26 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
   .task-actions { justify-content: flex-start; }
   .task-actions .button { flex: 1; }
 }
+.approval-panel { margin: 1.5rem 0; border-top: 1px solid var(--line); padding-top: 1rem; }
+.approval-panel .form-heading h3 { margin: 0; font-size: 1.1rem; }
+.approval-list { display: grid; gap: 1rem; }
+.approval-card { border: 1px solid var(--line); border-radius: 14px; padding: 1rem; background: #fffef9; }
+.approval-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem 1rem; justify-content: space-between; }
+.approval-heading h4 { margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
+.approval-status { font-size: .75rem; color: var(--muted); }
+.approval-target { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin: 1rem 0; }
+.approval-target div { min-width: 0; }
+.approval-target dt { font-size: .72rem; color: var(--muted); }
+.approval-target dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .87rem; }
+.approval-target code { font-size: .78rem; white-space: normal; }
+.approval-objective { font-size: .8rem; line-height: 1.6; margin-bottom: .8rem; }
+.approval-objective summary { cursor: pointer; color: #765313; }
+.approval-objective p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .6rem; }
+.approval-choices, .approval-actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+.approval-choices .button { flex: 1 1 160px; font-size: .82rem; }
+.approval-choices [aria-pressed="true"] { outline: 2px solid #926414; outline-offset: 2px; }
+.approval-confirmation { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; }
+.approval-confirmation h5 { font-size: .95rem; margin: 0; }
+.approval-confirmation fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.approval-actions { align-items: center; justify-content: flex-end; margin-top: 1rem; }
+@media (max-width: 520px) { .approval-target { grid-template-columns: minmax(0, 1fr); } .approval-actions .button { width: 100%; } }

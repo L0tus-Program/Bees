@@ -12,3 +12,4 @@ services:
     depends_on:
       bees:
         condition: service_healthy
+        restart: true

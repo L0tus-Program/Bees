@@ -29,6 +29,7 @@ def _view(policy: Policy) -> dict:
         "agent_id": str(policy.agent_id) if policy.agent_id else None,
         "name": policy.name,
         "effect": policy.effect,
+        "origin": "approval" if policy.metadata.get("approval_grant") else "manual",
         "scope": policy.scope,
         "status": policy.status,
         "revision": policy.revision,

@@ -306,6 +306,10 @@ class TaskService:
                     checkpoint["progress"] = "completed"
                 else:
                     # A execução anterior mantém modelo/configuração/proveniência reais.
+                    # Retomar cria outra intenção; consentimento humano pertence
+                    # ao run anterior e não é copiado para a nova execução.
+                    checkpoint.pop("approval_id", None)
+                    checkpoint.pop("action_id", None)
                     checkpoint.pop("result_message_id", None)
                     checkpoint["result_ready"] = False
                     uow.runs.create(

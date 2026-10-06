@@ -408,6 +408,86 @@ def main():
                 client.get(task_path).json()["task"]["latest_run"]["result"]
                 == task_detail["task"]["latest_run"]["result"]
             )
+            # Decisão humana durável, pontual e reutilização explícita de regra.
+            asked = client.post(
+                agent_path + "/policies",
+                json=policy_body | {"client_request_id": str(uuid4())},
+                headers=headers(),
+            )
+            assert asked.status_code == 201
+
+            def new_waiting_task(title):
+                created = client.post(
+                    agent_path + "/tasks",
+                    json=task_body | {"client_request_id": str(uuid4()), "title": title},
+                    headers=headers(),
+                )
+                assert created.status_code == 201
+                path = agent_path + "/tasks/" + created.json()["id"]
+                wait_task(path, "waiting_approval")
+                collection = client.get(
+                    agent_path + "/approvals", params={"task_id": created.json()["id"]}
+                ).json()
+                pending = collection["approvals"][0]
+                assert pending["valid"] and pending["parameters"] == {
+                    "model": bee["provider_config"]["model"]
+                }
+                assert "prepared" not in pending and "secret_ref" not in str(pending)
+                return path, pending
+
+            once_path, once = new_waiting_task("Aprovação única Docker")
+            # Reinício API/worker não elimina o pedido humano nem cria efeito.
+            # Worker e fixture compartilham a rede da API; após reiniciar a
+            # proprietária, precisam ingressar novamente na nova namespace.
+            compose("restart", "bees")
+            compose("restart", "worker", "fixture")
+            compose("up", "--detach", "--wait", "--wait-timeout", "120")
+            approve_path = agent_path + "/approvals/" + once["id"]
+            assert client.get(approve_path).json()["status"] == "pending"
+            once_body = {
+                "client_request_id": str(uuid4()),
+                "expected_revision": once["revision"],
+                "decision": "allow_once",
+            }
+            assert client.post(approve_path + "/decision", json=once_body).status_code == 403
+            approved = client.post(approve_path + "/decision", json=once_body, headers=headers())
+            assert approved.status_code == 200, approved.text
+            assert wait_task(once_path, "completed")["calls_started"] == 1
+            replay = client.post(approve_path + "/decision", json=once_body, headers=headers())
+            assert replay.status_code == 200 and replay.json()["consumed_at"]
+            rule_task_path, question = new_waiting_task("Regra de escopo Docker")
+            rule_approval_path = agent_path + "/approvals/" + question["id"]
+            saved = client.post(
+                rule_approval_path + "/decision",
+                json={
+                    "client_request_id": str(uuid4()),
+                    "expected_revision": question["revision"],
+                    "decision": "allow_rule",
+                    "reason": "Escopo controlado de teste",
+                },
+                headers=headers(),
+            )
+            assert saved.status_code == 200, saved.text
+            assert wait_task(rule_task_path, "completed")["calls_started"] == 1
+            next_task = client.post(
+                agent_path + "/tasks",
+                json=task_body | {"client_request_id": str(uuid4()), "title": "Regra reutilizada"},
+                headers=headers(),
+            )
+            assert next_task.status_code == 201
+            assert (
+                wait_task(agent_path + "/tasks/" + next_task.json()["id"], "completed")[
+                    "calls_started"
+                ]
+                == 1
+            )
+            compose("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "120")
+            assert client.get(approve_path).json()["consumed_at"]
+            assert client.get(rule_approval_path).json()["decision"] == "allow_rule"
+            assert any(
+                value["effect"] == "allow" and value["origin"] == "approval"
+                for value in client.get(agent_path + "/policies").json()["policies"]
+            )
             continued = client.post(
                 agent_path + "/chat",
                 json={"conversation_id": bee["conversation_id"], "content": "Após recriar."},
