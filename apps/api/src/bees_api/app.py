@@ -20,10 +20,12 @@ from bees_api.configuration import router as configuration_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
+from bees_api.policies import router as policies_router
 from bees_api.profiles import router as profiles_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
+from bees_core.policies import PolicyError
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
@@ -117,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(configuration_router)
     app.include_router(profiles_router)
     app.include_router(tasks_router)
+    app.include_router(policies_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -153,7 +156,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "invalid_secret_reference",
             )
             else 409
-            if error.code == "state_conflict"
+            if error.code in ("state_conflict", "policy_approval_required")
+            else 403
+            if error.code == "policy_denied"
             else 502
         )
         return JSONResponse(
@@ -182,6 +187,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": error.code, "message": "Comando indisponível; atualize a tarefa."}},
             status_code=409,
+        )
+
+    @app.exception_handler(PolicyError)
+    async def policy_error(request: Request, error: PolicyError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Confira a regra de autonomia e atualize seu estado.",
+                }
+            },
+            status_code=409 if error.code == "idempotency_conflict" else 422,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

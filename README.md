@@ -2,7 +2,7 @@
 
 Assistentes pessoais com estado próprio, modelos substituíveis e dois ambientes de execução: computador da abelha e máquina pessoal autorizada.
 
-**Estágio atual: assistente de texto com memória e tarefas em segundo plano.** Escolha um provedor e modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Listas prontas e digitação manual estão disponíveis; busca e teste de catálogo são opcionais. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Tarefas textuais possuem execução independente, controles e resultados persistentes. Políticas de ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
+**Estágio atual: assistente de texto com memória, tarefas em segundo plano e regras de autonomia.** Escolha um provedor e modelo na interface, crie/edite uma abelha, registre preferências e converse com histórico persistente e contexto selecionado. Listas prontas e digitação manual estão disponíveis; busca e teste de catálogo são opcionais. Credenciais podem ficar no cofre local ou ser referenciadas por ambiente. Tarefas textuais possuem execução independente, controles e resultados persistentes. O painel Autonomia permite configurar regras antes das gerações de chat/tarefas; veja [políticas](docs/policies.md). Aprovações pontuais, ferramentas, VM e conector pessoal ainda serão implementados. Testes usam servidores controlados; geração com modelos reais continua pendente.
 
 ## Abrir com Docker
 

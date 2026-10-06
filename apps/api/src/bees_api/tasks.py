@@ -38,7 +38,7 @@ def _view(detail) -> dict:
     run = detail.runs[-1] if detail.runs else None
     terminal = task.status in ("completed", "failed", "cancelled")
     controls = [] if terminal else ["cancel"]
-    if task.status == "paused":
+    if task.status in ("paused", "waiting_approval", "waiting_resource"):
         controls.append("resume")
     elif not terminal:
         controls.extend(["pause", "redirect"])

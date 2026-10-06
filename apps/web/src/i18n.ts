@@ -3,6 +3,7 @@ import { initReactI18next } from 'react-i18next'
 import { productResources } from './locales/product'
 import { beeResources } from './locales/bee'
 import { taskResources } from './locales/tasks'
+import { policyResources } from './locales/policies'
 
 const ptBR = {
   language: 'Idioma',
@@ -116,7 +117,7 @@ function getSavedLanguage() {
 }
 
 void i18n.use(initReactI18next).init({
-  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es } },
+  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'], policies: policyResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en, policies: policyResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es, policies: policyResources.es } },
   lng: getSavedLanguage(),
   fallbackLng: 'pt-BR',
   supportedLngs: ['pt-BR', 'en', 'es'],

@@ -136,9 +136,20 @@ class TaskWorker:
         run = uow.runs.get(claim.run.id)
         for call in uow.model_calls.list(run_id=run.id, status="prepared", limit=1000):
             uow.execution.discard_prepared(claim, call.id, now=utc_now(), error_code=code)
-        status = "cancelled" if task.desired_state == "cancelled" else "paused"
+        status = (
+            "cancelled"
+            if task.desired_state == "cancelled"
+            else "waiting_approval"
+            if code == "policy_approval_required"
+            else "paused"
+        )
         task = uow.tasks.update(
-            task.model_copy(update={"status": status, "desired_state": status}),
+            task.model_copy(
+                update={
+                    "status": status,
+                    "desired_state": "cancelled" if status == "cancelled" else "paused",
+                }
+            ),
             expected_revision=task.revision,
         )
         checkpoint = run.checkpoint | {"progress": status, "attention_required": code is not None}
@@ -155,10 +166,66 @@ class TaskWorker:
         )
         uow.execution.release(claim)
 
-    async def _dispatch(self, claim, prepared, remaining_seconds):
+    def _settle_conflict(self, uow, claim, call, elapsed_ms):
+        uow.execution.assert_claim(claim, now=utc_now())
+        uow.execution.charge_active(claim, elapsed_ms, now=utc_now())
+        task = uow.tasks.get(claim.task.id)
+        run = uow.runs.get(claim.run.id)
+        if (
+            task.desired_state == "running"
+            and self._directive(run) != call.snapshot["directive_revision"]
+        ):
+            uow.execution.discard_prepared(claim, call.id, now=utc_now())
+            uow.tasks.update(task.model_copy(update={"status": "queued"}), task.revision)
+            uow.runs.update(run.model_copy(update={"status": "queued"}), run.revision)
+            uow.execution.release(claim)
+        else:
+            self._settle_local(
+                uow, claim, code=None if task.desired_state != "running" else "context_changed"
+            )
+
+    async def _dispatch(self, claim, prepared, remaining_seconds, calls, started):
         """Monitore controle/lease sem manter uma UoW aberta durante o await."""
+
+        def authorize_generation():
+            # Também roda depois do preflight Ollama: políticas, controle e contexto
+            # podem ter mudado durante essa consulta. Journal precede o efeito real.
+            if calls[0].status != "prepared":
+                raise ProviderError("state_conflict")
+            with self.store.transaction(actor="worker", source="task_dispatch") as uow:
+                decision = self.providers.model_policy(uow, prepared)
+                self.providers.require_model_policy(decision)
+                uow.execution.assert_claim(claim, now=utc_now())
+                task = uow.tasks.get(claim.task.id)
+                if time.monotonic() - started >= (
+                    task.max_active_seconds - task.active_milliseconds / 1000
+                ):
+                    raise ProviderError("timeout")
+                call = uow.execution.begin_call(claim, calls[0], now=utc_now())
+                call = uow.model_calls._change(
+                    call,
+                    metadata=call.metadata
+                    | {
+                        "policy": {
+                            "rules_hash": decision.rules_hash,
+                            "rule_ids": [str(value) for value in decision.deciding_policy_ids],
+                        }
+                    },
+                )
+                run = uow.runs.get(claim.run.id)
+                uow.runs.update(
+                    run.model_copy(
+                        update={"checkpoint": run.checkpoint | {"progress": "generating"}}
+                    ),
+                    expected_revision=run.revision,
+                )
+            calls[0] = call
+
         adapter = create_adapter(
-            prepared.config.kind, self.providers.resolver, transport=self.providers.transport
+            prepared.config.kind,
+            self.providers.resolver,
+            transport=self.providers.transport,
+            before_generation=authorize_generation,
         )
         operation = asyncio.create_task(adapter.complete(prepared.config, prepared.request))
         next_renew = time.monotonic() + min(5, self.lease_seconds / 3)
@@ -320,35 +387,21 @@ class TaskWorker:
                     )
                     self._settle_local(uow, claim, code="task_limit_reached")
                     return True
-                call = uow.execution.begin_call(claim, call, now=utc_now())
-                run = uow.runs.get(claim.run.id)
-                uow.runs.update(
-                    run.model_copy(
-                        update={
-                            "checkpoint": run.checkpoint | {"progress": "generating"},
-                        }
-                    ),
-                    expected_revision=run.revision,
-                )
-        except ProviderError, RevisionConflict:
-            with self.store.transaction(actor="worker", source="task_dispatch_conflict") as uow:
-                uow.execution.assert_claim(claim, now=utc_now())
-                task = uow.tasks.get(claim.task.id)
-                run = uow.runs.get(claim.run.id)
-                if (
-                    task.desired_state == "running"
-                    and self._directive(run) != call.snapshot["directive_revision"]
-                ):
-                    uow.execution.discard_prepared(claim, call.id, now=utc_now())
-                    uow.tasks.update(task.model_copy(update={"status": "queued"}), task.revision)
-                    uow.runs.update(run.model_copy(update={"status": "queued"}), run.revision)
-                    uow.execution.release(claim)
-                else:
+                decision = self.providers.model_policy(uow, prepared)
+                if not decision.allowed:
                     self._settle_local(
                         uow,
                         claim,
-                        code=None if task.desired_state != "running" else "context_changed",
+                        code="policy_approval_required"
+                        if decision.effect == "ask"
+                        else "policy_denied",
                     )
+                    return True
+        except ProviderError, RevisionConflict:
+            with self.store.transaction(actor="worker", source="task_dispatch_conflict") as uow:
+                self._settle_conflict(
+                    uow, claim, call, math.ceil((time.monotonic() - start) * 1000)
+                )
             return True
         remaining = (
             claim.task.max_active_seconds
@@ -357,8 +410,9 @@ class TaskWorker:
         )
         response = None
         error_code = None
+        dispatched = [call]
         try:
-            response, claim = await self._dispatch(claim, prepared, remaining)
+            response, claim = await self._dispatch(claim, prepared, remaining, dispatched, start)
             response = self.providers.normalized_response(prepared, response)
             if response.message.tool_calls:
                 raise ProviderError("invalid_response")
@@ -369,11 +423,21 @@ class TaskWorker:
             error_code = error.code
         except RevisionConflict:
             # Outro dono/recuperação ganhou a lease; nenhum commit pelo dono antigo.
-            raise
+            if dispatched[0].status != "prepared":
+                raise
+            with self.store.transaction(actor="worker", source="task_dispatch_conflict") as uow:
+                self._settle_conflict(
+                    uow, claim, dispatched[0], math.ceil((time.monotonic() - start) * 1000)
+                )
+            return True
         except asyncio.CancelledError:
+            if dispatched[0].status == "prepared":
+                with self.store.transaction(actor="worker", source="task_shutdown") as uow:
+                    self._settle_local(uow, claim, code="worker_shutdown")
+                raise
             self._finish(
                 claim,
-                call,
+                dispatched[0],
                 prepared,
                 elapsed_ms=math.ceil((time.monotonic() - start) * 1000),
                 error_code="worker_shutdown",
@@ -382,9 +446,17 @@ class TaskWorker:
         except Exception:
             # Erros inesperados do adaptador também não comprovam ausência de geração.
             error_code = "internal_error"
+        if dispatched[0].status == "prepared":
+            with self.store.transaction(actor="worker", source="task_preflight_error") as uow:
+                uow.execution.assert_claim(claim, now=utc_now())
+                uow.execution.charge_active(
+                    claim, math.ceil((time.monotonic() - start) * 1000), now=utc_now()
+                )
+                self._settle_local(uow, claim, code=error_code or "internal_error")
+            return True
         self._finish(
             claim,
-            call,
+            dispatched[0],
             prepared,
             elapsed_ms=math.ceil((time.monotonic() - start) * 1000),
             response=response,

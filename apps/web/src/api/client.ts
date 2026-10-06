@@ -15,6 +15,7 @@ export function record(value: unknown): value is Record<string, unknown> {
 
 type RequestOptions = {
   body?: unknown
+  method?: 'PATCH'
   signal?: AbortSignal
   timeoutMs?: number
   authenticated?: boolean
@@ -35,7 +36,7 @@ export async function request(path: string, options: RequestOptions = {}): Promi
 
   try {
     const response = await fetch(`/api/v1${path}`, {
-      method: mutation ? 'POST' : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
+      method: mutation ? (options.method ?? 'POST') : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
       ...(mutation ? { body: JSON.stringify(options.body) } : {}), signal: controller.signal,
     })
     let body: unknown

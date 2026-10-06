@@ -61,6 +61,9 @@ const pt = {
   limitedHistory: 'Esta prévia mostra até 200 mensagens recentes. Seu histórico completo continua preservado no serviço.',
   limitedAgents: 'Esta lista atingiu o limite da prévia. Os demais registros permanecem preservados.',
   errors: {
+    policy_denied: 'Uma regra de autonomia bloqueia esta geração. Revise a aba Autonomia antes de enviar novamente.',
+    invalid_policy: 'A regra tem um escopo inválido. Revise ou revogue a regra na aba Autonomia antes de continuar.',
+    policy_approval_required: 'Uma regra exige decisão antes de gerar. Nesta etapa, edite ou revogue a regra na aba Autonomia para continuar.',
     terminal_task: 'Esta tarefa já foi encerrada. Atualize o estado para revisar o resultado.',
     invalid_task_state: 'Este controle não está disponível no estado atual. Atualize a tarefa antes de decidir.',
     unknown_requires_ack: 'Revise o aviso de resultado desconhecido e confirme o possível novo consumo antes de retomar.',
@@ -154,6 +157,9 @@ const en: ProductStrings = {
   noTextContent: 'No text content. No tool was executed by this interface.', waitingModel: 'Waiting for the model to respond. This call can take up to a minute.', messageLabel: 'Message to the bee', messagePlaceholder: 'Tell your bee what you need help with…',
   chatCost: 'This message uses the configured model and may consume provider credits.', send: 'Send', sending: 'Sending…', limitedHistory: 'This preview displays up to 200 recent messages. Your full history remains preserved in the service.', limitedAgents: 'This list reached the preview limit. Other records remain preserved.',
   errors: {
+    policy_denied: 'An autonomy rule blocks this generation. Review the Autonomy tab before sending again.',
+    invalid_policy: 'The rule has an invalid scope. Review or revoke it in the Autonomy tab before continuing.',
+    policy_approval_required: 'A rule requires a decision before generation. At this stage, edit or revoke the rule in the Autonomy tab to continue.',
     terminal_task: 'This task has already ended. Refresh its state to review the result.',
     invalid_task_state: 'This control is unavailable in the current state. Refresh the task before deciding.',
     unknown_requires_ack: 'Review the unknown outcome warning and acknowledge possible additional usage before resuming.',
@@ -213,6 +219,9 @@ const es: ProductStrings = {
   nextStepTitle: 'Conversa y delega una tarea.', nextStepDescription: ' Puedes recuperar los resultados después. Próximamente: herramientas y acceso controlado a ordenadores.', conversation: 'Conversación', conversationHistory: 'Historial de conversación', refreshHistory: 'Actualizar historial', chatScope: 'Conversación con historial persistente, independiente de las tareas de texto en segundo plano. Esta abeja todavía no usa herramientas ni accede a ordenadores.', chatEmptyTitle: '¿Qué vamos a pensar juntos?', chatEmptyDescription: 'Pide una explicación, organiza una idea o compara alternativas con el contexto que envíes.',
   you: 'Tú', systemMessage: 'Sistema', noTextContent: 'Sin contenido de texto. Esta interfaz no ejecutó ninguna herramienta.', waitingModel: 'Esperando la respuesta del modelo. Puede tardar hasta un minuto.', messageLabel: 'Mensaje para la abeja', messagePlaceholder: 'Cuéntale a tu abeja en qué necesitas ayuda…', chatCost: 'El mensaje usa el modelo configurado y puede consumir créditos del proveedor.', send: 'Enviar', sending: 'Enviando…', limitedHistory: 'Esta versión muestra hasta 200 mensajes recientes. Tu historial completo permanece en el servicio.', limitedAgents: 'Esta lista alcanzó el límite de la versión previa. Los demás registros se conservan.',
   errors: {
+    policy_denied: 'Una regla de autonomía bloquea esta generación. Revisa la pestaña Autonomía antes de enviar de nuevo.',
+    invalid_policy: 'La regla tiene un ámbito inválido. Revísala o revócala en Autonomía antes de continuar.',
+    policy_approval_required: 'Una regla exige una decisión antes de generar. En esta etapa, edita o revoca la regla en Autonomía para continuar.',
     terminal_task: 'La tarea ya terminó. Actualiza el estado para revisar el resultado.',
     invalid_task_state: 'Este control no está disponible en el estado actual. Actualiza la tarea antes de decidir.',
     unknown_requires_ack: 'Revisa el aviso de resultado desconocido y confirma el posible consumo adicional antes de retomar.',

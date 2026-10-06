@@ -113,6 +113,7 @@ class OllamaAdapter(HTTPAdapter):
         encode_json(body, config.max_request_bytes)
         async with self._session(config) as client:
             await self._local_model(client, config)
+            self._authorize_generation()
             data = await self._json(client, config, "POST", "api/chat", body=body)
         try:
             if data.get("done") is not True or data["message"].get("role") != "assistant":

@@ -62,6 +62,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
       {unknown && <p className="transfer-notice">{t('unknownWarning')}</p>}
       {!unknown && task.latest_run?.error_code && <p className="transfer-notice">{i18n.exists(`errors.${task.latest_run.error_code}`, { ns: 'product' }) ? i18n.t(`errors.${task.latest_run.error_code}`, { ns: 'product' }) : t('runFailed')}</p>}
+      {['policy_denied', 'policy_approval_required', 'invalid_policy'].includes(task.latest_run?.error_code ?? '') && <p className="quiet-note">{t('policyHelp')}</p>}
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <div className="task-actions">{task.available_controls.map((action) => <button key={action} type="button" className={`button ${action === 'cancel' ? 'secondary destructive-text' : 'secondary'}`} disabled={busy || task.control_requested === action} onClick={() => choose(action)}>{t(`controls.${action}`)}</button>)}</div>

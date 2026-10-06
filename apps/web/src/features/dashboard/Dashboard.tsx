@@ -9,14 +9,16 @@ import { ProfileEditor } from '../bee/ProfileEditor'
 import { ModelEditor } from '../bee/ModelEditor'
 import { MemoryPanel } from '../memory/MemoryPanel'
 import { TaskPanel } from '../tasks/TaskPanel'
+import { PolicyPanel } from '../policies/PolicyPanel'
 
 export function Dashboard({ userName }: { userName: string }) {
   const { t } = useTranslation('product')
   const { t: bee } = useTranslation('bee')
+  const { t: policies } = useTranslation('policies')
   const { resource, reload } = useResource(onboarding)
   const [creating, setCreating] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view, setView] = useState<'conversation' | 'profile' | 'model' | 'memories'>('conversation')
+  const [view, setView] = useState<'conversation' | 'profile' | 'model' | 'memories' | 'policies'>('conversation')
   const [notice, setNotice] = useState<string | null>(null)
   if (resource.state === 'loading') return <LoadingNotice />
   if (resource.state === 'error') return <div className="surface resource-error"><ErrorNotice error={resource.error} /><button className="button secondary" onClick={reload} type="button">{t('retry')}</button></div>
@@ -36,11 +38,12 @@ export function Dashboard({ userName }: { userName: string }) {
           <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2>{['ownComputer', 'personalComputer'].map((key) => <div className="environment-card" key={key}><h3>{t(key)}</h3><span>{t('preparing')}</span><p>{t(`${key}Description`)}</p></div>)}<p className="quiet-note">{t('environmentScope')}</p></section>
         </aside>
         <div className="conversation-column">
-          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{bee(`view_${item}`)}</button>)}</nav>
+          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : bee(`view_${item}`)}</button>)}</nav>
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
+          {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && (selected.provider_config && selected.conversation_id ? <Chat key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id }} /> : <div className="surface legacy-agent"><h2>{t('modelNotConfigured')}</h2><p>{bee('legacyConfigure')}</p><button className="button primary" type="button" onClick={() => setView('model')}>{bee('configureModel')}</button></div>)}
           <div className="next-step-note"><span aria-hidden="true">↗</span><p><strong>{t('nextStepTitle')}</strong>{t('nextStepDescription')}</p></div>

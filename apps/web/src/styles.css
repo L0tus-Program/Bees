@@ -351,6 +351,34 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 }
 
 /* Tasks remain independent from the conversation composer. */
+.policy-list { display: grid; gap: 14px; margin-top: 18px; }
+.policy-card { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: #f8f8ef; }
+.policy-card.revoked { background: #f7f7f2; }
+.policy-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.policy-card h3, .policy-form h3 { font-size: 16px; overflow-wrap: anywhere; }
+.policy-effect { padding: 5px 9px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
+.effect-allow { background: #e6edd9; color: #435d31; }
+.effect-ask { background: #f5e7bf; color: #6e5620; }
+.effect-deny { background: #f2dfd8; color: #873b2d; }
+.policy-target { margin: 12px 0 18px; display: grid; gap: 8px; }
+.policy-target p { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.policy-target strong { display: block; font-size: 10px; color: var(--muted); }
+.policy-target code { font-size: 11px; }
+.policy-reason { font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.policy-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 15px; }
+.policy-form { padding: 22px 0; margin-top: 20px; border-top: 1px solid var(--line); }
+.policy-form h3 { margin-bottom: 20px; }
+.policy-form h3:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
+.policy-revoke { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 18px; }
+.policy-revoke h4 { font-size: 14px; margin-bottom: 10px; }
+.policy-revoke > p, .policy-empty { font-size: 13px; line-height: 1.8; color: var(--muted); }
+@media (max-width: 550px) {
+  .policy-panel .form-heading { flex-direction: column; }
+  .policy-panel .form-heading > button { width: 100%; }
+  .policy-card { padding: 16px 13px; }
+  .policy-actions { justify-content: flex-start; }
+  .policy-actions .button { flex: 1; }
+}
 .task-panel { margin-bottom: 22px; }
 .task-panel .form-heading { flex-wrap: wrap; }
 .task-panel .form-heading h2 { font-size: 21px; }

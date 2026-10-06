@@ -275,6 +275,101 @@ def main():
                 ).json()
                 == before
             )
+            # Regras humanas persistem; retomada não contorna ask/deny nem executa por GET.
+            policy_body = {
+                "client_request_id": str(uuid4()),
+                "name": "Controle de teste",
+                "effect": "ask",
+                "scope": {"tool_name": "model", "action": "generate"},
+                "reason": "Validação descartável",
+            }
+            policy_response = client.post(
+                agent_path + "/policies", json=policy_body, headers=headers()
+            )
+            assert policy_response.status_code == 201
+            policy = policy_response.json()
+            policy_path = agent_path + "/policies/" + policy["id"]
+            assert (
+                client.post(agent_path + "/policies", json=policy_body, headers=headers()).json()[
+                    "id"
+                ]
+                == policy["id"]
+            )
+            assert (
+                client.patch(
+                    policy_path, json={"expected_revision": policy["revision"], "effect": "deny"}
+                ).status_code
+                == 403
+            )
+            waiting = client.post(
+                agent_path + "/tasks",
+                json=task_body
+                | {"client_request_id": str(uuid4()), "title": "Tarefa sob política"},
+                headers=headers(),
+            ).json()
+            waiting_path = agent_path + "/tasks/" + waiting["id"]
+
+            def wait_task(path, expected_status):
+                deadline = time.monotonic() + 30
+                while True:
+                    result = client.get(path).json()["task"]
+                    if result["status"] == expected_status:
+                        return result
+                    assert time.monotonic() < deadline, "Política não refletida no worker."
+                    time.sleep(0.2)
+
+            waiting = wait_task(waiting_path, "waiting_approval")
+            assert waiting["calls_started"] == 0 and "resume" in waiting["available_controls"]
+            blocked_chat = client.post(
+                agent_path + "/chat",
+                json={"conversation_id": bee["conversation_id"], "content": "Não deve gerar."},
+                headers=headers(),
+            )
+            assert blocked_chat.status_code == 409
+            denied = client.patch(
+                policy_path,
+                json={"expected_revision": policy["revision"], "effect": "deny"},
+                headers=headers(),
+            )
+            assert denied.status_code == 200
+            policy = denied.json()
+            assert (
+                client.post(
+                    waiting_path + "/control",
+                    json={
+                        "client_request_id": str(uuid4()),
+                        "expected_revision": waiting["revision"],
+                        "action": "resume",
+                    },
+                    headers=headers(),
+                ).status_code
+                == 200
+            )
+            paused = wait_task(waiting_path, "paused")
+            assert (
+                paused["calls_started"] == 0
+                and paused["latest_run"]["error_code"] == "policy_denied"
+            )
+            revoked = client.patch(
+                policy_path,
+                json={"expected_revision": policy["revision"], "status": "revoked"},
+                headers=headers(),
+            )
+            assert revoked.status_code == 200
+            assert client.get(waiting_path).json()["task"]["status"] == "paused"
+            assert (
+                client.post(
+                    waiting_path + "/control",
+                    json={
+                        "client_request_id": str(uuid4()),
+                        "expected_revision": paused["revision"],
+                        "action": "resume",
+                    },
+                    headers=headers(),
+                ).status_code
+                == 200
+            )
+            assert wait_task(waiting_path, "completed")["calls_started"] == 1
             assert (
                 client.get("/api/v1/auth/status", headers={"Host": "visitante.example"}).status_code
                 == 400
@@ -307,6 +402,8 @@ def main():
                 == before
             )
             assert len(client.get(agent_path + "/memories").json()["memories"]) == 1
+            assert client.get(agent_path + "/policies").json()["policies"] == [revoked.json()]
+            assert client.get(waiting_path).json()["task"]["status"] == "completed"
             assert (
                 client.get(task_path).json()["task"]["latest_run"]["result"]
                 == task_detail["task"]["latest_run"]["result"]
@@ -325,7 +422,7 @@ def main():
             )
         print(
             "Docker: catálogo opcional, modelo manual, primeiro acesso, cofre, conversa, "
-            "tarefas em processo separado, fronteiras e persistência aprovados."
+            "tarefas em processo separado, políticas, fronteiras e persistência aprovados."
         )
         if args.keep:
             print(f"Projeto de teste mantido: {project}; porta {args.port}.")

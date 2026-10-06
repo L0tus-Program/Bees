@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -73,9 +73,15 @@ class HTTPAdapter:
         self,
         resolver: SecretResolver | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        before_generation: Callable[[], None] | None = None,
     ) -> None:
         self._resolver = resolver
         self._transport = transport
+        self._generation_guard = before_generation
+
+    def _authorize_generation(self) -> None:
+        if self._generation_guard is not None:
+            self._generation_guard()
 
     @asynccontextmanager
     async def _session(self, config: ConnectionConfig) -> AsyncIterator[httpx.AsyncClient]:
@@ -166,12 +172,13 @@ def create_adapter(
     resolver: SecretResolver | None = None,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    before_generation: Callable[[], None] | None = None,
 ) -> ProviderAdapter:
     from bees_core.providers.ollama import OllamaAdapter
     from bees_core.providers.openai import OpenAICompatibleAdapter
 
     if kind == "openai_compatible":
-        return OpenAICompatibleAdapter(resolver, transport)
+        return OpenAICompatibleAdapter(resolver, transport, before_generation)
     if kind == "ollama":
-        return OllamaAdapter(resolver, transport)
+        return OllamaAdapter(resolver, transport, before_generation)
     raise ProviderError("invalid_config")

@@ -15,7 +15,7 @@ O painel consulta estado por GET a cada cinco segundos enquanto está visível. 
 | Redirecionar | Registra uma instrução na tarefa. Resposta anterior obsoleta não conclui o novo objetivo. |
 | Cancelar | Encerra a tarefa e interrompe a espera local; isso não garante cancelamento ou estorno no provedor. |
 
-Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_resource`, `paused`, `completed`, `failed` e `cancelled`. Este executor textual não solicita aprovação de ferramentas. O status concluído significa resposta persistida, sem avaliação automática de sua qualidade.
+Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_resource`, `paused`, `completed`, `failed` e `cancelled`. Uma regra **Perguntar** para geração deixa a tarefa em `waiting_approval`; uma negativa a pausa. Revise a regra em **Autonomia** e depois retome: retomada não concede permissão pontual nem contorna políticas. Ver [políticas](policies.md). Este executor textual não solicita aprovação de ferramentas. O status concluído significa resposta persistida, sem avaliação automática de sua qualidade.
 
 ## Limites e falhas
 
@@ -45,7 +45,7 @@ O worker exige schema atual e cofre existente: não migra a base nem provisiona 
 
 Os endpoints autenticados `/api/v1/agents/{id}/tasks` e `/{task_id}` observam a fila. POST na coleção cria uma tarefa; POST em `/{task_id}/control` registra um comando. Escritas exigem sessão, origem e CSRF. Criação e controles usam UUID `client_request_id`; reutilizar o ID com outro conteúdo é conflito. Controles também exigem revisão esperada. Uma resposta perdida pode ser reconciliada sem criar outra tarefa ou repetir instruções.
 
-SQLite é a fonte de estado: tarefas, comandos, execuções, chamadas e leases são persistidos na migração 0003. Transações terminam antes da rede. Confirmação do journal, mensagem e resultado ocorrem na mesma unidade de trabalho, após validar geração da lease e snapshot do contexto. Consultas públicas não expõem request/configuração privada, referências de credencial ou erros brutos do provedor.
+SQLite é a fonte de estado: tarefas, comandos, execuções, chamadas e leases são persistidos na migração 0003. Transações terminam antes da rede. O despacho de geração só é registrado depois de validar contexto, controles e políticas atuais, inclusive após o preflight local do Ollama. Falhas desse preflight não representam geração iniciada. Confirmação do journal, mensagem e resultado ocorrem na mesma unidade de trabalho, após validar geração da lease e snapshot do contexto. Consultas públicas não expõem request/configuração privada, referências de credencial ou erros brutos do provedor.
 
 Conversas de tarefas não aceitam geração pelo endpoint de chat comum ou pela CLI de chat: somente o worker pode consumir essa fila, mantendo controles, orçamento e journal.
 

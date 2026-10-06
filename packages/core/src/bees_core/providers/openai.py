@@ -83,6 +83,7 @@ class OpenAICompatibleAdapter(HTTPAdapter):
         # Falhar tamanho antes de resolver credencial ou abrir conexão.
         encode_json(body, config.max_request_bytes)
         async with self._session(config) as client:
+            self._authorize_generation()
             data = await self._json(client, config, "POST", "chat/completions", body=body)
         try:
             choices = data["choices"]

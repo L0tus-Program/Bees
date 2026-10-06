@@ -27,6 +27,8 @@ ErrorCode = Literal[
     "conversation_inactive",
     "agent_inactive",
     "state_conflict",
+    "policy_denied",
+    "policy_approval_required",
 ]
 
 MESSAGES: dict[str, str] = {
@@ -54,6 +56,10 @@ MESSAGES: dict[str, str] = {
     "conversation_inactive": "A conversa está inativa.",
     "agent_inactive": "O agente está inativo.",
     "state_conflict": "O estado mudou durante a operação; releia antes de continuar.",
+    "policy_denied": "Uma regra do Bees bloqueia esta geração. Revise as regras de autonomia.",
+    "policy_approval_required": (
+        "Esta geração exige decisão. Revise a regra de autonomia antes de continuar."
+    ),
 }
 
 

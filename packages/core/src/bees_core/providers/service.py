@@ -1,6 +1,7 @@
 """Configuração e conversa persistidas, sem execução de ferramentas ou fallback."""
 
 import hashlib
+import json
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from bees_core.memory import MemoryService
 from bees_core.models import Agent, Conversation, Message, utc_now
+from bees_core.policies import ActionIntent, PolicyDecision, PolicyService
 from bees_core.profiles import AgentProfile, memory_enabled
 from bees_core.providers.base import create_adapter
 from bees_core.providers.contracts import (
@@ -499,6 +501,42 @@ class ProviderService:
         return agent, conversation, records
 
     @staticmethod
+    def model_intent(agent_id: UUID, config: ProviderConfig, request: ChatRequest) -> ActionIntent:
+        """Autoridade vem do serviço; o conteúdo das mensagens nunca concede acesso."""
+        payload = {
+            "endpoint": config.endpoint,
+            "model": config.model,
+            "request": request.model_dump(mode="json"),
+        }
+        digest = hashlib.sha256(
+            json.dumps(
+                payload, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        return ActionIntent(
+            agent_id=agent_id,
+            tool_name="model",
+            action="generate",
+            environment_id="control_plane",
+            resource=config.endpoint,
+            identity="bees_user",
+            parameters={"model": config.model, "request_hash": digest},
+        )
+
+    def model_policy(self, uow: UnitOfWork, prepared: PreparedChat) -> PolicyDecision:
+        self.validate_snapshot(uow, prepared)
+        return PolicyService(self.store.database).evaluate(
+            uow, self.model_intent(prepared.agent_id, prepared.config, prepared.request)
+        )
+
+    @staticmethod
+    def require_model_policy(decision: PolicyDecision) -> None:
+        if not decision.allowed:
+            raise ProviderError(
+                "policy_approval_required" if decision.effect == "ask" else "policy_denied"
+            )
+
+    @staticmethod
     def normalized_response(prepared: PreparedChat, response: ChatResponse) -> ChatResponse:
         try:
             response = ChatResponse.model_validate(response.model_dump(mode="python"))
@@ -563,9 +601,36 @@ class ProviderService:
                 requirements=requirements,
                 task_id=task_id,
             )
-        adapter = create_adapter(prepared.config.kind, self.resolver, transport=self.transport)
+            decision = self.model_policy(uow, prepared)
+            self.require_model_policy(decision)
+
+        # Nenhum await entre a autorização atual e o início da chamada. A alteração
+        # posterior não desfaz uma geração remota já iniciada.
+        def authorize_generation():
+            nonlocal decision
+            with self.store.transaction(write=False) as current:
+                decision = self.model_policy(current, prepared)
+                self.require_model_policy(decision)
+
+        adapter = create_adapter(
+            prepared.config.kind,
+            self.resolver,
+            transport=self.transport,
+            before_generation=authorize_generation,
+        )
         response = await adapter.complete(prepared.config, prepared.request)
         response = self.normalized_response(prepared, response)
         with self.store.transaction(source="provider_chat") as uow:
+            prepared = prepared.model_copy(
+                update={
+                    "context": prepared.context
+                    | {
+                        "policy": {
+                            "rules_hash": decision.rules_hash,
+                            "rule_ids": [str(value) for value in decision.deciding_policy_ids],
+                        }
+                    }
+                }
+            )
             self.persist_response(uow, prepared, response)
         return response

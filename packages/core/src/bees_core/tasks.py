@@ -226,7 +226,11 @@ class TaskService:
             if not runs:
                 raise TaskError("invalid_task_state")
             run = runs[-1]
-            if value.kind == "resume" and task.status not in ("paused", "waiting_resource"):
+            if value.kind == "resume" and task.status not in (
+                "paused",
+                "waiting_resource",
+                "waiting_approval",
+            ):
                 raise TaskError("invalid_task_state")
             calls = [
                 call
