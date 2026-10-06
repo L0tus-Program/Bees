@@ -171,6 +171,14 @@ class ModelGenerateParameters(BaseModel):
         return _exact_text(value)
 
 
+class TextTransformParameters(BaseModel):
+    """Somente operação e digest entram na política, nunca o conteúdo textual."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    operation: Literal["trim", "upper", "lower"]
+    input_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 @dataclass(frozen=True)
 class ToolActionDescriptor:
     """Contrato confiável, não uma extensão carregada de conteúdo externo."""
@@ -254,6 +262,15 @@ DEFAULT_REGISTRY = ToolRegistry(
             default_effect="allow",
             environment_id="control_plane",
             requires_resource=True,
+        ),
+        ToolActionDescriptor(
+            tool_name="text.normalize",
+            action="transform",
+            parameters_model=TextTransformParameters,
+            default_effect="allow",
+            environment_id="control_plane",
+            requires_resource=True,
+            requires_identity=True,
         ),
     )
 )

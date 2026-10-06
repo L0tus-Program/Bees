@@ -282,7 +282,7 @@ def test_real_api_composition_and_validation_do_not_echo_secrets(tmp_path) -> No
         assert response.json()["error"]["code"] == "validation_failed"
         configure(client)
         assert client.get("/api/v1/auth/status").json()["authenticated"] is True
-        assert client.get("/api/v1/state/status").json()["schema_version"] == 3
+        assert client.get("/api/v1/state/status").json()["schema_version"] == 4
     # Um novo lifespan de produção abre o mesmo estado sem reemitir bootstrap.
     app = create_app(Settings(data_dir=tmp_path, web_dist=tmp_path / "missing"))
     with TestClient(app, base_url=ORIGIN) as client:

@@ -38,7 +38,7 @@ Uma resposta perdida mantém `outcome_unknown`, sem retry automático e sem reut
 
 Todos os endpoints exigem sessão humana; escritas também exigem origem e CSRF. A API não recebe snapshot, escopo, ator ou IDs de autoridade do cliente. UUID repetido com o mesmo conteúdo reconcilia a decisão atual; conteúdo diferente é conflito. CAS rejeita revisões antigas. Listagens não executam tarefas nem concedem acesso.
 
-Usa tabelas `actions`, `approvals`, `policies` e eventos existentes, sem migração; schema permanece 3. O vínculo de aprovação com regra pode ser criado uma única vez na decisão de autorização persistente e não pode ser substituído. Decisões, motivos, horários, ator e regras criadas conservam histórico em metadata privada, além dos eventos canônicos. Projeções públicas excluem snapshot preparado, hashes internos, referências de credencial e contexto completo.
+Usa tabelas `actions`, `approvals`, `policies` e eventos existentes, sem migração própria; BEES-009 foi entregue no schema 3. O schema 4 acrescenta contratos locais de ferramentas sem mudar este fluxo de aprovação textual. O vínculo de aprovação com regra pode ser criado uma única vez na decisão de autorização persistente e não pode ser substituído. Decisões, motivos, horários, ator e regras criadas conservam histórico em metadata privada, além dos eventos canônicos. Projeções públicas excluem snapshot preparado, hashes internos, referências de credencial e contexto completo.
 
 ## Validação e limites
 

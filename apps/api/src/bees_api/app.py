@@ -26,6 +26,7 @@ from bees_api.profiles import router as profiles_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
+from bees_api.tools import router as tools_router
 from bees_core.approvals import ApprovalError
 from bees_core.policies import PolicyError
 from bees_core.providers.errors import ProviderError
@@ -36,6 +37,7 @@ from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, StateStore, StoreError
 from bees_core.tasks import TaskError
+from bees_core.tools import ToolError
 
 
 class HealthResponse(BaseModel):
@@ -123,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
+    app.include_router(tools_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -209,6 +212,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": error.code, "message": "Atualize a decisão e confira seu escopo."}},
             status_code=422 if error.code == "invalid_approval" else 409,
+        )
+
+    @app.exception_handler(ToolError)
+    async def tool_error(request: Request, error: ToolError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Confira a ferramenta e atualize seu estado.",
+                }
+            },
+            status_code=409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

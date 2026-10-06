@@ -15,7 +15,7 @@ export function record(value: unknown): value is Record<string, unknown> {
 
 type RequestOptions = {
   body?: unknown
-  method?: 'PATCH'
+  method?: 'PATCH' | 'PUT'
   signal?: AbortSignal
   timeoutMs?: number
   authenticated?: boolean

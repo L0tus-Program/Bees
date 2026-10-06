@@ -27,6 +27,7 @@ from bees_core.models import (
     Memory,
     Message,
     ModelCall,
+    PluginInstallation,
     Policy,
     Record,
     Routine,
@@ -34,6 +35,7 @@ from bees_core.models import (
     Task,
     TaskCommand,
     TaskStatus,
+    ToolGrant,
     utc_now,
 )
 from bees_core.storage.database import Database
@@ -79,6 +81,7 @@ JSON_COLUMNS = {
     "response": "response_json",
     "snapshot": "snapshot_json",
     "payload": "payload_json",
+    "manifest": "manifest_json",
 }
 
 
@@ -161,6 +164,8 @@ class _Repository[T: Record]:
 
     def _decode(self, row: tuple) -> T:
         values = dict(zip(self._spec.model.model_fields, row, strict=True))
+        if self._spec.model in (PluginInstallation, ToolGrant):
+            values["enabled"] = bool(values["enabled"])
         for name in _json_columns(self._spec.model):
             if name in values and values[name] is not None:
                 values[name] = json.loads(values[name])
@@ -221,6 +226,19 @@ class _Repository[T: Record]:
         payload: dict[str, JsonValue] = {"revision": record.revision}
         if hasattr(record, "status"):
             payload["status"] = record.status
+        if isinstance(record, PluginInstallation):
+            payload.update({"manifest_hash": record.manifest_hash, "enabled": record.enabled})
+        if isinstance(record, ToolGrant):
+            payload.update(
+                {
+                    "agent_id": str(record.agent_id),
+                    "plugin_id": str(record.plugin_id),
+                    "tool_name": record.tool_name,
+                    "enabled": record.enabled,
+                }
+            )
+        if isinstance(previous, (PluginInstallation, ToolGrant)):
+            payload["previous_enabled"] = previous.enabled
         if previous is not None and hasattr(previous, "status"):
             payload["previous_status"] = previous.status
         self._context.connection.execute(
@@ -241,6 +259,16 @@ class _Repository[T: Record]:
 
     def _validate_links(self, record: T) -> None:
         connection = self._context.connection
+        if isinstance(record, ToolGrant):
+            row = connection.execute(
+                "SELECT manifest_json FROM plugins WHERE id=?", (str(record.plugin_id),)
+            ).fetchone()
+            if row is None or record.tool_name not in {
+                tool.get("tool_name")
+                for tool in json.loads(row[0]).get("tools", [])
+                if isinstance(tool, dict)
+            }:
+                raise IntegrityError("Concessão exige ferramenta declarada pela extensão.")
         if isinstance(record, Task):
             for table, id in (
                 ("conversations", record.conversation_id),
@@ -473,6 +501,10 @@ class Tasks(_Repository[Task]):
 
 
 class Runs(_Repository[Run]):
+    def latest(self, task_id: UUID) -> Run | None:
+        runs = self._list({"task_id": task_id}, 1, 0, newest_first=True)
+        return runs[0] if runs else None
+
     def list(self, *, task_id: UUID | None = None, limit: int = 100, offset: int = 0) -> list[Run]:
         return self._list({"task_id": task_id}, limit, offset)
 
@@ -971,6 +1003,22 @@ class Policies(_Repository[Policy]):
         return self._list({"agent_id": agent_id}, limit, offset)
 
 
+class Plugins(_Repository[PluginInstallation]):
+    def list(self, *, limit: int = 100, offset: int = 0) -> list[PluginInstallation]:
+        return self._list({}, limit, offset)
+
+
+class ToolGrants(_Repository[ToolGrant]):
+    def list(self, *, agent_id: UUID, limit: int = 100, offset: int = 0) -> list[ToolGrant]:
+        return self._list({"agent_id": agent_id}, limit, offset)
+
+    def find(self, agent_id: UUID, plugin_id: UUID, tool_name: str) -> ToolGrant | None:
+        records = self._list(
+            {"agent_id": agent_id, "plugin_id": plugin_id, "tool_name": tool_name}, 1, 0
+        )
+        return records[0] if records else None
+
+
 class Approvals(_Repository[Approval]):
     def list(
         self, *, action_id: UUID | None = None, limit: int = 100, offset: int = 0
@@ -1157,6 +1205,13 @@ class UnitOfWork:
         self.execution = Execution(context, self.tasks, self.runs, self.model_calls)
         self.actions = Actions(context, _Spec("actions", "action", Action, ("run_id",)))
         self.policies = Policies(context, _Spec("policies", "policy", Policy, ("agent_id",)))
+        self.plugins = Plugins(
+            context, _Spec("plugins", "plugin", PluginInstallation, ("manifest", "manifest_hash"))
+        )
+        self.tool_grants = ToolGrants(
+            context,
+            _Spec("tool_grants", "tool_grant", ToolGrant, ("agent_id", "plugin_id", "tool_name")),
+        )
         self.approvals = Approvals(
             context, _Spec("approvals", "approval", Approval, ("action_id",))
         )

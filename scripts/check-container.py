@@ -61,7 +61,7 @@ def main():
         with httpx.Client(base_url=origin, trust_env=False, timeout=15) as client:
             assert client.get("/").status_code == 200
             state = client.get("/api/v1/state/status")
-            assert state.json()["schema_version"] == 3
+            assert state.json()["schema_version"] == 4
             assert client.get("/api/v1/onboarding").status_code == 401
             assert client.get("/api/v1/auth/status").json()["configured"] is False
             authorization = json.loads(
@@ -212,6 +212,41 @@ def main():
             )
             assert refused.status_code == 422
             agent_path = f"/api/v1/agents/{bee['id']}"
+            manifest = client.get("/api/v1/plugins/catalog").json()["plugins"][0]
+            install_body = {"manifest": manifest, "client_request_id": str(uuid4())}
+            installed = client.post("/api/v1/plugins", json=install_body, headers=headers())
+            assert installed.status_code == 201, installed.text
+            plugin = installed.json()
+            assert plugin["enabled"] is False
+            assert (
+                client.post("/api/v1/plugins", json=install_body, headers=headers()).json()["id"]
+                == plugin["id"]
+            )
+            plugin_path = "/api/v1/plugins/" + plugin["id"]
+            assert (
+                client.patch(
+                    plugin_path, json={"expected_revision": plugin["revision"], "enabled": True}
+                ).status_code
+                == 403
+            )
+            enabled = client.patch(
+                plugin_path,
+                json={"expected_revision": plugin["revision"], "enabled": True},
+                headers=headers(),
+            )
+            assert enabled.status_code == 200
+            plugin = enabled.json()
+            grant = client.put(
+                agent_path + f"/tools/{plugin['id']}/text.normalize",
+                json={"expected_revision": 0, "enabled": True},
+                headers=headers(),
+            )
+            assert grant.status_code == 200, grant.text
+            assert client.get(agent_path + "/tools").json()["tools"][0]["available"] is True
+            assert (
+                client.get(f"/api/v1/agents/{manual_bee['id']}/tools").json()["tools"][0]["granted"]
+                is False
+            )
             memory = client.post(
                 agent_path + "/memories",
                 json={"scope": "user", "content": "Prefiro respostas curtas."},
@@ -483,6 +518,19 @@ def main():
             )
             compose("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "120")
             assert client.get(approve_path).json()["consumed_at"]
+            assert client.get("/api/v1/plugins").json()["plugins"] == [plugin]
+            tools = client.get(agent_path + "/tools").json()["tools"]
+            assert (
+                tools[0]["available"] is True
+                and tools[0]["grant_revision"] == grant.json()["revision"]
+            )
+            disabled = client.patch(
+                plugin_path,
+                json={"expected_revision": plugin["revision"], "enabled": False},
+                headers=headers(),
+            )
+            assert disabled.status_code == 200
+            assert client.get(agent_path + "/tools").json()["tools"][0]["available"] is False
             assert client.get(rule_approval_path).json()["decision"] == "allow_rule"
             assert any(
                 value["effect"] == "allow" and value["origin"] == "approval"
@@ -502,7 +550,8 @@ def main():
             )
         print(
             "Docker: catálogo opcional, modelo manual, primeiro acesso, cofre, conversa, "
-            "tarefas em processo separado, políticas, fronteiras e persistência aprovados."
+            "tarefas em processo separado, políticas, ferramentas locais, "
+            "fronteiras e persistência aprovados."
         )
         if args.keep:
             print(f"Projeto de teste mantido: {project}; porta {args.port}.")

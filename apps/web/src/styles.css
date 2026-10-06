@@ -438,3 +438,36 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .approval-confirmation fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .approval-actions { align-items: center; justify-content: flex-end; margin-top: 1rem; }
 @media (max-width: 520px) { .approval-target { grid-template-columns: minmax(0, 1fr); } .approval-actions .button { width: 100%; } }
+
+.tools-section-heading { margin: 26px 0 14px; }
+.tools-section-heading h3 { font-size: 15px; }
+.tool-list { display: grid; gap: 14px; }
+.tool-card { border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: #f8f8ef; }
+.tool-card-heading { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.tool-card-heading h3, .tool-catalog-card h4 { font-size: 16px; overflow-wrap: anywhere; }
+.tool-card-heading h4 { font-size: 13px; overflow-wrap: anywhere; }
+.tool-status { color: var(--muted); background: #eeede3; padding: 5px 8px; font-size: 10px; border-radius: 6px; }
+.tool-status.enabled { color: #435d31; background: #e6edd9; }
+.tool-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 14px; }
+.tool-actions .button { min-height: 44px; font-size: 12px; }
+.tool-access { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 18px; }
+.tool-scope, .tool-empty { font-size: 12px; color: var(--muted); line-height: 1.8; overflow-wrap: anywhere; margin-top: 8px; }
+.tool-contract { font-size: 11px; color: var(--muted); margin-top: 10px; }
+.tool-contract summary, .tool-manifest summary { cursor: pointer; min-height: 44px; padding: 14px 0; }
+.tool-contract pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; padding: 10px; border: 1px solid var(--line); margin: 7px 0 12px; }
+.tool-catalog-card { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; padding: 17px; border: 1px solid var(--line); border-radius: 10px; }
+.tool-catalog-card > div { min-width: 0; flex: 1 1 190px; }
+.tool-confirmation { border: 1px solid #c6b67d; border-radius: 10px; padding: 18px; background: #fcf5e2; margin-top: 18px; }
+.tool-confirmation h3 { font-size: 15px; line-height: 1.6; overflow-wrap: anywhere; }
+.tool-confirmation h3:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
+.tool-confirmation > p { font-size: 12px; line-height: 1.8; margin-top: 10px; color: var(--muted); }
+.tool-manifest { font-size: 12px; margin-top: 22px; border-top: 1px solid var(--line); }
+.tool-manifest form { display: grid; gap: 10px; margin-top: 10px; }
+.tool-manifest textarea { width: 100%; min-width: 0; font-family: monospace; font-size: 12px; resize: vertical; }
+.tool-manifest form > .button { justify-self: end; }
+@media (max-width: 550px) {
+  .tools-panel .form-heading { flex-direction: column; }
+  .tools-panel .form-heading > button, .tool-catalog-card > button, .tool-actions > .button, .tool-manifest form > .button { width: 100%; }
+  .tool-card { padding: 16px 13px; }
+  .tool-actions { justify-content: flex-start; }
+}

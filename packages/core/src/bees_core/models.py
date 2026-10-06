@@ -49,6 +49,8 @@ EntityType = Literal[
     "artifact",
     "model_call",
     "task_command",
+    "plugin",
+    "tool_grant",
 ]
 
 
@@ -271,6 +273,19 @@ class Policy(Record):
     status: Literal["active", "revoked"] = "active"
     source: str = "user"
     reason: str = ""
+
+
+class PluginInstallation(Record):
+    manifest: dict[str, JsonValue]
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    enabled: bool = Field(default=False, strict=True)
+
+
+class ToolGrant(Record):
+    agent_id: UUID
+    plugin_id: UUID
+    tool_name: str = Field(min_length=1, max_length=200)
+    enabled: bool = Field(default=False, strict=True)
 
 
 class Approval(Record):

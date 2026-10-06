@@ -25,12 +25,15 @@ A comunicação com LLMs usa HTTPX dentro de adaptadores próprios (`packages/co
 
 ## Contratos
 
+Os [contratos locais de ferramentas](tools.md) têm catálogo, instalação declarativa, habilitação e concessão por abelha na interface. O dispatcher interno comprova validação, política e journal com transformação pura de texto. O worker textual ainda não executa chamadas de ferramentas decididas pelo modelo; transporte remoto e os ambientes do diagrama continuam pendentes.
+
 | Contrato | Responsabilidade |
 | --- | --- |
 | ModelAdapter | Normalizar capabilities, mensagens, tools, streaming e uso; nenhum estado exclusivo do fornecedor. |
 | UnitOfWork/Repositories | Transações de domínio, revisão e migrações; não abrir transação durante ferramenta. |
 | PolicyService | Avaliar política atual, escopo/parâmetros e decisões humanas antes de ação. |
 | ApprovalService | Pergunta persistente, decisão humana CAS/idempotente, escopo/validade e consumo junto do journal. |
+| ToolService | Manifestos declarativos locais, contratos builtin, concessão por ferramenta/abelha, validação e políticas no despacho com journal. Sem importar código instalado nem ativar loop de ferramentas no worker textual. |
 | ExecutorTransport | Pareamento, capabilities, comando versionado, fencing e resultado. |
 | TaskService/TaskWorker | Comandos idempotentes, fila durável, snapshot de contexto, limites, leases e journal de chamadas de modelo. |
 | ActionJournal | Intenção, início, confirmação e resultado desconhecido; reconciliar antes de repetir. |
