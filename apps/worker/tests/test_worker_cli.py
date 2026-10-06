@@ -32,7 +32,7 @@ def test_worker_requires_initialized_current_database(tmp_path, monkeypatch):
     monkeypatch.setattr(Database, "initialize", lambda *_: pytest.fail("Worker tentou migrar."))
     assert existing_database(config).path == database.path
     with database.transaction() as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version=6")
+        connection.execute("DELETE FROM schema_migrations WHERE version=7")
     with pytest.raises(MigrationError):
         existing_database(config)
 

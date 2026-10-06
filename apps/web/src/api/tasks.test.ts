@@ -6,7 +6,7 @@ import { commandIdentity, mergeTaskSnapshot, taskOutcomeUnknown } from '../featu
 import { startTaskPolling } from '../features/tasks/polling'
 
 const stamp = '2026-10-05T17:00:00Z'
-const task: TaskRecord = { id: 'task-1', agent_id: 'bee-1', conversation_id: 'task-conversation', title: 'Comparar opções', objective: 'Compare A e B', expected_result: 'Vantagens e limites', status: 'queued', revision: 1, created_at: stamp, updated_at: stamp, active_run_id: 'run-1', control_requested: null, available_controls: ['pause', 'cancel', 'redirect'], latest_run: { id: 'run-1', status: 'queued', provider: 'openai_compatible', model: 'model-1', started_at: null, finished_at: null, error_code: null, result: null }, progress: { code: 'queued', created_at: stamp } }
+const task: TaskRecord = { id: 'task-1', agent_id: 'bee-1', conversation_id: 'task-conversation', title: 'Comparar opções', objective: 'Compare A e B', expected_result: 'Vantagens e limites', status: 'queued', revision: 1, created_at: stamp, updated_at: stamp, active_run_id: 'run-1', control_requested: null, available_controls: ['pause', 'cancel', 'redirect'], latest_run: { id: 'run-1', status: 'queued', provider: 'openai_compatible', model: 'model-1', started_at: null, finished_at: null, error_code: null, result: null }, progress: { code: 'queued', created_at: stamp }, unknown_model_calls: 0, unknown_tool_actions: 0, unknown_requires_ack: false, action_in_flight: false }
 const pending: ReturnType<typeof startTaskPolling>[] = []
 afterEach(() => { pending.forEach((poller) => poller.stop()); pending.length = 0; vi.useRealTimers(); vi.unstubAllGlobals(); setCsrfToken() })
 
@@ -35,11 +35,11 @@ describe('durable task API contracts', () => {
   })
   it('recovers a persisted textual result and nullable command content', async () => {
     const completed = { ...task, status: 'completed', revision: 3, available_controls: [], latest_run: { ...task.latest_run, status: 'completed', result: { content: 'A prioriza rapidez; B oferece mais controle.', created_at: stamp } } }
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ task: completed, events: [{ id: 'event-1', code: 'pause', created_at: stamp, run_id: null, content: null }] })))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ task: completed, events: [{ id: 'event-1', code: 'pause', created_at: stamp, run_id: null, content: null }], actions: [], has_more: false })))
     expect((await getTask('bee-1', task.id)).task.latest_run?.result?.content).toBe('A prioriza rapidez; B oferece mais controle.')
   })
   it('rejects another task returned by the detail or mutation endpoint', async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ task: { ...task, id: 'wrong-task' }, events: [] })).mockResolvedValueOnce(Response.json({ ...task, id: 'wrong-task' }))
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ task: { ...task, id: 'wrong-task' }, events: [], actions: [], has_more: false })).mockResolvedValueOnce(Response.json({ ...task, id: 'wrong-task' }))
     vi.stubGlobal('fetch', fetcher); setCsrfToken('test-csrf')
     await expect(getTask('bee-1', task.id)).rejects.toMatchObject({ code: 'invalid_response' })
     await expect(controlTask('bee-1', task.id, { action: 'pause', client_request_id: 'request-1', expected_revision: 1 })).rejects.toMatchObject({ code: 'invalid_response' })
@@ -87,9 +87,10 @@ describe('task observation and command identities', () => {
     expect(identity.forPayload({ ...body, action: 'cancel' })).toBe('id-2')
     identity.reset(); expect(identity.forPayload(body)).toBe('id-3')
   })
-  it('unknown outcome is derived from persisted run state, never inferred from generic failures', () => {
+  it('unknown outcome uses durable global counts, never generic failures or an already acknowledged run', () => {
     expect(taskOutcomeUnknown(task)).toBe(false)
-    expect(taskOutcomeUnknown({ ...task, latest_run: { ...task.latest_run!, error_code: 'outcome_unknown' } })).toBe(true)
+    expect(taskOutcomeUnknown({ ...task, latest_run: { ...task.latest_run!, error_code: 'outcome_unknown' }, unknown_model_calls: 1, unknown_requires_ack: true })).toBe(true)
+    expect(taskOutcomeUnknown({ ...task, latest_run: { ...task.latest_run!, error_code: 'outcome_unknown' } })).toBe(false)
     expect(taskOutcomeUnknown({ ...task, latest_run: { ...task.latest_run!, error_code: 'authentication_failed' } })).toBe(false)
     expect(isTask({ ...task, status: 'paused', available_controls: ['resume'] })).toBe(true)
   })

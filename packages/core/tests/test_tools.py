@@ -12,7 +12,7 @@ import apsw
 import pytest
 from pydantic import ValidationError
 
-from bees_core.models import Agent, Run, Task, ToolGrant
+from bees_core.models import Agent, Run, Task, ToolGrant, utc_now
 from bees_core.policies import PolicyService
 from bees_core.storage.database import Database
 from bees_core.storage.store import IntegrityError, NotFoundError, RevisionConflict, StateStore
@@ -27,11 +27,13 @@ def setup(tmp_path):
     with store.transaction() as unit:
         agent = unit.agents.create(Agent(name="Teste de contratos"))
         other = unit.agents.create(Agent(name="Outra abelha"))
-        task = unit.tasks.create(
-            Task(agent_id=agent.id, title="Ferramenta", objective="Texto", status="running")
-        )
-        run = unit.runs.create(Run(task_id=task.id, status="running"))
+        task = unit.tasks.create(Task(agent_id=agent.id, title="Ferramenta", objective="Texto"))
+        unit.runs.create(Run(task_id=task.id))
+        claim = unit.execution.claim_next(uuid4(), now=utc_now(), ttl_seconds=300)
+        task, run = claim.task, claim.run
     service = ToolService(database)
+    # Claim real obtido pela fila, compartilhado pelos helpers deste teste.
+    service.test_claim = claim
     plugin = service.install({"manifest": service.catalog()[0], "client_request_id": uuid4()})
     plugin = service.update_plugin(plugin.id, {"enabled": True, "expected_revision": 1})
     grant = service.set_grant(
@@ -54,13 +56,17 @@ def invocation(setup, **changes):
 def prepare(setup, value=None):
     _, _, service, agent, _, _, run, *_ = setup
     value = invocation(setup) if value is None else value
-    return service.prepare(agent.id, run.id, value), value
+    return service.prepare(agent.id, run.id, value, claim=service.test_claim), value
 
 
 def execute(setup, action, value):
     _, _, service, agent, *_ = setup
     return service.execute(
-        agent.id, action.id, value["arguments"], expected_revision=action.revision
+        agent.id,
+        action.id,
+        value["arguments"],
+        expected_revision=action.revision,
+        claim=service.test_claim,
     )
 
 
@@ -81,7 +87,7 @@ def test_builtin_real_output_and_replay_no_new_effect(setup, monkeypatch, operat
     )
     assert execute(setup, action, value) == result
     _, _, service, agent, _, _, run, *_ = setup
-    assert service.prepare(agent.id, run.id, value) == result
+    assert service.prepare(agent.id, run.id, value, claim=service.test_claim) == result
     assert ToolService(setup[0]).get_invocation(agent.id, action.id) == result
 
 
@@ -270,6 +276,7 @@ def test_hash_mismatch_rejects_mutated_arguments_and_snapshot(setup):
             action.id,
             value["arguments"] | {"text": "Alterado"},
             expected_revision=action.revision,
+            claim=service.test_claim,
         )
     with setup[1].transaction() as unit:
         changed = unit.actions.update(
@@ -283,7 +290,7 @@ def test_hash_mismatch_rejects_mutated_arguments_and_snapshot(setup):
 def test_owner_separation_grants_disabled_and_unknown_tool(setup):
     _, _, service, agent, other, _, run, plugin, _ = setup
     with pytest.raises(NotFoundError):
-        service.prepare(other.id, run.id, invocation(setup))
+        service.prepare(other.id, run.id, invocation(setup), claim=service.test_claim)
     action, _ = prepare(setup)
     with pytest.raises(NotFoundError):
         service.get_invocation(other.id, action.id)
@@ -355,11 +362,13 @@ import os, json
 from uuid import UUID
 from bees_core.storage.database import Database
 from bees_core import tools
+from bees_core.models import ExecutionClaim
 tools._execute_builtin = lambda args: os._exit(23)
 tools.ToolService(Database(os.environ["BEES_TEST_DB"])).execute(
     UUID(os.environ["BEES_TEST_AGENT"]), UUID(os.environ["BEES_TEST_ACTION"]),
     json.loads(os.environ["BEES_TEST_INPUT"]),
-    expected_revision=int(os.environ["BEES_TEST_REVISION"]))
+    expected_revision=int(os.environ["BEES_TEST_REVISION"]),
+    claim=ExecutionClaim.model_validate_json(os.environ["BEES_TEST_CLAIM"]))
 """
     env = os.environ | {
         "BEES_TEST_DB": str(db.path),
@@ -367,17 +376,21 @@ tools.ToolService(Database(os.environ["BEES_TEST_DB"])).execute(
         "BEES_TEST_ACTION": str(action.id),
         "BEES_TEST_INPUT": json.dumps(value["arguments"]),
         "BEES_TEST_REVISION": str(action.revision),
+        "BEES_TEST_CLAIM": service.test_claim.model_dump_json(),
     }
     child = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, timeout=15)
     assert child.returncode == 23, child.stderr.decode()
     interrupted = service.get_invocation(agent.id, action.id)
     assert interrupted.status == "dispatch_started"
     assert execute(setup, action, value).status == "dispatch_started"
+    with setup[1].transaction() as unit:
+        unit.execution.release(service.test_claim)
     recovered = service.mark_unknown(
         agent.id,
         action.id,
         expected_revision=interrupted.revision,
         evidence_ref="process:terminated:23",
+        owner_id=service.test_claim.owner_id,
     )
     assert recovered.status == "outcome_unknown"
     assert execute(setup, action, value) == recovered
@@ -425,17 +438,21 @@ def test_output_validation_and_recovery_cas_fail_closed(setup, monkeypatch):
     from bees_core import tools
 
     monkeypatch.setattr(tools, "_execute_builtin", lambda args: {"text": 5, "extra": "wrong"})
-    action, value = prepare(setup)
-    assert execute(setup, action, value).status == "outcome_unknown"
     next_action, _ = prepare(setup)
     with setup[1].transaction() as unit:
         dispatched = unit.actions.update(
             next_action.model_copy(update={"status": "dispatch_started"}), next_action.revision
         )
     service, agent = setup[2:4]
+    with setup[1].transaction() as unit:
+        unit.execution.release(service.test_claim)
     with pytest.raises(ValueError):
         service.mark_unknown(
-            agent.id, dispatched.id, expected_revision=dispatched.revision, evidence_ref=""
+            agent.id,
+            dispatched.id,
+            expected_revision=dispatched.revision,
+            evidence_ref="",
+            owner_id=service.test_claim.owner_id,
         )
     with pytest.raises(RevisionConflict):
         service.mark_unknown(
@@ -443,10 +460,15 @@ def test_output_validation_and_recovery_cas_fail_closed(setup, monkeypatch):
             dispatched.id,
             expected_revision=dispatched.revision - 1,
             evidence_ref="process:stopped",
+            owner_id=service.test_claim.owner_id,
         )
     with pytest.raises(ValueError):
         service.mark_unknown(
-            agent.id, dispatched.id, expected_revision=True, evidence_ref="process:stopped"
+            agent.id,
+            dispatched.id,
+            expected_revision=True,
+            evidence_ref="process:stopped",
+            owner_id=service.test_claim.owner_id,
         )
     assert service.get_invocation(agent.id, dispatched.id).status == "dispatch_started"
 

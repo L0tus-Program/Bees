@@ -8,12 +8,14 @@ na intenção, snapshot, política, evento ou erro; somente o resultado privado.
 import hashlib
 import json
 import re
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from bees_core.models import Action, PluginInstallation, ToolGrant
+from bees_core.models import Action, ExecutionClaim, PluginInstallation, ToolGrant, utc_now
 from bees_core.policies import ActionIntent, PolicyService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore, UnitOfWork
@@ -128,9 +130,60 @@ def _execute_builtin(arguments: TextInput) -> dict:
 
 
 class ToolService:
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database, *, clock: Callable[[], datetime] = utc_now) -> None:
         self.store = StateStore(database)
         self.policies = PolicyService(database)
+        self.clock = clock
+
+    @staticmethod
+    def _binding(unit, claim: ExecutionClaim, agent_id: UUID, run_id: UUID, *, now) -> dict:
+        unit.execution.assert_claim(claim, now=now)
+        task = unit.tasks.get(claim.task.id)
+        if task.agent_id != agent_id or claim.run.id != run_id:
+            raise NotFoundError("Invocação não pertence à abelha/execução.")
+        return {
+            "task_id": str(task.id),
+            "agent_id": str(task.agent_id),
+            "run_id": str(claim.run.id),
+            "owner_id": str(claim.owner_id),
+            "control_revision": claim.task.control_revision,
+            "leases": [
+                {
+                    "resource_key": token.resource_key,
+                    "owner_id": str(token.owner_id),
+                    "run_id": str(token.run_id),
+                    "generation": token.generation,
+                }
+                for token in sorted(claim.leases, key=lambda token: token.resource_key)
+            ],
+        }
+
+    def _bound_claim(self, unit, action, claim, agent_id, *, now):
+        binding = self._binding(unit, claim, agent_id, action.run_id, now=now)
+        if action.execution_binding != binding or action.lease_generation != claim.generation:
+            raise RevisionConflict("Ação pertence a outro dono/geração de execução.")
+
+    @staticmethod
+    def _available(unit, claim):
+        task = unit.tasks.get(claim.task.id)
+        if task.control_revision != claim.task.control_revision:
+            raise ToolError("execution_unavailable", "Controle mudou desde a aquisição da tarefa.")
+        if task.active_milliseconds >= task.max_active_seconds * 1000:
+            raise ToolError("task_limit_reached", "Tempo ativo da tarefa esgotado.")
+        if unit.actions.unresolved(task.id) or unit.model_calls.unresolved(task.id):
+            raise ToolError("execution_unavailable", "Journal pendente exige aguardar/reconhecer.")
+
+    @staticmethod
+    def _obsolete(unit, action):
+        run = unit.runs.get(action.run_id)
+        task = unit.tasks.get(run.task_id)
+        agent = unit.agents.get(task.agent_id)
+        return (
+            task.desired_state == "cancelled"
+            or task.control_revision != action.metadata.get("task_control_revision")
+            or agent.revision != action.metadata.get("agent_revision")
+            or unit.runs.latest(task.id).id != run.id
+        )
 
     @staticmethod
     def catalog() -> list[dict]:
@@ -317,7 +370,14 @@ class ToolService:
         }
         return intent, snapshot
 
-    def prepare(self, agent_id: UUID, run_id: UUID, value: ToolInvocationInput | dict) -> Action:
+    def prepare(
+        self,
+        agent_id: UUID,
+        run_id: UUID,
+        value: ToolInvocationInput | dict,
+        *,
+        claim: ExecutionClaim,
+    ) -> Action:
         try:
             value = ToolInvocationInput.model_validate(value)
         except ValidationError, ValueError, TypeError:
@@ -344,6 +404,8 @@ class ToolService:
                 if owner.agent_id != agent_id:
                     raise NotFoundError("Ação não encontrada nesta abelha.")
                 return previous
+            binding = self._binding(unit, claim, agent_id, run_id, now=self.clock())
+            self._available(unit, claim)
             intent, snapshot = self._authority(
                 unit, agent_id, run_id, value.plugin_id, value.tool_name, value.arguments
             )
@@ -360,6 +422,8 @@ class ToolService:
                     tool_name=value.tool_name,
                     parameters=intent.parameters,
                     idempotency_key=f"tool:{value.client_request_id}",
+                    execution_binding=binding,
+                    lease_generation=claim.generation,
                     metadata={
                         **snapshot,
                         "intent": intent.model_dump(mode="json"),
@@ -390,7 +454,13 @@ class ToolService:
             return self._owned_action(unit, agent_id, action_id)
 
     def mark_unknown(
-        self, agent_id: UUID, action_id: UUID, *, expected_revision: int, evidence_ref: str
+        self,
+        agent_id: UUID,
+        action_id: UUID,
+        *,
+        expected_revision: int,
+        evidence_ref: str,
+        owner_id: UUID,
     ) -> Action:
         """Recuperação conservadora pelo supervisor após interromper o dono antigo.
 
@@ -404,6 +474,13 @@ class ToolService:
             actor="supervisor", source="tool_recovery", correlation_id=str(action_id)
         ) as unit:
             action = self._owned_action(unit, agent_id, action_id)
+            binding = action.execution_binding
+            if binding is None or binding.get("owner_id") != str(owner_id):
+                raise RevisionConflict("Supervisor deve identificar o dono do despacho.")
+            if type(expected_revision) is not int or expected_revision < 1:
+                raise ValueError("Revisão deve ser inteiro positivo.")
+            if action.revision != expected_revision:
+                raise RevisionConflict("Journal mudou antes da recuperação.")
             if action.status == "outcome_unknown":
                 return action
             if action.status != "dispatch_started":
@@ -411,7 +488,18 @@ class ToolService:
                     "invocation_unavailable",
                     "Somente despacho sem resultado pode ser marcado desconhecido.",
                 )
-            return unit.actions.update(
+            now = self.clock()
+            for token in binding["leases"]:
+                lease = unit.execution._lease(token["resource_key"])
+                if (
+                    lease
+                    and lease[:3] == (token["owner_id"], token["run_id"], token["generation"])
+                    and lease[3] > now.astimezone(UTC).isoformat(timespec="microseconds")
+                ):
+                    raise ToolError(
+                        "owner_still_active", "Dono ainda possui lease; interrompa e libere."
+                    )
+            action = unit.actions.update(
                 action.model_copy(
                     update={
                         "status": "outcome_unknown",
@@ -424,6 +512,8 @@ class ToolService:
                 ),
                 expected_revision,
             )
+            unit.execution.quarantine_action(action, now=now)
+            return action
 
     def execute(
         self,
@@ -432,6 +522,7 @@ class ToolService:
         arguments: TextInput | dict,
         *,
         expected_revision: int,
+        claim: ExecutionClaim,
     ) -> Action:
         try:
             arguments = TextInput.model_validate(arguments)
@@ -459,6 +550,8 @@ class ToolService:
                 raise RevisionConflict("Invocação alterada; releia seu estado.")
             if action.status != "ready":
                 raise ToolError("invocation_unavailable", "Invocação não disponível para despacho.")
+            self._bound_claim(unit, action, claim, agent_id, now=self.clock())
+            self._available(unit, claim)
             try:
                 intent, snapshot = self._authority(
                     unit,
@@ -501,20 +594,37 @@ class ToolService:
                 actor="executor", source="tool_executor", correlation_id=str(action_id)
             ) as unit:
                 current = self._owned_action(unit, agent_id, action_id)
-                return unit.actions.update(
+                try:
+                    self._bound_claim(unit, current, claim, agent_id, now=self.clock())
+                except RevisionConflict:
+                    raise RevisionConflict("Dono antigo não pode concluir a ação.") from None
+                current = unit.actions.update(
                     current.model_copy(
                         update={
                             "status": "outcome_unknown",
-                            "metadata": {**current.metadata, "error_code": "tool_result_unknown"},
+                            "metadata": {
+                                **current.metadata,
+                                "error_code": "tool_result_unknown",
+                                "obsolete": self._obsolete(unit, current),
+                            },
                         }
                     ),
                     current.revision,
                 )
+                unit.execution.quarantine_action(current, now=self.clock())
+                return current
         with self.store.transaction(
             actor="executor", source="tool_executor", correlation_id=str(action_id)
         ) as unit:
             current = self._owned_action(unit, agent_id, action_id)
+            self._bound_claim(unit, current, claim, agent_id, now=self.clock())
             return unit.actions.update(
-                current.model_copy(update={"status": "confirmed", "result": result}),
+                current.model_copy(
+                    update={
+                        "status": "confirmed",
+                        "result": result,
+                        "metadata": current.metadata | {"obsolete": self._obsolete(unit, current)},
+                    }
+                ),
                 current.revision,
             )

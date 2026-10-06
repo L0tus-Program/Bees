@@ -73,6 +73,10 @@ def _view(detail) -> dict:
             else None
         ),
         "available_controls": controls,
+        "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
+        "unknown_model_calls": detail.unknown_model_calls,
+        "unknown_tool_actions": detail.unknown_tool_actions,
+        "action_in_flight": detail.action_in_flight,
         "max_calls": task.max_calls,
         "max_active_seconds": task.max_active_seconds,
         "calls_started": task.calls_started,
@@ -132,7 +136,28 @@ def detail_task(agent_id: UUID, task_id: UUID, request: Request, session: _SESSI
         for call in detail.calls
     )
     events.sort(key=lambda event: (event["created_at"], event["id"]))
-    return {"task": _view(detail), "events": events, "has_more": detail.has_more}
+    # Os resumos públicos são fechados: parâmetros, resultados e autoridade
+    # pertencem ao journal privado e não entram na observação da tarefa.
+    actions = [
+        {
+            "id": str(action.id),
+            "run_id": str(action.run_id),
+            "tool_name": action.tool_name,
+            "status": action.status,
+            "error_code": action.error_code,
+            "obsolete": action.obsolete,
+            "acknowledged": action.acknowledged,
+            "created_at": action.created_at.isoformat(),
+            "updated_at": action.updated_at.isoformat(),
+        }
+        for action in detail.actions
+    ]
+    return {
+        "task": _view(detail),
+        "events": events,
+        "actions": actions,
+        "has_more": detail.has_more,
+    }
 
 
 @router.post("/{agent_id}/tasks", status_code=201)

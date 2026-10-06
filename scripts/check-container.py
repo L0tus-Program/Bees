@@ -61,7 +61,7 @@ def main():
         with httpx.Client(base_url=origin, trust_env=False, timeout=15) as client:
             assert client.get("/").status_code == 200
             state = client.get("/api/v1/state/status")
-            assert state.json()["schema_version"] == 6
+            assert state.json()["schema_version"] == 7
             assert client.get("/api/v1/onboarding").status_code == 401
             assert client.get("/api/v1/auth/status").json()["configured"] is False
             authorization = json.loads(

@@ -95,12 +95,28 @@ class TaskCommandSummary(_Input):
     instruction: str | None = None
 
 
+class ActionSummary(_Input):
+    id: UUID
+    run_id: UUID
+    tool_name: str
+    status: str
+    error_code: str | None = None
+    obsolete: bool = False
+    acknowledged: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
 class TaskDetail(_Input):
     task: Task
     runs: list[Run]
     calls: list[ModelCallSummary]
     commands: list[TaskCommandSummary]
     messages: list[Message]
+    actions: list[ActionSummary] = Field(default_factory=list)
+    unknown_model_calls: int = 0
+    unknown_tool_actions: int = 0
+    action_in_flight: bool = False
     has_more: bool = False
 
 
@@ -222,25 +238,21 @@ class TaskService:
                 raise RevisionConflict("Revisão da tarefa mudou.")
             if task.status in ("completed", "failed", "cancelled"):
                 raise TaskError("terminal_task")
-            runs = uow.runs.list(task_id=task.id, limit=1000)
-            if not runs:
+            run = uow.runs.latest(task.id)
+            if run is None:
                 raise TaskError("invalid_task_state")
-            run = runs[-1]
             if value.kind == "resume" and task.status not in (
                 "paused",
                 "waiting_resource",
                 "waiting_approval",
             ):
                 raise TaskError("invalid_task_state")
-            calls = [
-                call
-                for existing_run in runs
-                for call in uow.model_calls.list(run_id=existing_run.id, limit=1000)
-            ]
-            pending_unknown = any(
-                call.status == "outcome_unknown" and call.unknown_acknowledged_at is None
-                for call in calls
+            pending_unknown = (
+                uow.model_calls.pending_unknown_count(task.id) > 0
+                or uow.actions.pending_unknown_count(task.id) > 0
             )
+            if value.kind == "resume" and uow.actions.in_flight(task.id):
+                raise TaskError("action_in_flight")
             if pending_unknown and value.kind in ("resume", "redirect"):
                 if value.kind != "resume" or not value.acknowledge_unknown:
                     raise TaskError("unknown_requires_ack")
@@ -344,11 +356,14 @@ class TaskService:
     def detail(self, agent_id: UUID | str, task_id: UUID | str) -> TaskDetail:
         with self.store.transaction(write=False) as uow:
             task = self._task(uow, agent_id, task_id)
-            runs = uow.runs.list(task_id=task.id, limit=1000)
+            runs = list(reversed(uow.runs.list(task_id=task.id, limit=1000, newest_first=True)))
             calls = [
                 call for run in runs for call in uow.model_calls.list(run_id=run.id, limit=1000)
             ]
             commands = uow.task_commands.list(task_id=task.id, limit=101)
+            from itertools import islice
+
+            actions = list(islice(uow.actions.for_task(task.id, standalone=True), 101))
             messages = (
                 uow.messages.list(conversation_id=task.conversation_id, limit=201)
                 if task.conversation_id is not None
@@ -357,6 +372,26 @@ class TaskService:
             return TaskDetail(
                 task=task,
                 runs=runs,
+                unknown_model_calls=uow.model_calls.pending_unknown_count(task.id),
+                unknown_tool_actions=uow.actions.pending_unknown_count(task.id),
+                action_in_flight=uow.actions.in_flight(task.id),
+                actions=[
+                    ActionSummary(
+                        id=action.id,
+                        run_id=action.run_id,
+                        tool_name=action.tool_name,
+                        status=action.status,
+                        error_code=action.metadata.get("error_code")
+                        if action.metadata.get("error_code")
+                        in ("tool_result_unknown", "tool_interrupted_unknown")
+                        else None,
+                        obsolete=action.metadata.get("obsolete") is True,
+                        acknowledged=action.unknown_acknowledged_at is not None,
+                        created_at=action.created_at,
+                        updated_at=action.updated_at,
+                    )
+                    for action in actions[:100]
+                ],
                 calls=[
                     ModelCallSummary(
                         id=call.id,
@@ -384,5 +419,10 @@ class TaskService:
                     for command in commands[:100]
                 ],
                 messages=messages[:200],
-                has_more=len(commands) > 100 or len(messages) > 200,
+                has_more=(
+                    len(commands) > 100
+                    or len(messages) > 200
+                    or len(actions) > 100
+                    or len(runs) == 1000
+                ),
             )

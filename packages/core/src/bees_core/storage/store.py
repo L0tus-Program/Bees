@@ -84,6 +84,7 @@ JSON_COLUMNS = {
     "snapshot": "snapshot_json",
     "payload": "payload_json",
     "manifest": "manifest_json",
+    "execution_binding": "execution_binding_json",
 }
 
 
@@ -357,7 +358,14 @@ class _Repository[T: Record]:
     def update(self, record: T, expected_revision: int) -> T:
         return self._update(record, expected_revision)
 
-    def _update(self, record: T, expected_revision: int, *, reconciled: bool = False) -> T:
+    def _update(
+        self,
+        record: T,
+        expected_revision: int,
+        *,
+        reconciled: bool = False,
+        acknowledged: bool = False,
+    ) -> T:
         validated = self._validated(record)
         if isinstance(expected_revision, bool) or not isinstance(expected_revision, int):
             raise ValueError("expected_revision precisa ser inteiro.")
@@ -384,7 +392,9 @@ class _Repository[T: Record]:
                 ):
                     raise IntegrityError("Vínculo de aprovação não pode ser substituído.")
             if isinstance(previous, Action) and isinstance(validated, Action):
-                _validate_action_update(previous, validated, reconciled=reconciled)
+                _validate_action_update(
+                    previous, validated, reconciled=reconciled, acknowledged=acknowledged
+                )
             if isinstance(previous, Environment):
                 transitions = {
                     "awaiting_host": {"cancelled", "provisioning"},
@@ -446,7 +456,23 @@ _ACTION_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 
-def _validate_action_update(previous: Action, updated: Action, *, reconciled: bool) -> None:
+def _validate_action_update(
+    previous: Action, updated: Action, *, reconciled: bool, acknowledged: bool = False
+) -> None:
+    if previous.execution_binding != updated.execution_binding:
+        raise IntegrityError("Vínculo de execução da ação é imutável.")
+    if acknowledged:
+        if (
+            previous.status != "outcome_unknown"
+            or previous.unknown_acknowledged_at is not None
+            or updated.unknown_acknowledged_at is None
+            or previous.model_dump(exclude={"unknown_acknowledged_at"})
+            != updated.model_dump(exclude={"unknown_acknowledged_at"})
+        ):
+            raise InvalidTransition("Reconhecimento não altera evidência ou estado da ação.")
+        return
+    if previous.unknown_acknowledged_at != updated.unknown_acknowledged_at:
+        raise InvalidTransition("Reconhecimento exige comando humano explícito.")
     if previous.status in ("confirmed", "failed_no_effect", "cancelled"):
         raise InvalidTransition("Ação terminal é imutável; preserve sua evidência.")
     if previous.status == "outcome_unknown" and not reconciled:
@@ -552,8 +578,15 @@ class Runs(_Repository[Run]):
         runs = self._list({"task_id": task_id}, 1, 0, newest_first=True)
         return runs[0] if runs else None
 
-    def list(self, *, task_id: UUID | None = None, limit: int = 100, offset: int = 0) -> list[Run]:
-        return self._list({"task_id": task_id}, limit, offset)
+    def list(
+        self,
+        *,
+        task_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        newest_first: bool = False,
+    ) -> list[Run]:
+        return self._list({"task_id": task_id}, limit, offset, newest_first=newest_first)
 
 
 class TaskCommands(_Repository[TaskCommand]):
@@ -576,6 +609,42 @@ class TaskCommands(_Repository[TaskCommand]):
 
 
 class ModelCalls(_Repository[ModelCall]):
+    def for_task(self, task_id, *, status=None, run_id=None):
+        self._context.check()
+        clauses, values = ["r.task_id=?"], [str(task_id)]
+        if status is not None:
+            clauses.append("c.status=?")
+            values.append(status)
+        if run_id is not None:
+            clauses.append("c.run_id=?")
+            values.append(str(run_id))
+        rows = self._context.connection.execute(
+            f"SELECT {','.join('c.' + column for column in self._spec.columns)} "
+            f"FROM model_calls c JOIN runs r ON r.id=c.run_id WHERE {' AND '.join(clauses)} "
+            "ORDER BY c.created_at,c.id",
+            tuple(values),
+        )
+        for row in rows:
+            yield self._decode(row)
+
+    def pending_unknown_count(self, task_id) -> int:
+        return self._context.connection.execute(
+            "SELECT count(*) FROM model_calls c JOIN runs r ON r.id=c.run_id "
+            "WHERE r.task_id=? AND c.status='outcome_unknown' "
+            "AND c.unknown_acknowledged_at IS NULL",
+            (str(task_id),),
+        ).get
+
+    def unresolved(self, task_id) -> bool:
+        return bool(
+            self._context.connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
+                "WHERE r.task_id=? AND (c.status='dispatch_started' OR "
+                "(c.status='outcome_unknown' AND c.unknown_acknowledged_at IS NULL)))",
+                (str(task_id),),
+            ).get
+        )
+
     @staticmethod
     def request_digest(provider_config: dict, request: dict, snapshot: dict) -> str:
         data = {"provider_config": provider_config, "request": request, "snapshot": snapshot}
@@ -647,6 +716,16 @@ class Execution:
 
     def assert_claim(self, claim: ExecutionClaim, *, now: datetime) -> None:
         self._context.check()
+        run = self.runs.get(claim.run.id)
+        task = self.tasks.get(claim.task.id)
+        if (
+            run is None
+            or task is None
+            or run.task_id != task.id
+            or claim.run.task_id != task.id
+            or task.agent_id != claim.task.agent_id
+        ):
+            raise RevisionConflict("Claim não pertence à tarefa/abelha canônica.")
         keys = {self.GLOBAL_RESOURCE, f"agent:{claim.task.agent_id}"}
         if {token.resource_key for token in claim.leases} != keys or len(claim.leases) != 2:
             raise RevisionConflict("Lease incompleta ou incompatível.")
@@ -717,13 +796,20 @@ class Execution:
             "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
             "WHERE r.task_id=t.id AND c.status='outcome_unknown' "
             "AND c.unknown_acknowledged_at IS NULL) "
+            "AND NOT EXISTS(SELECT 1 FROM actions x JOIN runs r ON r.id=x.run_id "
+            "WHERE r.task_id=t.id AND (x.status='dispatch_started' OR "
+            "(x.status='outcome_unknown' AND x.unknown_acknowledged_at IS NULL)) "
+            f"AND {self.actions.STANDALONE}) "
             "ORDER BY t.created_at,t.id LIMIT 100",
         )
         for row in list(rows):
             task = self.tasks._decode(row)
-            existing = self.runs.list(task_id=task.id, limit=1000)
-            unfinished = [run for run in existing if run.status in ("queued", "running")]
-            run = unfinished[-1] if unfinished else self.runs.create(Run(task_id=task.id))
+            latest = self.runs.latest(task.id)
+            run = (
+                latest
+                if latest is not None and latest.status in ("queued", "running")
+                else self.runs.create(Run(task_id=task.id))
+            )
             tokens = self._tokens(owner_id, run, task.agent_id, now, ttl_seconds)
             if tokens is None:
                 continue
@@ -813,6 +899,8 @@ class Execution:
         ).get
         if unresolved:
             raise InvalidTransition("Chamada pendente/desconhecida impede novo despacho.")
+        if self.actions.unresolved(task.id):
+            raise InvalidTransition("Ação pendente/desconhecida impede novo despacho.")
         previous = self.calls.get(call.id)
         if previous is None:
             previous = self.calls.create(call)
@@ -909,6 +997,43 @@ class Execution:
         )
         for row in list(rows):
             self.calls._change(self.calls._decode(row), unknown_acknowledged_at=now)
+        for action in self.actions.for_task(task_id, status="outcome_unknown"):
+            if action.unknown_acknowledged_at is None:
+                self.actions._update(
+                    action.model_copy(update={"unknown_acknowledged_at": now}),
+                    action.revision,
+                    acknowledged=True,
+                )
+
+    @_execution_atomic
+    def quarantine_action(self, action: Action, *, now: datetime) -> None:
+        """A evidência desconhecida continua no journal; parar novos despachos."""
+        run = self.runs.get(action.run_id)
+        task = self.tasks.get(run.task_id)
+        status = (
+            task.status
+            if task.status in ("completed", "failed", "cancelled")
+            else "cancelled"
+            if task.desired_state == "cancelled"
+            else "paused"
+        )
+        if task.status not in ("completed", "failed", "cancelled"):
+            self.tasks.update(
+                task.model_copy(update={"status": status, "desired_state": status}),
+                task.revision,
+            )
+        self.runs.update(
+            run.model_copy(
+                update={
+                    "status": status
+                    if run.status not in ("completed", "failed", "cancelled")
+                    else run.status,
+                    "error": "outcome_unknown",
+                    "checkpoint": run.checkpoint | {"progress": status, "attention_required": True},
+                }
+            ),
+            run.revision,
+        )
 
     @_execution_atomic
     def recover_expired(self, *, now: datetime) -> int:
@@ -922,8 +1047,29 @@ class Execution:
         for (run_id,) in list(rows):
             run = self.runs.get(run_id)
             task = self.tasks.get(run.task_id)
-            calls = self.calls.list(run_id=run.id, status="dispatch_started", limit=1000)
-            unknown = bool(calls)
+            calls = list(self.calls.for_task(task.id, status="dispatch_started", run_id=run.id))
+            actions = list(self.actions.for_task(task.id, status="dispatch_started", run_id=run.id))
+            unknown = (
+                bool(calls or actions)
+                or self.actions.unresolved(task.id)
+                or self.calls.pending_unknown_count(task.id) > 0
+            )
+            for action in list(self.actions.for_task(task.id, run_id=run.id, standalone=True)):
+                if action.status in ("prepared", "ready"):
+                    self.actions.update(
+                        action.model_copy(update={"status": "cancelled"}), action.revision
+                    )
+            for action in actions:
+                self.actions.update(
+                    action.model_copy(
+                        update={
+                            "status": "outcome_unknown",
+                            "metadata": action.metadata
+                            | {"error_code": "tool_interrupted_unknown"},
+                        }
+                    ),
+                    action.revision,
+                )
             for call in calls:
                 self.calls._change(
                     call, status="outcome_unknown", error_code="worker_lost", finished_at=now
@@ -985,7 +1131,8 @@ class Execution:
                         update={
                             "status": status,
                             "error": "outcome_unknown" if unknown else run.error,
-                            "checkpoint": run.checkpoint | {"attention_required": unknown},
+                            "checkpoint": run.checkpoint
+                            | {"progress": status, "attention_required": unknown},
                         }
                     ),
                     run.revision,
@@ -995,7 +1142,8 @@ class Execution:
                     run.model_copy(
                         update={
                             "error": "outcome_unknown",
-                            "checkpoint": run.checkpoint | {"attention_required": True},
+                            "checkpoint": run.checkpoint
+                            | {"progress": task.status, "attention_required": True},
                         }
                     ),
                     run.revision,
@@ -1010,6 +1158,68 @@ class Execution:
 
 
 class Actions(_Repository[Action]):
+    # Só a associação canônica de uma aprovação consumida distingue o journal
+    # textual. Nomes/metadata de Action não concedem essa exceção.
+    STANDALONE = (
+        "NOT EXISTS(SELECT 1 FROM approvals p JOIN model_calls c "
+        "ON c.id=json_extract(p.metadata_json,'$.model_call_id') "
+        "WHERE p.action_id=x.id AND c.run_id=x.run_id "
+        "AND json_type(p.metadata_json,'$.consumed_at')='text')"
+    )
+
+    def for_task(self, task_id, *, status=None, run_id=None, standalone=False):
+        self._context.check()
+        clauses, values = ["r.task_id=?"], [str(UUID(str(task_id)))]
+        if status is not None:
+            clauses.append("x.status=?")
+            values.append(status)
+        if run_id is not None:
+            clauses.append("x.run_id=?")
+            values.append(str(run_id))
+        if standalone:
+            clauses.append(self.STANDALONE)
+        rows = self._context.connection.execute(
+            f"SELECT {','.join('x.' + column for column in self._spec.columns)} "
+            f"FROM actions x JOIN runs r ON r.id=x.run_id WHERE {' AND '.join(clauses)} "
+            "ORDER BY x.created_at,x.id",
+            tuple(values),
+        )
+        for row in rows:
+            yield self._decode(row)
+
+    def unresolved(self, task_id, *, exclude_id=None) -> bool:
+        self._context.check()
+        return bool(
+            self._context.connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM actions x JOIN runs r ON r.id=x.run_id "
+                "WHERE r.task_id=? AND (x.status='dispatch_started' OR "
+                "(x.status='outcome_unknown' AND x.unknown_acknowledged_at IS NULL)) "
+                f"AND {self.STANDALONE} AND (? IS NULL OR x.id<>?))",
+                (
+                    str(task_id),
+                    str(exclude_id) if exclude_id else None,
+                    str(exclude_id) if exclude_id else None,
+                ),
+            ).get
+        )
+
+    def pending_unknown_count(self, task_id) -> int:
+        return self._context.connection.execute(
+            "SELECT count(*) FROM actions x JOIN runs r ON r.id=x.run_id WHERE r.task_id=? "
+            "AND x.status='outcome_unknown' AND x.unknown_acknowledged_at IS NULL "
+            f"AND {self.STANDALONE}",
+            (str(task_id),),
+        ).get
+
+    def in_flight(self, task_id) -> bool:
+        return bool(
+            self._context.connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM actions x JOIN runs r ON r.id=x.run_id "
+                f"WHERE r.task_id=? AND x.status='dispatch_started' AND {self.STANDALONE})",
+                (str(task_id),),
+            ).get
+        )
+
     def list(
         self,
         *,
@@ -1264,8 +1474,9 @@ class UnitOfWork:
         self.task_commands = TaskCommands(
             context, _Spec("task_commands", "task_command", TaskCommand)
         )
-        self.execution = Execution(context, self.tasks, self.runs, self.model_calls)
         self.actions = Actions(context, _Spec("actions", "action", Action, ("run_id",)))
+        self.execution = Execution(context, self.tasks, self.runs, self.model_calls)
+        self.execution.actions = self.actions
         self.policies = Policies(context, _Spec("policies", "policy", Policy, ("agent_id",)))
         self.plugins = Plugins(
             context, _Spec("plugins", "plugin", PluginInstallation, ("manifest", "manifest_hash"))

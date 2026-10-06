@@ -89,10 +89,16 @@ def test_prepared_crash_requeues_and_fences_old_worker(store):
     first = claim(store)
     with store.transaction() as unit:
         prepared = unit.model_calls.create(intention(unit, first))
+        run = unit.runs.get(first.run.id)
+        unit.runs.update(
+            run.model_copy(update={"checkpoint": {"progress": "generating"}}), run.revision
+        )
     second = claim(store, NOW + timedelta(seconds=6))
     assert second.task.id == task.id
     assert second.generation > first.generation
     with store.transaction() as unit:
+        assert unit.runs.get(first.run.id).checkpoint["progress"] == "queued"
+        assert unit.runs.get(first.run.id).checkpoint["attention_required"] is False
         with pytest.raises(RevisionConflict):
             unit.execution.begin_call(first, prepared, now=NOW + timedelta(seconds=6))
         unit.execution.release(first)
@@ -119,6 +125,8 @@ def test_unknown_recovery_quarantines_task_not_other_work_and_ack_preserves_jour
         assert old.error_code == "worker_lost"
         paused = unit.tasks.get(task.id)
         assert paused.status == paused.desired_state == "paused"
+        assert unit.runs.get(owned.run.id).checkpoint["progress"] == "paused"
+        assert unit.runs.get(owned.run.id).checkpoint["attention_required"] is True
         assert paused.calls_started == 1 and paused.active_milliseconds == 6000
         with pytest.raises(IntegrityError):
             unit.execution.acknowledge_unknown(task.id, command_id=uuid4(), now=NOW)
@@ -249,13 +257,13 @@ def test_require_current_schema_never_creates_or_migrates(tmp_path):
     assert not path.parent.exists()
     db = Database(tmp_path / "existing.sqlite3")
     db.initialize()
-    assert db.require_current_schema() == 6
+    assert db.require_current_schema() == 7
     with db.transaction() as connection:
-        connection.execute("DELETE FROM schema_migrations WHERE version=6")
+        connection.execute("DELETE FROM schema_migrations WHERE version=7")
     with pytest.raises(MigrationError):
         db.require_current_schema()
     with db.transaction(write=False) as connection:
-        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 5
+        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 6
     assert not list(tmp_path.glob("*.backup-*.sqlite3"))
 
 
@@ -368,6 +376,7 @@ def test_cooperative_pause_accepts_response_and_cancelled_recovery_keeps_unknown
         assert unit.tasks.get(cancelled_task.id).status == "cancelled"
         assert unit.tasks.get(cancelled_task.id).active_milliseconds == 60000
         assert unit.runs.get(owned.run.id).checkpoint["attention_required"] is True
+        assert unit.runs.get(owned.run.id).checkpoint["progress"] == "cancelled"
 
 
 def test_migration_cannot_disable_constraints(tmp_path, monkeypatch):
@@ -378,10 +387,10 @@ def test_migration_cannot_disable_constraints(tmp_path, monkeypatch):
     files.mkdir()
     for migration in original:
         (files / migration.name).write_text(migration.sql, encoding="utf-8")
-    (files / "0007_unsafe.sql").write_text("PRAGMA foreign_keys=OFF;", encoding="utf-8")
+    (files / "0008_unsafe.sql").write_text("PRAGMA foreign_keys=OFF;", encoding="utf-8")
     monkeypatch.setattr(database_module.resources, "files", lambda _: files)
     with pytest.raises(MigrationError):
         db.initialize()
-    assert db.schema_version() == 6
+    assert db.schema_version() == 7
     with db.transaction() as connection:
         assert connection.execute("PRAGMA foreign_keys").get == 1

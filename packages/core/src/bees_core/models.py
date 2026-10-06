@@ -266,6 +266,18 @@ class Action(Record):
     attempt: int = Field(default=1, ge=1)
     policy_revision: int | None = Field(default=None, ge=1)
     lease_generation: int | None = Field(default=None, ge=1)
+    execution_binding: dict[str, JsonValue] | None = None
+    unknown_acknowledged_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def consistent_acknowledgement(self) -> Self:
+        if self.unknown_acknowledged_at is not None and self.status not in (
+            "outcome_unknown",
+            "confirmed",
+            "failed_no_effect",
+        ):
+            raise ValueError("Reconhecimento conserva o resultado desconhecido.")
+        return self
 
 
 class Policy(Record):
