@@ -55,10 +55,12 @@ O core oferece preflight somente leitura para configurações confiáveis Hyper-
 
 Habilitar Hyper-V exige decisão explícita do operador. Windows 11 Pro é uma edição suportada, mas o hipervisor ativo pode ocultar requisitos no diagnóstico de hardware; veja os [requisitos oficiais](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/host-hardware-requirements). A rede precisa considerar o NAT existente de Docker/WSL; [WinNAT](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/setup-nat-network) não constitui por si uma política de isolamento.
 
+O [kit Linux](guest-image.md) documenta a preparação da imagem e seus limites. A receita não substitui os testes com VM real abaixo.
+
 Para concluir BEES-011 faltam:
 
 - Provisionador de VM separado no host com concessão específica, independente do vínculo de diagnóstico já entregue; instalação empacotada/guiada.
-- Imagem Linux fixada por versão/hash confiável, armazenamento persistente, Chromium/LibreOffice e ponte autenticada no guest.
+- Instalar o kit Linux na VM real, integrar armazenamento persistente, desktop e ponte autenticada no guest.
 - Rede filtrada fora do guest, com bloqueios demonstrados para host, redes privadas, link-local e metadados; exceção exata para o plano de controle. [Filtros de libvirt](https://libvirt.org/formatnwfilter.html) são uma referência ainda sem implementação.
 - Journal e fencing de operações reais, reconciliação de efeitos desconhecidos, limites medidos e controle visual autorizado.
 - Testes com VM real: provisionar, reiniciar, preservar arquivos/sessões e comprovar restrições. Containers e doubles de teste não substituem essa evidência.

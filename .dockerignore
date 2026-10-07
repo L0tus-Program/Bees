@@ -41,5 +41,12 @@
 !packages/core/tests/**
 !containers/
 !containers/healthcheck.py
+!runtime/
+!runtime/linux-desktop/
+!runtime/linux-desktop/Dockerfile
+!runtime/linux-desktop/snapshot.sources
+!runtime/linux-desktop/install.sh
+!runtime/linux-desktop/prepare.py
+!runtime/linux-desktop/smoke.py
 **/__pycache__/**
 **/*.pyc

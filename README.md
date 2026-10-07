@@ -130,6 +130,8 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Tarefas](docs/tasks.md): delegação, controles, limites, journal e executor independente.
 - [Perfis e memória](docs/memory.md): edição, proveniência, isolamento, contexto e exclusão.
 - [Docker e instalação](docs/containers.md): launcher, distribuição, volumes e recuperação.
+- [Computadores e hosts](docs/environments.md): pedidos, vínculo de diagnóstico e provisionamento restante.
+- [Kit Linux](docs/guest-image.md): imagem oficial, aplicações, confiança e limites de validação.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 

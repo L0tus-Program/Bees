@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "template_id": "linux-desktop-v1",
+  "architecture": "amd64",
+  "installation_mode": "human-confirmation",
+  "debian_version": "13.7.0",
+  "iso": {
+    "filename": "debian-13.7.0-amd64-netinst.iso",
+    "url": "https://cdimage.debian.org/debian-cd/13.7.0/amd64/iso-cd/debian-13.7.0-amd64-netinst.iso",
+    "sha256": "a7ef94ac2fb9a7fec454552abd629b7cc9d5155c886165a45649f5ce6167e355",
+    "size": 792723456
+  },
+  "signing_fingerprint": "DF9B9C49EAA9298432589D76DA87E80D6294BE9B",
+  "key_source": "https://www.debian.org/CD/key-DA87E80D6294BE9B.txt",
+  "key_sha256": "87118de938a6d31ccb38ba6e282a7acddce2af6a2ca3072bcbab2cae2e42e325",
+  "builder_image": "debian:13.7-slim@sha256:918311b7b6c4c6f68b232ba516584925f6c78ad82b6fd534b98979df6438e483",
+  "snapshot": "20261005T000000Z",
+  "snapshot_inrelease_sha256": {
+    "trixie": "0584fba32e13e0ab8285fb16c27adea1ec03a73669c18702821094fd6ca86675",
+    "trixie-security": "1a25f10a8e266ba293823ac2c52325b7333e49dddbc2ef74de71f8d7c6d6b7f8"
+  }
+}
