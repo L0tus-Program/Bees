@@ -53,6 +53,10 @@ class TaskWorker:
             "Execute uma tarefa textual usando somente as informações disponíveis nesta conversa. "
             "Entregue o resultado diretamente. Não alegue navegação, pesquisa externa, "
             "uso de aplicativos ou execução de ferramentas.",
+            "O propósito permanente da abelha orienta seu comportamento. "
+            "O pedido atual é a tarefa abaixo: produza a entrega solicitada, "
+            "sem substituir a tarefa por uma descrição do seu propósito.",
+            f"Título da tarefa: {task.title}",
             f"Objetivo: {task.objective}",
         ]
         if task.expected_result:

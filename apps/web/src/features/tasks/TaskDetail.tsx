@@ -63,15 +63,16 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
     {(monitor.error || error) && <button type="button" className="text-button" onClick={refresh}>{t('refresh')}</button>}
     {task && <>
       <p className="task-state" role="status">{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</p>
-      <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
-      {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
       {unknown && <p className="transfer-notice">{t(unknownKind === 'tool' ? 'toolUnknownWarning' : unknownKind === 'mixed' ? 'mixedUnknownWarning' : 'unknownWarning')}</p>}
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
+      {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
+      {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}
+      {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
+      <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
+      {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
       {!unknown && task.latest_run?.error_code && <p className="transfer-notice">{i18n.exists(`errors.${task.latest_run.error_code}`, { ns: 'product' }) ? i18n.t(`errors.${task.latest_run.error_code}`, { ns: 'product' }) : t('runFailed')}</p>}
       {['policy_denied', 'policy_approval_required', 'invalid_policy'].includes(task.latest_run?.error_code ?? '') && <p className="quiet-note">{t('policyHelp')}</p>}
       <ApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} />
-      {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
-      {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <div className="task-actions">{task.available_controls.map((action) => <button key={action} type="button" className={`button ${action === 'cancel' ? 'secondary destructive-text' : 'secondary'}`} disabled={busy || task.control_requested === action || taskControlBlocked(task, action)} onClick={() => choose(action)}>{t(`controls.${action}`)}</button>)}</div>
       {intent && task.available_controls.includes(intent) && <form className="task-command" onSubmit={confirm}>
         <fieldset disabled={busy}>

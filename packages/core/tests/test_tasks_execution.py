@@ -137,6 +137,117 @@ def test_one_generation_atomic_result_and_no_replay(tmp_path):
     assert "request" not in detail.calls[0].model_dump()
 
 
+def test_task_title_defines_current_request_despite_distinct_permanent_purpose(tmp_path):
+    database, store, agent, _, service = fixture_state(tmp_path)
+    purpose = "Ajudar a organizar ideias e o dia a dia."
+    with store.transaction() as uow:
+        agent = uow.agents.update(agent.model_copy(update={"purpose": purpose}), agent.revision)
+    title = "Redigir redação sobre o acesso a cultura no Brasil"
+    task = service.create(
+        agent.id,
+        TaskInput(
+            client_request_id=uuid4(),
+            title=title,
+            objective="Redação de qualidade",
+            expected_result="Uma ótima redação",
+        ),
+    )
+    requests = []
+    output = "Texto descartável do provedor simulado sobre acesso à cultura."
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        return answer(output)
+
+    assert asyncio.run(TaskWorker(database, transport=httpx.MockTransport(handler)).run_once())
+    assert len(requests) == 1
+    messages = requests[0]["messages"]
+    assert messages[0]["role"] == "system"
+    assert purpose in messages[0]["content"]
+    assert title not in messages[0]["content"]
+    assert messages[-1]["role"] == "user"
+    assert title in messages[-1]["content"]
+    assert "Redação de qualidade" in messages[-1]["content"]
+    assert "Uma ótima redação" in messages[-1]["content"]
+    detail = service.detail(agent.id, task.id)
+    assert detail.task.status == "completed"
+    assert detail.messages[-1].content == output
+    assert detail.calls[0].output_message_id == detail.messages[-1].id
+
+
+@pytest.mark.parametrize("other_agent", [False, True])
+def test_task_request_does_not_include_title_or_result_from_other_task(tmp_path, other_agent):
+    database, store, agent, _, service = fixture_state(tmp_path)
+    second_agent = agent
+    if other_agent:
+        second_agent = Agent(name="Outra abelha", provider_config=agent.provider_config)
+        with store.transaction() as uow:
+            uow.agents.create(second_agent)
+    titles = ["Tema exclusivo: acesso à cultura", "Tema exclusivo: proteção das florestas"]
+    outputs = ["Resultado privado da primeira tarefa", "Resultado privado da segunda tarefa"]
+    tasks = [
+        service.create(
+            owner.id,
+            TaskInput(client_request_id=uuid4(), title=title, objective="Produza um texto."),
+        )
+        for owner, title in zip((agent, second_agent), titles, strict=True)
+    ]
+    requests = []
+
+    def handler(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        own = next(
+            index for index, title in enumerate(titles) if title in body["messages"][-1]["content"]
+        )
+        return answer(outputs[own])
+
+    worker = TaskWorker(database, transport=httpx.MockTransport(handler))
+    assert asyncio.run(worker.run_once())
+    assert asyncio.run(worker.run_once())
+    assert len(requests) == 2
+    for body in requests:
+        own = next(
+            index for index, title in enumerate(titles) if title in body["messages"][-1]["content"]
+        )
+        serialized = json.dumps(body, ensure_ascii=False)
+        assert titles[1 - own] not in serialized
+        assert outputs[1 - own] not in serialized
+    for owner, task, output in zip((agent, second_agent), tasks, outputs, strict=True):
+        assert service.detail(owner.id, task.id).messages[-1].content == output
+
+
+def test_prepared_request_is_reused_without_recomposing_task_after_restart(tmp_path, monkeypatch):
+    database, store, agent, _, service = fixture_state(tmp_path)
+    task = service.create(agent.id, task_input())
+    worker = TaskWorker(database)
+    with store.transaction() as uow:
+        claim = uow.execution.claim_next(worker.owner_id, now=utc_now(), ttl_seconds=5)
+    original_call, original_prepared = worker._prepare(claim)
+    with store.transaction() as uow:
+        assert uow.execution.recover_expired(now=utc_now() + timedelta(seconds=6)) == 1
+
+    def forbidden(*args):
+        pytest.fail("Snapshot já preparado não deve ser recomposto após reinício.")
+
+    monkeypatch.setattr(TaskWorker, "_instruction", forbidden)
+    requests = []
+    restarted = TaskWorker(
+        Database(database.path),
+        transport=httpx.MockTransport(lambda request: requests.append(request) or answer()),
+    )
+    assert asyncio.run(restarted.run_once())
+    assert len(requests) == 1
+    with store.transaction(write=False) as uow:
+        calls = uow.model_calls.list(run_id=claim.run.id)
+        original = next(call for call in calls if call.id == original_call.id)
+        confirmed = next(call for call in calls if call.status == "confirmed")
+        assert original.status == "cancelled"
+        assert confirmed.request == original_call.request
+        assert confirmed.snapshot["prepared"] == original_prepared.model_dump(mode="json")
+    assert service.detail(agent.id, task.id).task.calls_started == 1
+
+
 def test_pause_keeps_inflight_response_resume_does_not_charge_again(tmp_path):
     database, _, agent, _, service = fixture_state(tmp_path)
     task = service.create(agent.id, task_input(max_calls=1))
@@ -202,6 +313,10 @@ def test_redirect_confirms_old_response_without_publishing_and_uses_next_call(tm
         final = service.detail(agent.id, task.id)
         assert final.task.status == "completed"
         assert final.task.calls_started == 2
+        assert bodies[1]["messages"][-1]["role"] == "user"
+        assert task.title in bodies[1]["messages"][-1]["content"]
+        assert task.objective in bodies[1]["messages"][-1]["content"]
+        assert task.expected_result in bodies[1]["messages"][-1]["content"]
         assert "Priorize integridade." in bodies[1]["messages"][-1]["content"]
         assert final.commands[0].instruction == "Priorize integridade."
 

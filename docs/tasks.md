@@ -4,7 +4,13 @@ Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurad
 
 ## Uso
 
-Na conversa da abelha, abra **Tarefas**, delegue um objetivo e informe o resultado desejado. A tarefa tem conversa própria: mensagens do chat comum não a redirecionam implicitamente. Use **Redirecionar** para registrar uma nova instrução. O chat permanece disponível, e fechar o navegador não encerra o serviço nem apaga o resultado.
+Na conversa da abelha, abra **Tarefas** e informe o pedido no título, as orientações no objetivo e o resultado desejado. Os três campos são enviados ao modelo. Por exemplo: título “Redigir redação sobre acesso à cultura no Brasil”, objetivo “Argumentar sobre as desigualdades de acesso” e resultado esperado “Redação com introdução, desenvolvimento e conclusão”. O perfil permanente da abelha continua no contexto, mas não substitui o pedido atual.
+
+A tarefa tem conversa própria: mensagens do chat comum não a redirecionam implicitamente. Use **Redirecionar** para registrar uma nova instrução. O chat permanece disponível, e fechar o navegador não encerra o serviço nem apaga o resultado. Ao selecionar uma tarefa concluída, a **Resposta da tarefa** aparece antes das orientações e decisões.
+
+A correção de 07/10/2026 inclui o título nas novas preparações do worker; antes, o título aparecia na interface, mas não no pedido ao modelo. Resultados existentes e snapshots já preparados/aprovados são preservados, sem chamada paga adicional. Uma tarefa concluída com o pedido antigo pode ser delegada novamente pelo usuário, gerando uma nova execução. “Resposta pronta” indica resposta salva; não é uma avaliação automática de qualidade.
+
+Validação da correção: 1.313 testes Python Windows (27 skips), 630 testes Linux de core/API/worker afetados (quatro skips), 413 testes web, lint, tipos, build e Ruff aprovados. Regressões verificam tema presente somente no título, perfil permanente distinto, isolamento entre tarefas/abelhas, redirecionamento e reuso de snapshots. A interface foi conferida em instalação descartável com provedor falso explícito, incluindo resposta antes das decisões e viewport de 390 px sem overflow. A atualização local conservou o hash da resposta anterior e o contador de chamadas; nenhuma chamada real adicional validou a qualidade da nova redação.
 
 O painel consulta estado por GET a cada cinco segundos enquanto está visível. Consultas, reload e novas sessões não disparam gerações. Se o executor estiver indisponível, a fila permanece no banco; reiniciar o executor permite consumir tarefas ainda não despachadas.
 
