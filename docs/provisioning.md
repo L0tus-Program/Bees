@@ -2,7 +2,7 @@
 
 Checkpoint preparatório de BEES-011, referências F21/F23 do briefing. A interface permite revisar um plano de hardware e autorizar sua criação uma vez. A aprovação é persistida; **a aplicação ainda não instala nem inicia uma VM**. O catálogo continua `planned`, com `provisionable: false` e `usable: false`.
 
-O componente nativo é uma biblioteca interna separada do diagnóstico do host. Não possui launcher, endpoint de execução, emissão gráfica de credencial ou supervisor de produção neste checkpoint. Seu comportamento foi verificado com hardware de teste; isso não comprova Hyper-V, isolamento ou disponibilidade de desktop.
+O componente nativo é uma biblioteca interna separada do diagnóstico do host. Há transporte autenticado com o core, mas não há launcher de hardware, emissão gráfica de credencial ou supervisor de produção neste checkpoint. Seu comportamento foi verificado com hardware de teste; isso não comprova Hyper-V, isolamento ou disponibilidade de desktop.
 
 ## Plano revisável pela interface
 
@@ -27,9 +27,31 @@ Prefixo: `/api/v1/agents/{agent_id}/environments/{environment_id}/provisioning`.
 | `POST /{plan_id}/authorize` | Autorização pontual vinculada ao hash/revisão do plano e UUID. |
 | `POST /{plan_id}/revoke` | Revogação da autorização com hash/revisão e UUID. |
 
-Todas as rotas exigem sessão humana; mutações conservam Host/Origin/CSRF. A verificação do vínculo abelha/pedido/plano ocorre dentro da transação. Replay conserva o estado atual, sem criar efeito ou renovar a autorização. Alterar os dados de um comando já registrado é conflito. Nenhuma dessas rotas emite credencial de executor ou consome `host_jobs`.
+Todas as rotas desta seção exigem sessão humana; mutações conservam Host/Origin/CSRF. A verificação do vínculo abelha/pedido/plano ocorre dentro da transação. Replay conserva o estado atual, sem criar efeito ou renovar a autorização. Alterar os dados de um comando já registrado é conflito. Nenhuma dessas rotas emite credencial de executor ou consome `host_jobs`.
 
 `preparation_available` indica possibilidade de planejar com catálogo e host confirmado, não acesso ao Hyper-V, arquivos da imagem presentes ou capacidade de criar VM. Mesmo um plano autorizado continua `usable: false`.
+
+## Transporte próprio do provisionador
+
+O prefixo `/api/v1/provisioner/runtime` exige exatamente um `Authorization: Bearer bp_…`, autenticado no core. Sessão humana, cookie, CSRF ou credencial de diagnóstico `bh_` não substituem essa credencial. Host, Origin, JSON e limite de corpo continuam obrigatórios; o canal não flexibiliza as rotas humanas. Credenciais inválidas recebem 401; conflitos de contexto/autoridade recebem 409, sem detalhes privados.
+
+| Método e sufixo | Operação do core |
+| --- | --- |
+| `GET /session` | Identidade pública da credencial ativa, sem plano ou segredo. |
+| `POST /claim` | Reserva exclusiva de plano autorizado, dono e geração. |
+| `POST /current` | Revalidação online do claim antes do próximo passo. |
+| `POST /renew` | Renovação limitada e idempotente; não revive claim vencido. |
+| `POST /begin` | Intent persistido antes do efeito; replay nunca autoriza outro despacho. |
+| `POST /receipt` | Confirmação vinculada ao intent e resultado fechado. |
+| `POST /unknown` | Conserva incerteza e quarentena; não repete nem libera o efeito. |
+
+As rotas recebem somente DTOs do core. Não há rota de emissão, bootstrap, shell, recuperação, reconhecimento ou execução de hardware. O serviço registra a autoridade e os receipts; não executa PowerShell nem acessa o hipervisor. O executor continua precisando de integração operacional própria.
+
+`HTTPAuthority` recebe de composição confiável uma origem local, credencial privada e os UUIDs esperados de instalação/host/provisionador. Não recebe esses dados do modelo. Aceita somente loopback; `localhost` é resolvido uma vez, exige endereços loopback e fixa o IP discado, conservando Host/Origin/SNI. HTTPS usa validação padrão de certificado. Não usa proxy do ambiente, redirecionamento ou fallback de origem.
+
+Respostas exigem JSON UTF-8 fechado, até 16 KiB, sem compressão, chaves duplicadas, valores não finitos ou campos extras. O adaptador confere identidade, hash/pins do plano, dono, geração, revisão, estado e UUID do efeito. Não repete automaticamente requisições nem gera novos UUIDs para contornar perda de resposta. Os identificadores de intent e publicação vêm do journal antes da chamada.
+
+Os métodos são síncronos; cada chamada usa uma conexão assíncrona própria sob prazo total de cinco segundos, incluindo cabeçalhos e corpo. O cancelamento fecha a conexão, sem thread de watchdog pendente. Uma chamada dentro de loop assíncrono ativo é recusada. Esse prazo protege o transporte HTTP; não amplia o orçamento do comando nativo nem demonstra renovação supervisionada durante VHDX real.
 
 ## Autoridade persistente do core
 
@@ -63,7 +85,7 @@ O orçamento atual de comando é 30 segundos, exigindo pelo menos 35 segundos de
 
 ## Aceite restante
 
-- Adaptador de autoridade de produção, emissão privada/guiada, supervisor e pacote atualizado; o helper empacotado anterior continua diagnóstico.
+- Composição operacional do adaptador HTTP, emissão privada/guiada, supervisor e pacote atualizado; o helper empacotado anterior continua diagnóstico.
 - Verificação do script/ACL/VMID e falhas com Hyper-V real, depois de autorização concreta para os componentes necessários do Windows.
 - Instalação humana do Debian/kit, integração da ponte no guest e persistência após reinício.
 - Rede filtrada e provas de isolamento externas ao guest antes de habilitar conectividade.
@@ -80,3 +102,5 @@ A interface passou em 404 testes, lint, tipos e build. Uma instalação descart�
 Ruff, formatação, lock de dependências e diff foram conferidos. Os testes não usaram credenciais reais de modelo, não criaram VM, não habilitaram Hyper-V e não alteraram redes do hospedeiro. A aprovação na interface é evidência de autorização persistente, não de execução física.
 
 A instalação local foi atualizada pelo launcher, com API/worker parados durante a migração 7→8 e backup automático. API e worker ficaram saudáveis; integridade e chaves estrangeiras passaram, preservando identidade, abelha, conversa, mensagens e cofre existentes. Nenhuma identidade de teste foi criada na instalação padrão.
+
+O checkpoint seguinte acrescentou o transporte HTTP: 1.309 testes passaram na suíte Windows completa (27 skips), e 1.037 na validação Linux de core, host, guest, APIs afetadas e interoperabilidade (18 skips). Inclui 72 testes do adaptador, 19 da API runtime e dez de HTTP real: Uvicorn em subprocesso próprio, execução do runner com hardware falso, revogação antes de GO, falha HTTP após receipt já confirmado, perda do serviço, replay/renovação/dono/unknown e slowdrip nos cabeçalhos/corpo. As guardas de UUID exato, estado/revisão monotônicos e prazo total foram revisadas independentemente. Imagens e wheel foram reconstruídos, com fontes do transporte/script exatas; não foi ativado um executável de provisionamento.

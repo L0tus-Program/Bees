@@ -51,6 +51,7 @@
 !scripts/tests/
 !scripts/tests/test_guest_interoperability.py
 !scripts/tests/test_provisioning_interoperability.py
+!scripts/tests/test_provisioning_http_interoperability.py
 !runtime/
 !runtime/linux-desktop/
 !runtime/linux-desktop/Dockerfile

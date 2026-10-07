@@ -130,7 +130,7 @@ class Hardware:
 @pytest.fixture
 def integration(tmp_path):
     clock = [time.time()]
-    database = Database(tmp_path / "canonical.sqlite3")
+    database = Database(tmp_path / "bees.sqlite3")
     database.initialize()
     identity = IdentityService(database, clock=lambda: clock[0])
     identity.setup(identity.issue_bootstrap(), "Teste", "senha própria de teste 123456")

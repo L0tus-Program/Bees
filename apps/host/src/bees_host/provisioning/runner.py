@@ -64,7 +64,7 @@ def checked(
 class Runner:
     """Authority é adaptador confiável interno, nunca arquivo/callback de conteúdo.
 
-    Não há CLI/HTTP/registro nesta entrega. Supervisor futuro deve fornecer concessão
+    Não há CLI/registro nesta entrega. Supervisor futuro deve fornecer concessão
     própria bp_, snapshot do core e raiz privada gerenciada; diagnóstico bh_ não serve.
     """
 

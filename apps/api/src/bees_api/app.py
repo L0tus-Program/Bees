@@ -25,6 +25,7 @@ from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
 from bees_api.profiles import router as profiles_router
+from bees_api.provisioner_runtime import router as provisioner_runtime_router
 from bees_api.provisioning import router as provisioning_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(environments_router)
     app.include_router(host_links_router)
     app.include_router(provisioning_router)
+    app.include_router(provisioner_runtime_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -270,7 +272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "message": "Atualize o plano e confira o computador e sua autorização.",
                 }
             },
-            status_code=409,
+            status_code=401 if error.code == "provisioning_credentials_invalid" else 409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

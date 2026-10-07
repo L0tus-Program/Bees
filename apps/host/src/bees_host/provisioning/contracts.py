@@ -151,8 +151,8 @@ class Inventory(Closed):
 class ProvisionAuthority(Protocol):
     """Adaptador confiável interno: cada método autentica bp_ e revalida o core online.
 
-    Não é callback recebido de modelo/arquivo. Nenhum adaptador HTTP/CLI é instalado
-    nesta entrega; fixtures chamam serviço real no laboratório e nada no hospedeiro.
+    Não é callback recebido de modelo/arquivo. HTTPAuthority usa somente rotas/DTOs
+    fechados; emissão, supervisor e launcher de hardware continuam separados.
     """
 
     def assert_current(self, claim: Claim) -> Claim: ...
