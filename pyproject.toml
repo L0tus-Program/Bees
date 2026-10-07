@@ -18,6 +18,7 @@ package = false
 
 [tool.uv.workspace]
 members = ["apps/api", "apps/worker", "apps/host", "packages/core"]
+exclude = ["apps/guest"]
 
 [tool.uv.sources]
 bees-api = { workspace = true }
@@ -26,15 +27,19 @@ bees-worker = { workspace = true }
 bees-host = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "packages/core/tests", "scripts/tests"]
+testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "apps/guest/tests", "packages/core/tests", "scripts/tests"]
+pythonpath = ["apps/guest/src"]
 addopts = "-ra"
 
 [tool.ruff]
 target-version = "py314"
 line-length = 100
 
+[tool.ruff.per-file-target-version]
+"apps/guest/**/*.py" = "py313"
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bees_api", "bees_core", "bees_worker"]
+known-first-party = ["bees_api", "bees_core", "bees_guest", "bees_worker"]

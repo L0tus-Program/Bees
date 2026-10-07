@@ -22,6 +22,12 @@
 !apps/host/src/**
 !apps/host/tests/
 !apps/host/tests/**
+!apps/guest/
+!apps/guest/pyproject.toml
+!apps/guest/src/
+!apps/guest/src/**
+!apps/guest/tests/
+!apps/guest/tests/**
 !apps/web/
 !apps/web/package.json
 !apps/web/package-lock.json
@@ -41,6 +47,9 @@
 !packages/core/tests/**
 !containers/
 !containers/healthcheck.py
+!scripts/
+!scripts/tests/
+!scripts/tests/test_guest_interoperability.py
 !runtime/
 !runtime/linux-desktop/
 !runtime/linux-desktop/Dockerfile

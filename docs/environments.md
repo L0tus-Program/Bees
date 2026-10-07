@@ -57,6 +57,8 @@ Habilitar Hyper-V exige decisão explícita do operador. Windows 11 Pro é uma e
 
 O [kit Linux](guest-image.md) documenta a preparação da imagem e seus limites. A receita não substitui os testes com VM real abaixo.
 
+A [ponte de diagnóstico](guest-bridge.md) prepara autenticação TLS por VM e protocolo restrito, sem integração ao provisionamento ou declaração de computador pronto. A [ADR 0002](adr/0002-guest-transport.md) descreve o transporte Hyper-V sockets proposto e os testes físicos ainda necessários.
+
 Para concluir BEES-011 faltam:
 
 - Provisionador de VM separado no host com concessão específica, independente do vínculo de diagnóstico já entregue; instalação empacotada/guiada.
