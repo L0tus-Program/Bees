@@ -4,9 +4,10 @@ import base64
 import ctypes
 import json
 import os
-import queue
+import select
 import subprocess
-import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
@@ -17,26 +18,42 @@ from bees_host.provisioning.contracts import Inventory, Operation, Plan, Provisi
 from bees_host.provisioning.journal import private
 
 TIMEOUT = 30
+GUARD_INTERVAL = 1.0
+POLL_INTERVAL = 0.02
 
 
-def _line(stream, timeout: int = 5) -> bytes:
-    result = queue.Queue(maxsize=1)
+def _available(stream) -> bytes | None:
+    """None = aguardar, b'' = EOF; nenhum leitor ou guarda em thread auxiliar."""
+    descriptor = stream.fileno()
+    if os.name == "nt":
+        import msvcrt
 
-    def read():
-        try:
-            result.put(stream.readline(4097))
-        except OSError:
-            result.put(b"")
-
-    thread = threading.Thread(target=read, daemon=True)
-    thread.start()
-    try:
-        value = result.get(timeout=timeout)
-    except queue.Empty:
-        raise ProvisionError("provision_command_timeout") from None
-    if not value.endswith(b"\n") or len(value) > 4096:
-        raise ProvisionError("provision_command_invalid")
-    return value
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.PeekNamedPipe.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_uint32,
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_uint32),
+            ctypes.c_void_p,
+        ]
+        kernel.PeekNamedPipe.restype = ctypes.c_int
+        available = ctypes.c_uint32()
+        if not kernel.PeekNamedPipe(
+            ctypes.c_void_p(msvcrt.get_osfhandle(descriptor)),
+            None,
+            0,
+            None,
+            ctypes.byref(available),
+            None,
+        ):
+            if ctypes.get_last_error() in {109, 233}:  # broken/no-data pipe
+                return b""
+            raise OSError("pipe unavailable")
+        return os.read(descriptor, min(available.value, 4097)) if available.value else None
+    if not select.select([descriptor], [], [], 0)[0]:
+        return None
+    return os.read(descriptor, 4097)
 
 
 def process_running(pid: int, start_ticks: int) -> bool:
@@ -73,10 +90,37 @@ class Command:
     def __init__(self, process, request_id: UUID):
         self.process, self.request_id = process, request_id
         self.pid, self.start_ticks = None, None
+        self._buffer = bytearray()
+        self._eof = False
+
+    def _poll(self):
+        if not self._eof:
+            raw = _available(self.process.stdout)
+            if raw == b"":
+                self._eof = True
+            elif raw is not None:
+                self._buffer.extend(raw)
+
+    def _line(self, timeout: float) -> bytes:
+        deadline = time.monotonic() + timeout
+        while True:
+            self._poll()
+            marker = self._buffer.find(b"\n")
+            if marker >= 0:
+                if marker + 1 > 4096:
+                    raise ProvisionError("provision_command_invalid")
+                raw = bytes(self._buffer[: marker + 1])
+                del self._buffer[: marker + 1]
+                return raw
+            if self._eof or len(self._buffer) > 4096:
+                raise ProvisionError("provision_command_invalid")
+            if time.monotonic() >= deadline:
+                raise ProvisionError("provision_command_timeout")
+            time.sleep(min(POLL_INTERVAL, max(0, deadline - time.monotonic())))
 
     def ready(self) -> tuple[int, int]:
         try:
-            value = json.loads(_line(self.process.stdout))
+            value = json.loads(self._line(5))
             if (
                 type(value) is not dict
                 or set(value) != {"ready", "pid", "start_ticks"}
@@ -102,13 +146,53 @@ class Command:
         except OSError:
             raise ProvisionError("provision_command_unknown") from None
 
-    def finish(self) -> Inventory:
+    def finish(self, *, guard: Callable[[], None] | None = None) -> Inventory:
+        """Deadline único para linha, saída adicional, EOF e término do filho.
+
+        A guarda confiável roda no thread dono e deve limitar seu próprio I/O.
+        Sua duração conta no deadline; não há watchdog chamando autoridade.
+        O chamador sempre fecha o comando no finally, inclusive se a guarda falhar.
+        """
+        deadline = time.monotonic() + TIMEOUT
+        next_guard = time.monotonic()
+        raw = None
         try:
-            raw = _line(self.process.stdout, TIMEOUT)
-            self.process.wait(timeout=2)
-            if self.process.returncode != 0 or self.process.stdout.read(1):
-                raise ProvisionError("provision_command_unknown")
-            return Inventory.model_validate_json(raw)
+            while True:
+                now = time.monotonic()
+                if now >= deadline:
+                    raise ProvisionError("provision_command_timeout")
+                if guard is not None and now >= next_guard:
+                    guard()
+                    now = time.monotonic()
+                    if now >= deadline:
+                        raise ProvisionError("provision_command_timeout")
+                    next_guard = now + GUARD_INTERVAL
+                self._poll()
+                if raw is None:
+                    marker = self._buffer.find(b"\n")
+                    if marker >= 0:
+                        if marker + 1 > 4096:
+                            raise ProvisionError("provision_command_invalid")
+                        raw = bytes(self._buffer[: marker + 1])
+                        del self._buffer[: marker + 1]
+                    elif self._eof or len(self._buffer) > 4096:
+                        raise ProvisionError("provision_command_invalid")
+                if raw is not None:
+                    if self._buffer:
+                        raise ProvisionError("provision_command_unknown")
+                    status = self.process.poll()
+                    if status is not None and self._eof:
+                        if status != 0:
+                            raise ProvisionError("provision_command_unknown")
+                        result = Inventory.model_validate_json(raw)
+                        if time.monotonic() >= deadline:
+                            raise ProvisionError("provision_command_timeout")
+                        if guard is not None:
+                            guard()
+                            if time.monotonic() >= deadline:
+                                raise ProvisionError("provision_command_timeout")
+                        return result
+                time.sleep(min(POLL_INTERVAL, max(0, deadline - time.monotonic())))
         except OSError, ValueError, subprocess.TimeoutExpired, ValidationError:
             raise ProvisionError("provision_command_unknown") from None
 
@@ -118,6 +202,8 @@ class Command:
             if self.process.poll() is None:
                 self.process.kill()
             self.process.wait(timeout=5)
+            if self.process.poll() is None:
+                raise ProvisionError("provision_quiescence_unproved")
             for stream in (self.process.stdin, self.process.stdout):
                 if stream is not None and not stream.closed:
                     stream.close()

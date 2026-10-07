@@ -45,7 +45,7 @@ O prefixo `/api/v1/provisioner/runtime` exige exatamente um `Authorization: Bear
 | `POST /receipt` | Confirmação vinculada ao intent e resultado fechado. |
 | `POST /unknown` | Conserva incerteza e quarentena; não repete nem libera o efeito. |
 
-As rotas recebem somente DTOs do core. Não há rota de emissão, bootstrap, shell, recuperação, reconhecimento ou execução de hardware. O serviço registra a autoridade e os receipts; não executa PowerShell nem acessa o hipervisor. O executor continua precisando de integração operacional própria.
+As rotas recebem somente DTOs do core. Não há rota de emissão, bootstrap, shell, recuperação, reconhecimento ou execução de hardware. O serviço registra a autoridade e os receipts; não executa PowerShell nem acessa o hipervisor. O supervisor interno descrito abaixo compõe o executor, mas ainda não existe inscrição/guiada ou launcher operacional para ativá-lo.
 
 `HTTPAuthority` recebe de composição confiável uma origem local, credencial privada e os UUIDs esperados de instalação/host/provisionador. Não recebe esses dados do modelo. Aceita somente loopback; `localhost` é resolvido uma vez, exige endereços loopback e fixa o IP discado, conservando Host/Origin/SNI. HTTPS usa validação padrão de certificado. Não usa proxy do ambiente, redirecionamento ou fallback de origem.
 
@@ -77,15 +77,31 @@ O journal local é separado do banco do core, com inicialização explícita, ma
 
 As guardas Windows verificam contenção de caminho, reparse points, hardlinks e leitura/escrita por identidades estrangeiras antes das mutações. A consulta nativa de arquivo usa P/Invoke fixo em memória, sem compilador, DLL temporária ou escrita no diretório do sistema. Os testes executam essas guardas somente em arquivos descartáveis; não carregam Hyper-V nem comprovam a ACL criada pelo VMMS em uma VM real.
 
-Uma interrupção mantém evidências e impede repetição. A reconciliação consulta inventário gerenciado sem limpar `unknown`; antes dela, o componente precisa comprovar que o processo anterior não continua em execução. PID reutilizado não é tratado como o mesmo processo. A supervisão e recuperação operacional completa ainda precisam de integração.
+Uma interrupção mantém evidências e impede repetição. A reconciliação consulta inventário gerenciado sem limpar `unknown`; antes dela, o componente precisa comprovar que o processo anterior não continua em execução. PID reutilizado não é tratado como o mesmo processo. A recuperação operacional com revisão humana continua pendente; não existe comando de reset ou liberação automática.
 
-O orçamento atual de comando é 30 segundos, exigindo pelo menos 35 segundos de lease disponível antes de `GO`. Criar um VHDX fixo de 20–100 GiB pode exceder esse tempo. Antes de executar hardware real, é necessário medir a duração e integrar renovação supervisionada; timeout conserva `unknown`, sem tentar criar o disco/VM novamente.
+O orçamento atual de comando é 30 segundos, exigindo pelo menos 35 segundos de lease disponível antes de `GO`. Criar um VHDX fixo de 20–100 GiB pode exceder esse tempo. Antes de executar hardware real, é necessário medir a duração; timeout conserva `unknown`, sem tentar criar o disco/VM novamente. A renovação supervisionada não amplia esse orçamento.
+
+## Supervisor exclusivo e parada
+
+`Supervisor` é uma composição interna de `Runner`, autoridade autenticada, kit local e `SupervisorStore`. Não possui CLI, busca automática de jobs, emissão de segredo ou endpoint de ativação. A composição confiável futura deve escolher uma única raiz fixa do ledger por instalação/host; criar outro diretório para contornar quarentena não é recuperação suportada. O helper diagnóstico empacotado continua separado.
+
+O ledger local usa SQLite stdlib, DELETE/FULL, marcador próprio, schema fechado e inicialização explícita em diretório privado. Abrir usa `mode=rw`; perda, corrupção, arquivo extra ou estado parcial falham restritivamente. Guarda IDs/vínculos/revisões/prazos e UUIDs dos pedidos, sem plano integral, caminho do kit ou credencial. Não substitui o journal canônico do core nem altera seu schema8; o journal de operações por plano também permanece no formato1.
+
+Durante toda a sequência, o supervisor mantém o lock nativo do host e o lock do journal do plano. Reserva a corrida no ledger antes de iniciar qualquer efeito. Cada claim pode ser usado uma única vez; uma corrida anterior interrompida, desconhecida ou ainda marcada como ativa bloqueia novos efeitos. Mesmo uma sequência parcialmente confirmada não é retomada automaticamente após crash. Não há API local de reconhecimento ou limpeza dessa quarentena neste checkpoint.
+
+Renovações recebem UUID durável antes da rede, preservando o mesmo claim, dono, geração, plano e host. Há consulta online antes do intent, depois de `READY`, antes de `GO`, durante a espera e antes do receipt. Na espera, a consulta é realizada a cada cinco segundos; lease com até 45 segundos restantes exige renovação, que precisa deixar mais de 35 segundos disponíveis. O teto monotônico local é cinco minutos; a autoridade conserva seu próprio teto contado desde a criação do claim e a expiração da aprovação. Lease vencida não é renovada.
+
+O processo é observado no thread dono, usando leitura não bloqueante de pipe no Windows/POSIX; não existem threads leitoras ou de renovação que sobrevivam ao fechamento. O prazo do comando inclui saída, EOF, término do filho e execução das guardas. A guarda usa chamadas HTTP individualmente limitadas a cinco segundos; uma consulta seguida de renovação pode consumir dois desses prazos. O vencimento é conferido antes e depois do callback síncrono, que não é preemptível. Parada/revogação/perda de conexão encerra somente o filho criado pelo objeto atual e conserva o resultado incerto. Encerrar PowerShell **não comprova que VMMS cancelou seu efeito**.
+
+A quarentena local é gravada antes da tentativa de avisar `/unknown`. Um pedido de renovação sem resposta permanece pendente; um pedido distinto de `unknown` pode ser registrado sem apagar essa evidência. Nenhum deles recebe retry automático. Credencial revogada, serviço indisponível ou receipt já confirmado podem impedir o aviso, mantendo o bloqueio local e exigindo recuperação privada do core. Uma confirmação canônica já gravada nunca é substituída para justificar novo despacho.
+
+`reconcile()` conserva os estados e consulta somente o inventário depois de verificar PID/instante de criação do executor anterior. Processo ainda ativo ou quiescência não comprovada impedem a consulta. `matched` não concede lease, não libera o ledger e não repete efeito. Hashes do kit e inspeções de preflight continuam podendo consumir tempo antes do intent; sem lease atual suficiente, o processo falha antes de iniciar o efeito.
 
 `New-VM` cria um adaptador mesmo sem `SwitchName`. O script verifica que ele não está conectado e o remove no escopo da VM criada antes da verificação final. Nenhuma operação chama `Start-VM`. [Comportamento oficial de New-VM](https://learn.microsoft.com/en-us/powershell/module/hyper-v/new-vm?view=windowsserver2025-ps).
 
 ## Aceite restante
 
-- Composição operacional do adaptador HTTP, emissão privada/guiada, supervisor e pacote atualizado; o helper empacotado anterior continua diagnóstico.
+- Inscrição privada/guiada, raiz única de operação, composição com launcher e pacote atualizado; o supervisor interno e o transporte HTTP já estão implementados, mas o helper empacotado anterior continua diagnóstico.
 - Verificação do script/ACL/VMID e falhas com Hyper-V real, depois de autorização concreta para os componentes necessários do Windows.
 - Instalação humana do Debian/kit, integração da ponte no guest e persistência após reinício.
 - Rede filtrada e provas de isolamento externas ao guest antes de habilitar conectividade.
@@ -104,3 +120,7 @@ Ruff, formatação, lock de dependências e diff foram conferidos. Os testes nã
 A instalação local foi atualizada pelo launcher, com API/worker parados durante a migração 7→8 e backup automático. API e worker ficaram saudáveis; integridade e chaves estrangeiras passaram, preservando identidade, abelha, conversa, mensagens e cofre existentes. Nenhuma identidade de teste foi criada na instalação padrão.
 
 O checkpoint seguinte acrescentou o transporte HTTP: 1.309 testes passaram na suíte Windows completa (27 skips), e 1.037 na validação Linux de core, host, guest, APIs afetadas e interoperabilidade (18 skips). Inclui 72 testes do adaptador, 19 da API runtime e dez de HTTP real: Uvicorn em subprocesso próprio, execução do runner com hardware falso, revogação antes de GO, falha HTTP após receipt já confirmado, perda do serviço, replay/renovação/dono/unknown e slowdrip nos cabeçalhos/corpo. As guardas de UUID exato, estado/revisão monotônicos e prazo total foram revisadas independentemente. Imagens e wheel foram reconstruídos, com fontes do transporte/script exatas; não foi ativado um executável de provisionamento.
+
+O supervisor interno passou na suíte Windows completa com 1.427 testes e 27 skips. A suíte Linux afetada de host/guest/core/API/HTTP passou com 521 testes e 14 skips; após a guarda de quiescência dos processos registrados, os 30 testes de runner/supervisor passaram novamente em ambos os sistemas. A revisão independente conferiu parada antes de GO e o aviso de unknown depois de renovação perdida. Os sete cenários novos de HTTP usam serviço em subprocesso próprio, inclusive resposta503 depois do commit de renovação ou receipt, mantendo efeitos incertos sem repetição. Os testes nativos de pipe/EOF/filho executam somente processos próprios e arquivos descartáveis.
+
+Ruff, formatação, diff e regras do gitignore passaram. A imagem de verificação foi reconstruída; o wheel contém as cinco fontes exatas de supervisor, ledger, backend, runner e script. A interface não mudou neste checkpoint, mantendo a validação anterior de 433 testes. API/worker da instalação padrão continuaram saudáveis, sem alteração de schema/dados/cofre ou emissão de bp_. O executável diagnóstico anterior não foi substituído, e nenhum hipervisor, VM ou rede foi ativado.
