@@ -11,6 +11,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | tasks / runs | Objetivo, estado, execução e checkpoint; vínculos com conversa/rotina. |
 | task_commands / model_calls / execution_leases | Comandos idempotentes, journal das gerações e fencing durável da fila textual (migração 0003). |
 | actions | Intenção, parâmetros, estado de efeito, resultado, vínculo de execução e reconhecimento separado de resultado desconhecido (migração 0007). |
+| provisioning_* | Planos imutáveis, autorizações pontuais, credenciais próprias por host, gerações/claims exclusivos, intents/receipts e comandos idempotentes (migração 0008). |
 | policies / approvals | Escolhas registradas, revisão, escopo e decisão da ação. |
 | plugins / tool_grants | Manifestos locais imutáveis e concessões por ferramenta/abelha; revisão, habilitação e vínculo canônico (migração 0004). |
 | environments / host_jobs | Pedidos de computador e journal da operação no host, sem provisionador ativo (migração 0005). |
@@ -76,6 +77,8 @@ A migração 0005 acrescenta pedidos imutáveis de computador e jobs de host vin
 A migração 0006 acrescenta identidade da instalação, convites, vínculos de diagnóstico, comandos humanos e receipts de relatórios. Credenciais são hashes; confirmação e relatórios têm revisões separadas. Há um host ativo por instalação, e revogação é terminal para o vínculo. Receipts são canônicos e não entram na limpeza de cache. O helper mantém estado cifrado próprio fora do banco do serviço; não recebe acesso a SQLite. Consulte [vínculo do host](environments.md#vínculo-de-diagnóstico-do-host).
 
 A migração 0007 acrescenta vínculo imutável de execução às ações e a data de reconhecimento de resultado desconhecido. O vínculo conserva dono, tarefa, abelha, revisão de controle e gerações de leases. O reconhecimento exige comando humano explícito de retomada, sem mudar o estado `outcome_unknown` nem substituir evidências. Ações antigas continuam preservadas; sem vínculo válido não são despachadas pelo novo dispatcher. Consultas públicas não expõem esse vínculo nem resultados privados. Consulte [ferramentas](tools.md).
+
+A migração 0008 acrescenta a autoridade própria de provisionamento: planos imutáveis, autorizações pontuais, credenciais em hash, gerações e claims exclusivos, intents/receipts, comandos e vínculo do VMID observado. Atualizações preservam as tabelas e checksums anteriores. Unknown mantém a instalação em quarentena, inclusive após novo pareamento de host; reconhecimento humano não libera efeitos. Hardware confirmado continua sem uso/boot. Consulte [provisionamento](provisioning.md).
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

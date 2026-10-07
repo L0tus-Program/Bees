@@ -16,6 +16,20 @@ const page = (environments: unknown[], hasMore = false, next: number | null = nu
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken() })
 
 describe('computer planning API', () => {
+  it('reads hardware provisioning progress without claiming the computer is available', async () => {
+    const preparing = { ...environment, status: 'provisioning', revision: 2, reason_code: 'hardware_provisioning' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(page([preparing]))))
+    expect((await getEnvironments('bee-1')).items[0]).toEqual(preparing)
+  })
+  it('rejects a provisioning state that claims the computer is already usable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(page([{ ...environment, status: 'provisioning', usable: true }]))))
+    await expect(getEnvironments('bee-1')).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+  it('does not cancel a request whose hardware provisioning already started', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher); setCsrfToken('csrf-test')
+    await expect(cancelEnvironment('bee-1', { ...environment, status: 'provisioning' }, 'cancel-1')).rejects.toMatchObject({ code: 'environment_conflict' })
+    expect(fetcher).not.toHaveBeenCalled()
+  })
   it('reads catalogue and status without provisioning or granting any access', async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ templates: [template], host })).mockResolvedValueOnce(Response.json(page([environment])))
     vi.stubGlobal('fetch', fetcher)

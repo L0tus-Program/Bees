@@ -10,7 +10,7 @@ No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliqu
 
 O [pacote local do helper Windows](docs/host-package.md) permite vincular o diagnóstico pela interface sem Python instalado: extraia o ZIP e abra **Conectar host Bees.vbs** com a aplicação já em execução. Ele ainda não provisiona o computador da abelha.
 
-Para contribuidores, o [kit Linux verificável](docs/guest-image.md) e a [ponte autenticada de diagnóstico](docs/guest-bridge.md) preparam o computador da abelha. Ainda falta integrar e validar o provisionamento de uma VM real.
+Para contribuidores, o [kit Linux verificável](docs/guest-image.md), a [ponte autenticada de diagnóstico](docs/guest-bridge.md) e os [planos autorizáveis de provisionamento](docs/provisioning.md) preparam o computador da abelha. A revisão humana é feita pela interface; ainda falta integrar o executor de produção e validar uma VM real.
 
 Operadores também podem subir com `docker compose up --build --detach --wait`. Interface em [localhost:8080](http://localhost:8080); dados e chave ficam em volumes separados e sobrevivem a reinícios. [Distribuição e operação](docs/containers.md) explica primeiro acesso, volumes, backup, Ollama opcional e limites. A instalação nativa abaixo usa outro estado; não há importação automática.
 
@@ -133,6 +133,7 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Perfis e memória](docs/memory.md): edição, proveniência, isolamento, contexto e exclusão.
 - [Docker e instalação](docs/containers.md): launcher, distribuição, volumes e recuperação.
 - [Computadores e hosts](docs/environments.md): pedidos, vínculo de diagnóstico e provisionamento restante.
+- [Autorização e provisionamento](docs/provisioning.md): planos fechados, autorização pontual e componente nativo para hardware parado.
 - [Kit Linux](docs/guest-image.md): imagem oficial, aplicações, confiança e limites de validação.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.

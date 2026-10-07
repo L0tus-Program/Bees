@@ -510,7 +510,7 @@ def test_upgrade_six_to_seven_preserves_legacy_unknown_fail_closed(tmp_path, mon
     migrations = tmp_path / "migrations"
     migrations.mkdir()
     for file in original.iterdir():
-        if file.name.endswith(".sql") and not file.name.startswith("0007"):
+        if file.name.endswith(".sql") and int(file.name[:4]) < 7:
             (migrations / file.name).write_bytes(file.read_bytes())
     monkeypatch.setattr(module.resources, "files", lambda _: migrations)
     db = Database(tmp_path / "upgrade.sqlite3")

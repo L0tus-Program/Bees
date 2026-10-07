@@ -25,6 +25,7 @@ from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
 from bees_api.profiles import router as profiles_router
+from bees_api.provisioning import router as provisioning_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
@@ -36,6 +37,7 @@ from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
 from bees_core.providers.vault import FernetBackend, FileSecretVault
+from bees_core.provisioning import ProvisioningError
 from bees_core.security.hosts import HostLinkError
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
@@ -132,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tools_router)
     app.include_router(environments_router)
     app.include_router(host_links_router)
+    app.include_router(provisioning_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:
@@ -256,6 +259,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=401
             if error.code in ("host_credentials_invalid", "host_invite_invalid")
             else 409,
+        )
+
+    @app.exception_handler(ProvisioningError)
+    async def provisioning_error(request: Request, error: ProvisioningError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Atualize o plano e confira o computador e sua autorização.",
+                }
+            },
+            status_code=409,
         )
 
     @app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])

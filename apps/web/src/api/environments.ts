@@ -10,7 +10,7 @@ export interface EnvironmentHost {
   probe: Record<string, unknown> | null
 }
 export interface EnvironmentRecord extends Resources {
-  id: string; agent_id: string; name: string; template_id: string; status: 'awaiting_host' | 'cancelled' | 'outcome_unknown'
+  id: string; agent_id: string; name: string; template_id: string; status: 'awaiting_host' | 'provisioning' | 'cancelled' | 'outcome_unknown'
   revision: number; created_at: string; updated_at: string; reason_code: string
   usable: false
 }
@@ -38,7 +38,7 @@ export function isEnvironmentTemplate(v: unknown): v is EnvironmentTemplate {
 }
 export function isEnvironment(v: unknown): v is EnvironmentRecord {
   return record(v) && ['id', 'agent_id', 'name', 'template_id', 'reason_code'].every((key) => text(v[key]))
-    && ['awaiting_host', 'cancelled', 'outcome_unknown'].includes(v.status as string) && positive(v.revision) && resources(v)
+    && ['awaiting_host', 'provisioning', 'cancelled', 'outcome_unknown'].includes(v.status as string) && positive(v.revision) && resources(v)
     && date(v.created_at) && date(v.updated_at) && v.usable === false
 }
 const path = (agent: string) => `/agents/${encodeURIComponent(agent)}/environments`
@@ -65,6 +65,7 @@ export async function createEnvironment(agent: string, plan: EnvironmentPlan, re
   return v
 }
 export async function cancelEnvironment(agent: string, environment: EnvironmentRecord, requestId: string, signal?: AbortSignal): Promise<EnvironmentRecord> {
+  if (environment.status !== 'awaiting_host') throw new ApiError('environment_conflict', 409)
   const v = await request(`${path(agent)}/${encodeURIComponent(environment.id)}/cancel`, { authenticated: true, signal, body: { expected_revision: environment.revision, client_request_id: requestId } })
   if (!isEnvironment(v) || v.agent_id !== agent || v.id !== environment.id || v.status !== 'cancelled'
     || v.name !== environment.name || v.template_id !== environment.template_id || v.revision < environment.revision
