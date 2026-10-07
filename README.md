@@ -6,6 +6,8 @@ Assistentes pessoais com estado próprio, modelos substituíveis e dois ambiente
 
 Para delegar pelo chat, use um modelo com suporte declarado a chamadas de ferramentas, marque **Permitir tarefa em segundo plano nesta mensagem** e descreva o pedido. A resposta aparece na conversa e permanece disponível depois de recarregar. Essa modalidade permite uma tarefa por envio, com uma geração e 120 segundos ativos; as regras de autonomia continuam valendo. A delegação manual também permanece disponível. Veja [tarefas](docs/tasks.md#delegação-pela-conversa).
 
+Na aba Computador, **Provisionador local → Ver cadastros** permite consultar e revogar credenciais previamente cadastradas de forma privada. Cadastro ativo não significa executor conectado ou VM pronta; a configuração guiada ainda está em preparação. Veja [provisionamento](docs/provisioning.md#consultar-e-revogar-cadastros-pela-interface).
+
 ## Abrir com Docker
 
 No Windows, mantenha Docker Desktop aberto com containers Linux e dê dois cliques em **Iniciar Bees.vbs**. O launcher sobe API/interface e executor de tarefas, prepara o cofre e abre o navegador com autorização para criar seu acesso. Configure nome, senha, modelo e primeira abelha na interface, sem gerar tokens ou chaves no terminal. Não precisa instalar Python/Node no host.

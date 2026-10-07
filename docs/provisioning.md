@@ -55,6 +55,16 @@ Os métodos são síncronos; cada chamada usa uma conexão assíncrona própria 
 
 ## Autoridade persistente do core
 
+### Consultar e revogar cadastros pela interface
+
+Na aba **Computador**, abra **Provisionador local → Ver cadastros** no host confirmado. A lista é consultada apenas ao abrir o painel e tem atualização/paginação explícitas. Um cadastro ativo registra uma credencial; não comprova conexão, acesso ao Hyper-V ou VM pronta. Hosts revogados continuam permitindo a gestão de seus cadastros.
+
+**Revogar cadastro** abre uma confirmação humana. A revogação impede novas guardas de efeito; uma operação em voo pode continuar e um resultado desconhecido exige revisão. Não apaga VM, disco, journal ou dados. A interface conserva revisão e UUID da decisão; falha de resposta exige **Atualizar cadastros** antes de prosseguir, sem repetição automática. Mudança de revisão ou cadastro já revogado exige nova revisão humana.
+
+O prefixo `/api/v1/environments/hosts/{host_id}/provisioners` exige sessão humana. `GET` recebe `offset`/`limit` e retorna somente identificador do provisionador, instalação, host, revisão e estado, com indicação da próxima página. `POST /{provisioner_id}/revoke` recebe revisão esperada e UUID idempotente. O vínculo host/instalação é verificado antes de replay; mutações mantêm Host/Origin/CSRF. Segredo, hash da credencial, IDs privados e caminhos não são expostos. Credenciais `bp_`/`bh_` não autenticam essas rotas.
+
+A emissão permanece privada, sem botão de cadastro ou endpoint de bootstrap. Fechar o painel cancela requisições locais; não desfaz uma revogação já confirmada pelo serviço. O gerenciamento usa as tabelas existentes do schema8.
+
 A migração `0008_provisioning.sql` acrescenta planos imutáveis, autorizações, credenciais próprias, gerações por host, claims exclusivos, intents/receipts e comandos idempotentes. Esses registros são canônicos, não cache. A migração exige escritores parados e backup, conforme [persistência](persistence.md).
 
 A credencial `bp_` do provisionador é distinta de `bh_`, usada apenas para diagnóstico. Sua emissão é operação privada do operador, sem rota pública neste checkpoint. SQLite guarda somente o hash; o segredo retornado uma vez não entra em plano, eventos, contexto do modelo ou argumentos de processo.
@@ -124,3 +134,7 @@ O checkpoint seguinte acrescentou o transporte HTTP: 1.309 testes passaram na su
 O supervisor interno passou na suíte Windows completa com 1.427 testes e 27 skips. A suíte Linux afetada de host/guest/core/API/HTTP passou com 521 testes e 14 skips; após a guarda de quiescência dos processos registrados, os 30 testes de runner/supervisor passaram novamente em ambos os sistemas. A revisão independente conferiu parada antes de GO e o aviso de unknown depois de renovação perdida. Os sete cenários novos de HTTP usam serviço em subprocesso próprio, inclusive resposta503 depois do commit de renovação ou receipt, mantendo efeitos incertos sem repetição. Os testes nativos de pipe/EOF/filho executam somente processos próprios e arquivos descartáveis.
 
 Ruff, formatação, diff e regras do gitignore passaram. A imagem de verificação foi reconstruída; o wheel contém as cinco fontes exatas de supervisor, ledger, backend, runner e script. A interface não mudou neste checkpoint, mantendo a validação anterior de 433 testes. API/worker da instalação padrão continuaram saudáveis, sem alteração de schema/dados/cofre ou emissão de bp_. O executável diagnóstico anterior não foi substituído, e nenhum hipervisor, VM ou rede foi ativado.
+
+O gerenciamento humano de cadastros passou com 1.452 testes na suíte Windows completa (27 skips), 90 testes afetados no Linux e 465 testes da interface, além de lint, tipos, build e Ruff. Casos negativos incluem credenciais runtime sem sessão humana, Host/Origin/CSRF, host errado, revisão obsoleta, replay, paginação, host revogado e preservação de claims/efeitos em voo ou desconhecidos. A revisão independente corrigiu e conferiu o vínculo de instalação/host.
+
+Na instalação descartável, a revogação persistiu após recarregar; português, inglês, espanhol e viewport de 390 px passaram, sem rolagem horizontal. Servidor e navegador próprios foram encerrados. A instalação padrão foi atualizada pelo launcher: API/worker saudáveis, integridade/FK aprovadas e hashes dos dados anteriores e do cofre preservados. O schema permanece8; nenhum cadastro bp_, claim ou efeito de hardware foi criado na instalação padrão. As imagens de aplicação e de verificação foram reconstruídas. O pacote de diagnóstico continua sem ativação do provisionador.

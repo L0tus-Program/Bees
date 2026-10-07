@@ -280,6 +280,184 @@ def test_credential_is_distinct_one_time_hash_only_and_revocable(setup):
         setup.service.session(token)
 
 
+def test_human_provisioner_listing_is_readonly_paginated_sanitized_and_deterministic(setup):
+    host_id = UUID(setup.host["host_id"])
+    issued_ids = []
+    tokens = []
+    for _ in range(4):
+        issued, token = setup.issuer()
+        issued_ids.append(str(issued.provisioner_id))
+        tokens.append(token)
+        setup.service.revoke_provisioner(
+            issued.provisioner_id, {"expected_revision": 1, "client_request_id": uuid4()}
+        )
+    # Todos os timestamps iguais exigem o desempate ID estável.
+    expected = sorted(issued_ids, reverse=True)
+    with setup.db.transaction(write=False) as connection:
+        events = connection.execute("SELECT count(*) FROM domain_events").get
+        commands = connection.execute("SELECT count(*) FROM provisioning_commands").get
+    first = setup.service.list_provisioners(host_id, limit=2)
+    second = setup.service.list_provisioners(host_id, limit=2, offset=2)
+    assert [row["provisioner_id"] for row in first + second] == expected
+    assert setup.service.list_provisioners(host_id, offset=4) == []
+    assert set(first[0]) == {"provisioner_id", "installation_id", "host_id", "revision", "status"}
+    assert all(row["status"] == "revoked" and row["revision"] == 2 for row in first + second)
+    assert all(token not in repr(first + second) for token in tokens)
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM domain_events").get == events
+        assert connection.execute("SELECT count(*) FROM provisioning_commands").get == commands
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"offset": -1},
+        {"offset": True},
+        {"offset": 1000001},
+        {"limit": 0},
+        {"limit": 102},
+        {"limit": True},
+    ],
+)
+def test_provisioner_listing_bounds_are_explicit(setup, kwargs):
+    with pytest.raises(ValueError):
+        setup.service.list_provisioners(UUID(setup.host["host_id"]), **kwargs)
+
+
+def test_provisioner_listing_unknown_host_and_identity_required(setup, tmp_path):
+    with pytest.raises(NotFoundError):
+        setup.service.list_provisioners(uuid4())
+    db = Database(tmp_path / "no-identity.sqlite3")
+    db.initialize()
+    with pytest.raises(ProvisioningError, match="identity_required"):
+        ProvisioningService(db).list_provisioners(uuid4())
+
+
+def test_provisioner_rows_from_foreign_installation_are_not_listed_or_revoked(setup):
+    issued, _ = setup.issuer()
+    foreign_id = uuid4()
+    host_id = UUID(setup.host["host_id"])
+    with setup.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO provisioning_credentials(id,installation_id,host_id,host_revision,"
+            "credential_hash,status,issue_request_id,created_at,revoked_at) "
+            "VALUES(?,?,?,?,?,'revoked',?,?,?)",
+            (
+                str(foreign_id),
+                str(uuid4()),
+                str(host_id),
+                setup.host["revision"],
+                secrets.token_hex(32),
+                str(uuid4()),
+                setup.clock[0],
+                setup.clock[0],
+            ),
+        )
+    assert [row["provisioner_id"] for row in setup.service.list_provisioners(host_id)] == [
+        str(issued.provisioner_id)
+    ]
+    with pytest.raises(NotFoundError):
+        setup.service.revoke_provisioner(
+            foreign_id, {"expected_revision": 1, "client_request_id": uuid4()}, host_id=host_id
+        )
+
+
+def test_provisioner_listing_and_cleanup_remain_available_after_host_revocation(setup):
+    issued, _ = setup.issuer()
+    host_id = UUID(setup.host["host_id"])
+    setup.hosts.revoke(
+        host_id,
+        {"expected_revision": setup.host["revision"], "client_request_id": uuid4()},
+    )
+    assert setup.service.list_provisioners(host_id)[0]["status"] == "active"
+    assert (
+        setup.service.revoke_provisioner(
+            issued.provisioner_id,
+            {"expected_revision": 1, "client_request_id": uuid4()},
+            host_id=host_id,
+        )["status"]
+        == "revoked"
+    )
+
+
+def pending_host(setup):
+    invite = setup.hosts.issue_invite(uuid4())
+    return setup.hosts.pair(
+        {
+            "installation_id": invite.installation_id,
+            "invite_token": invite.invite_token,
+            "host_id": uuid4(),
+            "host_credential": "bh_" + secrets.token_urlsafe(32),
+            "client_request_id": uuid4(),
+        }
+    )
+
+
+def test_human_revoke_exact_host_binding_is_checked_before_effect_and_replay(setup):
+    issued, token = setup.issuer()
+    other = pending_host(setup)
+    command = {"expected_revision": 1, "client_request_id": uuid4()}
+    with pytest.raises(NotFoundError):
+        setup.service.revoke_provisioner(
+            issued.provisioner_id, command, host_id=UUID(other["host_id"])
+        )
+    assert setup.service.session(token)["status"] == "active"
+    revoked = setup.service.revoke_provisioner(
+        issued.provisioner_id, command, host_id=UUID(setup.host["host_id"])
+    )
+    assert revoked["status"] == "revoked"
+    with pytest.raises(NotFoundError):
+        setup.service.revoke_provisioner(
+            issued.provisioner_id, command, host_id=UUID(other["host_id"])
+        )
+    assert setup.service.revoke_provisioner(issued.provisioner_id, command) == revoked
+    assert setup.service.list_provisioners(UUID(other["host_id"])) == []
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_human_revoke_blocks_dispatch_without_repeating_or_rewriting_claim(setup, unknown):
+    _, issued, token, claim = setup.claimed()
+    dispatched = setup.service.begin_dispatch(token, begin(claim))
+    if unknown:
+        setup.service.mark_unknown(
+            token,
+            binding(
+                claim,
+                effect_request_id=dispatched["effect_request_id"],
+                client_request_id=uuid4(),
+            ),
+        )
+    with setup.db.transaction(write=False) as connection:
+        claim_before = connection.execute(
+            "SELECT * FROM provisioning_claims WHERE id=?", (claim["claim_id"],)
+        ).fetchone()
+        effect_before = connection.execute(
+            "SELECT * FROM provisioning_effects WHERE effect_request_id=?",
+            (dispatched["effect_request_id"],),
+        ).fetchone()
+    setup.service.revoke_provisioner(
+        issued.provisioner_id,
+        {"expected_revision": 1, "client_request_id": uuid4()},
+        host_id=UUID(setup.host["host_id"]),
+    )
+    with pytest.raises(ProvisioningError, match="credentials_invalid"):
+        setup.service.assert_current(token, binding(claim))
+    with setup.db.transaction(write=False) as connection:
+        assert (
+            connection.execute(
+                "SELECT * FROM provisioning_claims WHERE id=?", (claim["claim_id"],)
+            ).fetchone()
+            == claim_before
+        )
+        assert (
+            connection.execute(
+                "SELECT * FROM provisioning_effects WHERE effect_request_id=?",
+                (dispatched["effect_request_id"],),
+            ).fetchone()
+            == effect_before
+        )
+
+
 def test_claim_has_no_consumption_and_expiration_without_intent_can_be_reclaimed(setup):
     plan, _, token, claim = setup.claimed()
     with setup.db.transaction(write=False) as connection:

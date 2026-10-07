@@ -647,12 +647,52 @@ class ProvisioningService:
                 UUID(installation), UUID(str(host_id)), UUID(provisioner_id), SecretStr(token)
             )
 
-    def revoke_provisioner(self, provisioner_id: UUID, value: ProvisionerRevokeInput | dict):
+    def list_provisioners(self, host_id: UUID, *, offset: int = 0, limit: int = 100):
+        """Projeção humana somente leitura, sem tokens ou emissão implícita."""
+        if type(offset) is not int or not 0 <= offset <= 1000000:
+            raise ValueError("Offset de provisionadores inválido.")
+        if type(limit) is not int or not 1 <= limit <= 101:
+            raise ValueError("Limite de provisionadores inválido.")
+        host_id = UUID(str(host_id))
+        with self.database.transaction(write=False) as connection:
+            self._human(connection)
+            HostService._row(connection, host_id)
+            installation = HostService._installation(connection)
+            if installation is None:
+                raise NotFoundError("Hospedeiro não encontrado nesta instalação.")
+            columns = "id,installation_id,host_id,revision,status"
+            rows = connection.execute(
+                f"SELECT {columns} FROM provisioning_credentials WHERE host_id=? "
+                "AND installation_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                (str(host_id), installation, limit, offset),
+            )
+            return [
+                self._credential_view(dict(zip(columns.split(","), row, strict=True)))
+                for row in rows
+            ]
+
+    def revoke_provisioner(
+        self,
+        provisioner_id: UUID,
+        value: ProvisionerRevokeInput | dict,
+        *,
+        host_id: UUID | None = None,
+    ):
         value = ProvisionerRevokeInput.model_validate(value)
         now = self._now()
         with self.database.transaction() as connection:
             self._human(connection)
             row = _row(connection, "provisioning_credentials", provisioner_id)
+            if host_id is not None:
+                HostService._row(connection, host_id)
+                installation = HostService._installation(connection)
+                if (
+                    row["host_id"] != str(UUID(str(host_id)))
+                    or installation is None
+                    or row["installation_id"] != installation
+                ):
+                    # A rota humana valida escopo inclusive antes do replay.
+                    raise NotFoundError("Provisionador não encontrado para este hospedeiro.")
             payload = value.model_dump(mode="json")
             if not self._command(
                 connection,
@@ -665,7 +705,11 @@ class ProvisioningService:
                 if row["revision"] != value.expected_revision:
                     raise RevisionConflict("Provisionador mudou.")
                 if row["status"] != "active":
-                    raise ProvisioningError("provisioning_credentials_invalid")
+                    raise ProvisioningError(
+                        "provisioning_provisioner_revoked"
+                        if host_id is not None
+                        else "provisioning_credentials_invalid"
+                    )
                 connection.execute(
                     "UPDATE provisioning_credentials SET "
                     "status='revoked',revision=revision+1,revoked_at=? WHERE id=?",

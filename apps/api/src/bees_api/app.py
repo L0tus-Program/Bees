@@ -27,6 +27,7 @@ from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
 from bees_api.profiles import router as profiles_router
 from bees_api.provisioner_runtime import router as provisioner_runtime_router
+from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
@@ -139,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(host_links_router)
     app.include_router(provisioning_router)
     app.include_router(provisioner_runtime_router)
+    app.include_router(provisioners_router)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request: Request, error: RequestValidationError) -> JSONResponse:

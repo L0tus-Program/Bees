@@ -14,6 +14,7 @@ __pycache__/
 /apps/web/dist/
 .pytest_cache/
 .ruff_cache/
+.playwright-cli/
 .coverage
 coverage/
 htmlcov/
