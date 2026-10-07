@@ -388,10 +388,18 @@ def test_total_deadline_cancels_real_loopback_slow_drip_without_request_threads(
             with connection:
                 connection.settimeout(1)
                 request = bytearray()
-                while b"\r\n\r\n" not in request:
-                    request.extend(connection.recv(1024))
+                while b"\r\n\r\n" not in request and not stop.is_set():
+                    chunk = connection.recv(1024)
+                    if not chunk:
+                        # Cancelamento antes dos headers pode fechar o socket.
+                        # EOF não é progresso: não deixar o servidor de teste
+                        # preso num loop que também impede o processo de sair.
+                        return
+                    request.extend(chunk)
                     if len(request) > MAX_BYTES:
                         return
+                if stop.is_set():
+                    return
                 head = (
                     b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                     b"Content-Length: 9999\r\n\r\n"

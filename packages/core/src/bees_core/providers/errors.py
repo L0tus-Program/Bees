@@ -27,6 +27,7 @@ ErrorCode = Literal[
     "conversation_inactive",
     "agent_inactive",
     "state_conflict",
+    "chat_outcome_unknown",
     "policy_denied",
     "policy_approval_required",
 ]
@@ -56,6 +57,10 @@ MESSAGES: dict[str, str] = {
     "conversation_inactive": "A conversa está inativa.",
     "agent_inactive": "O agente está inativo.",
     "state_conflict": "O estado mudou durante a operação; releia antes de continuar.",
+    "chat_outcome_unknown": (
+        "Este envio não tem resposta confirmada. Consulte o histórico antes de fazer "
+        "outro pedido: o provedor pode ter consumido créditos. O Bees não o repete."
+    ),
     "policy_denied": "Uma regra do Bees bloqueia esta geração. Revise as regras de autonomia.",
     "policy_approval_required": (
         "Esta geração exige decisão. Revise a regra de autonomia antes de continuar."

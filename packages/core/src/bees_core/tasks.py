@@ -146,50 +146,58 @@ class TaskService:
             )
 
     def create(self, agent_id: UUID | str, value: TaskInput) -> Task:
+        with self.store.transaction(source="task_create") as uow:
+            return self.create_in_unit(uow, agent_id, value)
+
+    def create_in_unit(self, uow, agent_id: UUID | str, value: TaskInput, *, metadata=None) -> Task:
+        """Cria fila/conversa/run na transação confiável do chamador, sem rede."""
         value = TaskInput.model_validate(value.model_dump(mode="python"))
         agent_id = UUID(str(agent_id))
         digest = request_digest(value)
-        with self.store.transaction(source="task_create") as uow:
-            existing = uow.tasks.find_submission(value.client_request_id)
-            if existing is not None:
-                if (
-                    existing.agent_id != agent_id
-                    or existing.metadata.get("submission_hash") != digest
-                ):
-                    raise TaskError("idempotency_conflict")
-                return existing
-            agent = ProviderService._agent(uow, agent_id)
-            if agent.status != "active":
-                raise TaskError("agent_inactive")
-            config = ProviderService._validated_config(agent.provider_config)
-            validate_capabilities(config)
-            conversation = Conversation(
-                agent_id=agent.id, title=value.title, metadata={"execution_kind": "text_task"}
-            )
-            task = Task(
-                agent_id=agent.id,
-                conversation_id=conversation.id,
-                title=value.title,
-                objective=value.objective,
-                expected_result=value.expected_result,
-                submission_key=value.client_request_id,
-                max_calls=value.max_calls,
-                max_active_seconds=value.max_active_seconds,
-                metadata={"submission_hash": digest, "execution_kind": "text_task"},
-            )
-            uow.conversations.create(conversation)
-            uow.tasks.create(task)
-            uow.runs.create(
-                Run(
-                    task_id=task.id,
-                    provider=config.kind,
-                    model=config.model,
-                    provider_config=config.model_dump(mode="json"),
-                    checkpoint={"progress": "queued", "directive_revision": 0},
-                    metadata={"agent_revision": agent.revision},
+        existing = uow.tasks.find_submission(value.client_request_id)
+        if existing is not None:
+            if (
+                existing.agent_id != agent_id
+                or existing.metadata.get("submission_hash") != digest
+                or (
+                    metadata is not None
+                    and any(existing.metadata.get(k) != v for k, v in metadata.items())
                 )
+            ):
+                raise TaskError("idempotency_conflict")
+            return existing
+        agent = ProviderService._agent(uow, agent_id)
+        if agent.status != "active":
+            raise TaskError("agent_inactive")
+        config = ProviderService._validated_config(agent.provider_config)
+        validate_capabilities(config)
+        conversation = Conversation(
+            agent_id=agent.id, title=value.title, metadata={"execution_kind": "text_task"}
+        )
+        task = Task(
+            agent_id=agent.id,
+            conversation_id=conversation.id,
+            title=value.title,
+            objective=value.objective,
+            expected_result=value.expected_result,
+            submission_key=value.client_request_id,
+            max_calls=value.max_calls,
+            max_active_seconds=value.max_active_seconds,
+            metadata=(metadata or {}) | {"submission_hash": digest, "execution_kind": "text_task"},
+        )
+        uow.conversations.create(conversation)
+        uow.tasks.create(task)
+        uow.runs.create(
+            Run(
+                task_id=task.id,
+                provider=config.kind,
+                model=config.model,
+                provider_config=config.model_dump(mode="json"),
+                checkpoint={"progress": "queued", "directive_revision": 0},
+                metadata={"agent_revision": agent.revision},
             )
-            return task
+        )
+        return task
 
     def _ready_current(self, uow, run) -> bool:
         """Uma resposta pausada só conclui sem nova chamada se o contexto ainda vale."""

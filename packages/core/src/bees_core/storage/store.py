@@ -537,6 +537,15 @@ class Conversations(_Repository[Conversation]):
 
 
 class Messages(_Repository[Message]):
+    def chat_request(self, conversation_id: UUID, request_id: UUID) -> list[Message]:
+        self._context.check()
+        rows = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM messages WHERE conversation_id=? "
+            "AND json_extract(metadata_json, '$.chat_request.id')=? ORDER BY created_at,id",
+            (str(conversation_id), str(request_id)),
+        )
+        return [self._decode(row) for row in rows]
+
     def count(self, *, conversation_id: UUID) -> int:
         self._context.check()
         return self._context.connection.execute(
@@ -551,6 +560,26 @@ class Messages(_Repository[Message]):
 
 
 class Tasks(_Repository[Task]):
+    def nonterminal_count(self, agent_id: UUID) -> int:
+        self._context.check()
+        return self._context.connection.execute(
+            "SELECT count(*) FROM tasks WHERE agent_id=? "
+            "AND status NOT IN ('completed','failed','cancelled')",
+            (str(agent_id),),
+        ).get
+
+    def delegations(self, agent_id: UUID, conversation_id: UUID, *, limit=100, offset=0):
+        self._context.check()
+        if not 1 <= limit <= 101 or offset < 0:
+            raise ValueError("Página inválida.")
+        rows = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM tasks WHERE agent_id=? "
+            "AND json_extract(metadata_json, '$.delegation.origin_conversation_id')=? "
+            "ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+            (str(agent_id), str(conversation_id), limit, offset),
+        )
+        return [self._decode(row) for row in rows]
+
     def find_submission(self, client_request_id: UUID | str) -> Task | None:
         self._context.check()
         row = self._context.connection.execute(

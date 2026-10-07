@@ -41,7 +41,8 @@ export interface Onboarding {
 }
 
 export interface Diagnostic { status: 'ok'; code: string; capabilities: ModelConfig['capabilities']; validation_token: string }
-export interface Message { id: string; role: string; content: string; created_at: string }
+export interface DelegationOutcome { tool_call_id: string; status: 'created' | 'rejected'; code: string | null; task_id: string | null }
+export interface Message { id: string; role: string; content: string | null; created_at: string; delegation_results?: DelegationOutcome[] }
 export interface Conversation { conversation_id: string; messages: Message[]; has_more?: boolean }
 
 export function isModelConfig(value: unknown): value is ModelConfig {
@@ -110,13 +111,18 @@ export async function createAgent(body: { name: string; purpose: string; instruc
 export async function messages(id: string, conversationId: string, signal?: AbortSignal): Promise<Conversation> {
   const value = await request(`/agents/${encodeURIComponent(id)}/messages?conversation_id=${encodeURIComponent(conversationId)}`, { authenticated: true, signal })
   if (!record(value) || value.conversation_id !== conversationId || !Array.isArray(value.messages)
-    || !value.messages.every((item) => record(item) && ['id', 'role', 'content', 'created_at'].every((key) => typeof item[key] === 'string'))) throw new ApiError('invalid_response')
+    || !value.messages.every((item) => record(item) && ['id', 'role', 'created_at'].every((key) => typeof item[key] === 'string')
+      && (item.content === null || typeof item.content === 'string')
+      && (item.delegation_results === undefined || Array.isArray(item.delegation_results) && item.delegation_results.every((result) => record(result)
+        && typeof result.tool_call_id === 'string' && result.tool_call_id.length > 0 && ['created', 'rejected'].includes(String(result.status))
+        && (result.code === null || typeof result.code === 'string') && (result.task_id === null || typeof result.task_id === 'string')
+        && (result.status === 'created' ? result.task_id !== null && result.code === null : result.task_id === null && result.code !== null))))) throw new ApiError('invalid_response')
   return value as unknown as Conversation
 }
 
-export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal) {
+export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID()) {
   await request(`/agents/${encodeURIComponent(id)}/chat`, {
-    body: { conversation_id: conversationId, content }, signal, authenticated: true, timeoutMs: 75000,
+    body: { conversation_id: conversationId, content, allow_delegation: allowDelegation, client_request_id: clientRequestId }, signal, authenticated: true, timeoutMs: 75000,
   })
 }
 

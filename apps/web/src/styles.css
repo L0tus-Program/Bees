@@ -458,6 +458,15 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .host-checks dd { font-size: 12px; margin-top: 4px; }
 .host-checks.stale dd { color: var(--muted); }
 .host-code { display: grid; gap: 6px; margin: 14px 0; }
+.chat-entry { min-width: 0; }
+.chat-entry .message { margin-bottom: 12px; }
+.delegation-card { border: 1px solid #c6b67d; border-radius: 12px; padding: 18px; margin: 12px 0; background: #fcf5e2; overflow-wrap: anywhere; }
+.delegation-card h3 { font-size: 16px; line-height: 1.6; }
+.delegation-card .task-result { background: #fffef9; margin: 12px 0; }
+.delegation-card .task-result p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.delegation-card .button { min-height: 44px; margin-top: 12px; }
+.chat-composer .checkbox-field { margin: 8px 0 16px; }
+@media (max-width: 550px) { .delegation-card { padding: 14px; } .delegation-card .button { width: 100%; } }
 .host-code strong { font-size: 11px; color: var(--muted); }
 .host-confirmation h4:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
 .host-confirmation .checkbox-row { margin: 16px 0; font-size: 12px; line-height: 1.7; }

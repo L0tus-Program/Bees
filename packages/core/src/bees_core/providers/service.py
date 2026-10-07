@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -369,6 +370,8 @@ class ProviderService:
         tools: list[ToolDefinition] | None = None,
         requirements: CapabilityRequirements | None = None,
         task_id: UUID | str | None = None,
+        input_metadata: dict | None = None,
+        context_messages: list[ChatMessage] | None = None,
     ) -> PreparedChat:
         """Valida/persiste entradas e devolve contexto para despacho fora da UoW."""
         normalized_inputs = self._inputs(message)
@@ -381,6 +384,10 @@ class ProviderService:
         conversation = self._conversation(uow, agent, conversation_id)
         self._task_context(uow, agent, conversation, task_id)
         records = self._records(uow, conversation.id)
+        if input_metadata and "chat_request" in input_metadata:
+            request_id = UUID(input_metadata["chat_request"]["id"])
+            if uow.messages.chat_request(conversation.id, request_id):
+                raise ProviderError("state_conflict")
         history = [self._normalized(record) for record in records]
         try:
             messages = self._history_window(history + normalized_inputs)
@@ -421,6 +428,9 @@ class ProviderService:
                         content=self.MEMORY_PREFIX + memory_context.text + self.MEMORY_SUFFIX,
                     ),
                 )
+            if context_messages:
+                index = 1 if instruction_parts else 0
+                messages[index:index] = context_messages
             request = ChatRequest(messages=messages, tools=tools or [])
         except ValidationError, ValueError:
             raise ProviderError("invalid_request", "Solicitação de conversa inválida.") from None
@@ -429,7 +439,9 @@ class ProviderService:
         if config.secret_ref is not None:
             self.resolver.resolve(config.secret_ref)
         for normalized_input in normalized_inputs:
-            input_record = self._message(conversation.id, normalized_input, records, source="user")
+            input_record = self._message(
+                conversation.id, normalized_input, records, source="user", metadata=input_metadata
+            )
             uow.messages.create(input_record)
             records.append(input_record)
         conversation = uow.conversations.update(
@@ -549,7 +561,13 @@ class ProviderService:
             raise ProviderError("invalid_response") from None
 
     def persist_response(
-        self, uow: UnitOfWork, prepared: PreparedChat, response: ChatResponse
+        self,
+        uow: UnitOfWork,
+        prepared: PreparedChat,
+        response: ChatResponse,
+        *,
+        response_handler: Callable[[UnitOfWork, PreparedChat, ChatResponse, Message], Message]
+        | None = None,
     ) -> Message:
         """Confirma contexto e grava resposta; o chamador confirma seu journal na mesma UoW."""
         prepared = PreparedChat.model_validate(prepared.model_dump(mode="python"))
@@ -570,6 +588,10 @@ class ProviderService:
                 "context": prepared.context,
             },
         )
+        if response_handler is not None:
+            # A composição acrescenta seus vínculos antes da criação. Histórico
+            # continua append-only; efeitos internos e mensagem confirmam juntos.
+            output = response_handler(uow, prepared, response, output)
         uow.messages.create(output)
         uow.conversations.update(conversation, expected_revision=conversation.revision)
         return output
@@ -583,6 +605,10 @@ class ProviderService:
         tools: list[ToolDefinition] | None = None,
         requirements: CapabilityRequirements | None = None,
         task_id: UUID | str | None = None,
+        response_handler: Callable[[UnitOfWork, PreparedChat, ChatResponse, Message], Message]
+        | None = None,
+        input_metadata: dict | None = None,
+        context_messages: list[ChatMessage] | None = None,
     ) -> ChatResponse:
         with self.store.transaction(source="provider_chat") as uow:
             conversation = uow.conversations.get(conversation_id)
@@ -600,6 +626,8 @@ class ProviderService:
                 tools=tools,
                 requirements=requirements,
                 task_id=task_id,
+                input_metadata=input_metadata,
+                context_messages=context_messages,
             )
             decision = self.model_policy(uow, prepared)
             self.require_model_policy(decision)
@@ -632,5 +660,5 @@ class ProviderService:
                     }
                 }
             )
-            self.persist_response(uow, prepared, response)
+            self.persist_response(uow, prepared, response, response_handler=response_handler)
         return response

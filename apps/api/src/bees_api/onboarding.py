@@ -75,6 +75,8 @@ class ChatInput(Input):
     conversation_id: UUID
     task_id: UUID | None = None
     content: str = Field(min_length=1, max_length=32768)
+    allow_delegation: bool = Field(default=False, strict=True)
+    client_request_id: UUID | None = None
 
 
 class Receipts:
@@ -413,6 +415,9 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
                 "role": record.role,
                 "content": record.content,
                 "created_at": record.created_at.isoformat(),
+                "delegation_results": record.metadata.get("delegation_results", [])
+                if record.role == "assistant"
+                else [],
             }
             for record in records
         ],
@@ -421,10 +426,31 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
 
 @router.post("/agents/{agent_id}/chat")
 async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESSION) -> dict:
+    from bees_api.delegation import chat_result
+    from bees_core.delegation import ConversationDelegationService
+
     with request.app.state.receipts.operation(body.conversation_id):
         provider: ProviderService = request.app.state.providers
-        response = await provider.chat(
-            agent_id, body.conversation_id, body.content, task_id=body.task_id
+        if body.task_id is not None:
+            if body.allow_delegation:
+                raise ProviderError("invalid_request")
+            response = await provider.chat(
+                agent_id, body.conversation_id, body.content, task_id=body.task_id
+            )
+            require_session(request)
+            return response.model_dump(mode="json") | {
+                "delegations": [],
+                "delegation_results": [],
+            }
+        response, tasks, outcomes = await ConversationDelegationService(provider).chat(
+            agent_id,
+            body.conversation_id,
+            body.content,
+            allow_delegation=body.allow_delegation,
+            client_request_id=body.client_request_id,
         )
     require_session(request)
-    return response.model_dump(mode="json")
+    return response.model_dump(mode="json") | {
+        "delegations": chat_result(request, tasks),
+        "delegation_results": outcomes,
+    }

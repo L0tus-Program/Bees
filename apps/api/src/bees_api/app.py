@@ -18,6 +18,7 @@ from bees_api.approvals import router as approvals_router
 from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
+from bees_api.delegation import router as delegation_router
 from bees_api.environments import router as environments_router
 from bees_api.host_links import router as host_links_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
@@ -130,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(configuration_router)
     app.include_router(profiles_router)
     app.include_router(tasks_router)
+    app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
     app.include_router(tools_router)
@@ -173,7 +175,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "invalid_secret_reference",
             )
             else 409
-            if error.code in ("state_conflict", "policy_approval_required")
+            if error.code in ("state_conflict", "chat_outcome_unknown", "policy_approval_required")
             else 403
             if error.code == "policy_denied"
             else 502
