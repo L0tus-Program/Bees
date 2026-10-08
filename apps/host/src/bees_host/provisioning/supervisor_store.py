@@ -663,6 +663,36 @@ class SupervisorStore:
             raise ProvisionError("provision_acquisition_required")
         return self._snapshots("acquisitions", limit)
 
+    def plan_inventory(self) -> dict[str, dict]:
+        """Associação completa para a raiz nova, sob lock; nunca projeção paginada.
+
+        Histórico legado sem aquisição não comprova vínculo com a raiz fixa e é
+        recusado. A consulta não fabrica tickets nem reconcilia registros locais.
+        """
+        self.assert_locked()
+        if self.version != 2:
+            raise ProvisionError("provision_acquisition_required")
+        try:
+            self._validate()
+            runs = {
+                row["claim_id"]: dict(row) for row in self.connection.execute("SELECT * FROM runs")
+            }
+            result = {}
+            linked = set()
+            for row in self.connection.execute("SELECT * FROM acquisitions"):
+                acquisition = dict(row)
+                claim_id = acquisition["claim_id"]
+                run = runs.get(claim_id)
+                if run is not None:
+                    linked.add(claim_id)
+                result[acquisition["plan_id"]] = {"acquisition": acquisition, "run": run}
+            if linked != set(runs):
+                raise ProvisionError("provision_supervisor_binding_invalid")
+            self._validate()
+            return result
+        except OSError, sqlite3.Error, ValueError, TypeError, KeyError:
+            raise ProvisionError("provision_state_invalid") from None
+
     def assert_acquisition_ready(self):
         """Guarda somente leitura antes de preflight/rede, sem gerar identidade."""
         self.assert_locked()

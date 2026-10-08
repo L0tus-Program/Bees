@@ -1,7 +1,10 @@
 """Reserva/core/HTTP/inscrição/journals reais, backend falso e nenhuma VM."""
 
+import hashlib
 import os
 import secrets
+import socket
+import subprocess
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -10,10 +13,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from bees_host.provisioning import acquisition as module
+from bees_host.provisioning import root_store as root_module
 from bees_host.provisioning.acquisition import Acquisition
 from bees_host.provisioning.contracts import Plan, ProvisionError, canonical
 from bees_host.provisioning.enrollment import EnrollmentBinding, EnrollmentStore
 from bees_host.provisioning.journal import Journal, create
+from bees_host.provisioning.root_store import RootStore
 from bees_host.provisioning.supervisor_store import SupervisorStore
 from bees_host.security import DPAPICipher, FernetCipher, check_private
 from cryptography.fernet import Fernet
@@ -110,8 +115,8 @@ def prepared(tmp_path):
         yield core, plan, issued, issue_id, root
 
 
-def composition(prepared, origin):
-    _, plan, issued, issue_id, root = prepared
+def bootstrap_configuration(prepared, origin):
+    _, _, issued, issue_id, root = prepared
     binding = EnrollmentBinding(
         origin=origin,
         installation_id=issued.installation_id,
@@ -132,6 +137,12 @@ def composition(prepared, origin):
         ),
     )
     cipher = DPAPICipher() if os.name == "nt" else FernetCipher(Fernet.generate_key().decode())
+    return binding, bootstrap, cipher
+
+
+def composition(prepared, origin):
+    _, plan, _, _, root = prepared
+    binding, bootstrap, cipher = bootstrap_configuration(prepared, origin)
     enrollment = EnrollmentStore.initialize(
         root / "enrollment", bootstrap, binding=binding, cipher=cipher
     )
@@ -144,6 +155,80 @@ def composition(prepared, origin):
     hardware = SupervisedHardware(Hardware(SimpleNamespace(plan=plan)))
     template = SimpleNamespace(verify=lambda plan: root / "fixture.iso")
     return Acquisition(ledger, enrollment, hardware, template, journals), ledger, hardware
+
+
+def root_composition(prepared, origin, monkeypatch):
+    _, plan, _, _, private_base = prepared
+    binding, bootstrap, cipher = bootstrap_configuration(prepared, origin)
+    directory = private_base / "bees-provisioner"
+    monkeypatch.setattr(root_module, "_native_root", lambda: directory)
+    manager = RootStore.initialize(binding=binding, bootstrap=bootstrap, cipher=cipher)
+    enrollment = EnrollmentStore.open(
+        directory / "state/enrollment", binding=binding, cipher=cipher
+    )
+    ledger = SupervisorStore.open(directory / "state/ledger")
+    hardware = SupervisedHardware(Hardware(SimpleNamespace(plan=plan)))
+    template = SimpleNamespace(verify=lambda plan: private_base / "fixture.iso")
+    coordinator = Acquisition(ledger, enrollment, hardware, template, directory / "state/plans")
+    return coordinator, ledger, hardware, manager, directory, binding, cipher
+
+
+def root_fingerprint(directory):
+    return {
+        str(path.relative_to(directory)): (
+            hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None,
+            path.stat().st_mtime_ns,
+        )
+        for path in (directory, *directory.rglob("*"))
+    }
+
+
+@pytest.mark.parametrize("failure", [None, "claim_response", "receipt_response"])
+def test_root_reader_preserves_real_http_completed_and_unknown_without_service(
+    prepared, monkeypatch, failure
+):
+    core, plan, issued, _, _ = prepared
+    with api_process(
+        core.database.path.parent,
+        drop_claim=failure == "claim_response",
+        drop_receipt=failure == "receipt_response",
+    ) as (origin, _):
+        coordinator, ledger, hardware, manager, directory, binding, cipher = root_composition(
+            prepared, origin, monkeypatch
+        )
+        try:
+            if failure is None:
+                assert coordinator.run(plan).verified
+            else:
+                with pytest.raises(ProvisionError, match="provision_acquisition_unknown"):
+                    coordinator.run(plan)
+            row = ledger.acquisitions()[0]
+            assert row["status"] == ("completed" if failure is None else "unknown")
+            canonical_claim(core, row)
+            effect_count = {None: 6, "claim_response": 0, "receipt_response": 1}[failure]
+            assert len(hardware.effects) == effect_count
+            with core.database.transaction(write=False) as connection:
+                assert connection.execute("SELECT count(*) FROM provisioning_effects").get == (
+                    effect_count
+                )
+            before = root_fingerprint(directory)
+        finally:
+            ledger.close()
+
+    # A API própria já encerrou: o leitor não precisa de sessão nem reconcilia a rede.
+    def forbidden(*args, **kwargs):
+        pytest.fail("Leitor local tentou rede, processo ou mutação")
+
+    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    monkeypatch.setattr(Journal, "initialize", forbidden)
+    monkeypatch.setattr(SupervisorStore, "acquisitions", forbidden)
+    result = manager.check_only()
+    assert result.configured_local and result.execution_blocked_local == (failure is not None)
+    assert RootStore.open(binding=binding, cipher=cipher).check_only() == result
+    assert root_fingerprint(directory) == before
+    assert issued.credential.get_secret_value() not in result.model_dump_json()
 
 
 def retry(coordinator):

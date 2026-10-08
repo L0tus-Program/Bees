@@ -3,7 +3,7 @@
 A âncora externa conserva o vínculo original mesmo após perda de ``state``.
 Apagar a própria âncora perde essa evidência: ausência não autoriza inscrição;
 initialize só pode ser chamado por futura composição humana confiável explícita.
-Este recorte exige plans vazio; não abre journals, transporte ou hardware.
+Journals são inventariados somente leitura; não cria transporte ou hardware.
 """
 
 import ctypes
@@ -20,7 +20,13 @@ from pydantic import ValidationError, model_validator
 from bees_host.errors import HostError
 from bees_host.guest_bridge.private import check_ancestors
 from bees_host.guest_bridge.protocol import BridgeError
-from bees_host.provisioning.contracts import Closed, ProvisionError, canonical
+from bees_host.provisioning.contracts import (
+    OPERATIONS,
+    Closed,
+    ProvisionError,
+    ReceiptResult,
+    canonical,
+)
 from bees_host.provisioning.enrollment import (
     EnrollmentBinding,
     EnrollmentBootstrap,
@@ -32,7 +38,7 @@ from bees_host.provisioning.enrollment import (
     _read,
     _same_binding,
 )
-from bees_host.provisioning.journal import create, private, sync_directory
+from bees_host.provisioning.journal import Journal, create, private, sync_directory
 from bees_host.provisioning.supervisor_store import SupervisorStore
 from bees_host.security import Cipher, check_private
 
@@ -128,7 +134,7 @@ class RootStore:
     """Composição offline fechada; seus caminhos não são parâmetros públicos.
 
     configured_local não indica conexão, autoridade vigente, VM ou execução pronta.
-    Plans não vazio é recusado até integração futura de seus journals somente leitura.
+    Ler um plano nunca recupera execução ou concede acesso ao seu journal.
     """
 
     @classmethod
@@ -303,8 +309,6 @@ class RootStore:
             raise ProvisionError("provision_root_invalid")
         plans = state / "plans"
         private(plans, directory=True)
-        if any(plans.iterdir()):
-            raise ProvisionError("provision_root_invalid")
         enrolled = EnrollmentStore.open(
             state / "enrollment", binding=self.binding, cipher=self.cipher
         ).check_only()
@@ -320,6 +324,7 @@ class RootStore:
                     or ledger.host_id != self.binding.host_id
                 ):
                     raise ProvisionError("provision_root_invalid")
+                self._check_plans_locked(plans, ledger, composition.enrollment_store_id)
                 blocked = ledger.execution_blocked_local()
         finally:
             ledger.close()
@@ -339,6 +344,116 @@ class RootStore:
             provisioner_id=self.binding.provisioner_id,
             execution_blocked_local=blocked,
         )
+
+    def _check_plans_locked(self, plans, ledger, enrollment_store_id):
+        """Root → ledger → journal; consulta integral, sem adoção ou recuperação."""
+        if self._owner_thread != threading.get_ident():
+            raise ProvisionError("provision_lock_required")
+        ledger.assert_locked()
+        inventory = ledger.plan_inventory()
+        entries = {path.name for path in plans.iterdir()}
+        for name in entries:
+            if not UUID(name).int or str(UUID(name)) != name:
+                raise ProvisionError("provision_root_invalid")
+            private(plans / name, directory=True)
+        allowed, required = set(), set()
+        for plan_id, association in inventory.items():
+            acquisition, run = association["acquisition"], association["run"]
+            if (
+                acquisition["enrollment_store_id"] != str(enrollment_store_id)
+                or acquisition["issue_request_id"] != str(self.binding.issue_request_id)
+                or acquisition["provisioner_id"] != str(self.binding.provisioner_id)
+                or acquisition["origin"] != self.binding.origin
+            ):
+                raise ProvisionError("provision_root_invalid")
+            if acquisition["claim_id"] is not None:
+                allowed.add(plan_id)
+            if run is not None:
+                required.add(plan_id)
+        if entries - allowed or required - entries:
+            raise ProvisionError("provision_root_invalid")
+        journal_ids = set()
+        for plan_id in sorted(entries):
+            association = inventory[plan_id]
+            journal = Journal.open_read_only(plans / plan_id)
+            try:
+                with journal.lock():
+                    if journal.journal_id in journal_ids:
+                        raise ProvisionError("provision_root_invalid")
+                    journal_ids.add(journal.journal_id)
+                    self._check_plan_locked(plan_id, association, journal)
+            finally:
+                journal.close()
+        private(plans, directory=True)
+        if {
+            path.name for path in plans.iterdir()
+        } != entries or ledger.plan_inventory() != inventory:
+            raise ProvisionError("provision_root_invalid")
+
+    def _check_plan_locked(self, plan_id, association, journal):
+        acquisition, run = association["acquisition"], association["run"]
+        operations = journal.operations()
+        claim = journal.claim
+        if any(
+            row["effect_request_id"] is not None and row["effect_request_id"] != row["request_id"]
+            for row in operations.values()
+        ):
+            raise ProvisionError("provision_root_invalid")
+        if (
+            str(claim.plan_id) != plan_id
+            or claim.installation_id != self.binding.installation_id
+            or claim.host_id != self.binding.host_id
+            or claim.provisioner_id != self.binding.provisioner_id
+            or any(
+                str(getattr(claim, name)) != acquisition[name]
+                for name in ("claim_id", "plan_id", "plan_hash", "owner_id", "provisioner_id")
+            )
+            or claim.generation != acquisition["generation"]
+            or claim.revision < acquisition["claim_revision"]
+            or claim.lease_expires_at < datetime.fromisoformat(acquisition["lease_expires_at"])
+            or claim.revision == acquisition["claim_revision"]
+            and (
+                claim.status != acquisition["claim_status"]
+                or claim.lease_expires_at != datetime.fromisoformat(acquisition["lease_expires_at"])
+            )
+        ):
+            raise ProvisionError("provision_root_invalid")
+        if run is None:
+            if operations or claim.status != "claimed":
+                raise ProvisionError("provision_root_invalid")
+            return
+        if (
+            any(
+                str(getattr(claim, name)) != run[name]
+                for name in ("claim_id", "plan_id", "plan_hash", "owner_id", "provisioner_id")
+            )
+            or claim.generation != run["generation"]
+        ):
+            raise ProvisionError("provision_root_invalid")
+        if run["status"] == "stopped" and operations:
+            raise ProvisionError("provision_root_invalid")
+        if run["status"] == "completed":
+            if (
+                set(operations) != set(OPERATIONS)
+                or any(row["status"] != "confirmed" for row in operations.values())
+                or claim.status != "confirmed"
+                or claim.revision < run["revision"]
+                or claim.lease_expires_at < datetime.fromisoformat(run["lease_expires_at"])
+            ):
+                raise ProvisionError("provision_root_invalid")
+            result = ReceiptResult.model_validate_json(operations["verify"]["result_json"])
+            if (
+                not result.verified
+                or result.vm_id is None
+                or not result.vm_id.int
+                or result.cpu_count != claim.plan.cpu_count
+                or result.memory_bytes != claim.plan.memory_bytes
+                or result.disk_bytes != claim.plan.disk_bytes
+                or result.image_iso_sha256 != claim.plan.image_iso_sha256
+                or result.powered_off is not True
+                or result.network_none is not True
+            ):
+                raise ProvisionError("provision_root_invalid")
 
     def check_only(self) -> RootCheck:
         with self._lock():
