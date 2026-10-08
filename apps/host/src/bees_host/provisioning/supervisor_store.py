@@ -161,7 +161,12 @@ class SupervisorStore:
     def open(cls, directory: Path):
         return cls(directory)
 
-    def __init__(self, directory: Path):
+    @classmethod
+    def open_read_only(cls, directory: Path):
+        """Check-only interno: sem criação, migração ou recuperação de journal."""
+        return cls(directory, _read_only=True)
+
+    def __init__(self, directory: Path, *, _read_only: bool = False):
         self.directory = Path(directory).absolute()
         self.path = self.directory / "supervisor.sqlite3"
         self.connection = None
@@ -169,6 +174,7 @@ class SupervisorStore:
         self._owner_thread = None
         self._lock_epoch = None
         self._tickets = {}
+        self._read_only = _read_only
         self._files()
         try:
             marker_path = self.directory / "identity.json"
@@ -184,8 +190,13 @@ class SupervisorStore:
             for name in ("store_id", "installation_id", "host_id"):
                 _uuid(marker[name])
             self.connection = sqlite3.connect(
-                self.path.as_uri() + "?mode=rw", uri=True, timeout=2, isolation_level=None
+                self.path.as_uri() + ("?mode=ro" if self._read_only else "?mode=rw"),
+                uri=True,
+                timeout=2,
+                isolation_level=None,
             )
+            if self._read_only:
+                self._files()
             self.connection.row_factory = sqlite3.Row
             self.version = self.connection.execute("PRAGMA user_version").fetchone()[0]
             if (
@@ -197,6 +208,7 @@ class SupervisorStore:
             self.connection.execute("PRAGMA synchronous=FULL")
             self.connection.execute("PRAGMA foreign_keys=ON")
             self._marker = marker
+            self.store_id = UUID(marker["store_id"])
             self.installation_id = UUID(marker["installation_id"])
             self.host_id = UUID(marker["host_id"])
             self._validate()
@@ -204,6 +216,14 @@ class SupervisorStore:
             if self.connection is not None:
                 self.connection.close()
             raise ProvisionError("provision_state_invalid") from None
+        except ProvisionError:
+            if self.connection is not None:
+                self.connection.close()
+            raise
+        except BaseException:
+            if self.connection is not None:
+                self.connection.close()
+            raise
 
     def _files(self):
         if not self.directory.exists():
@@ -225,12 +245,40 @@ class SupervisorStore:
             "supervisor.sqlite3",
             "supervisor.sqlite3-journal",
         }
+        if self._read_only:
+            # mode=ro pode criar sidecars ao ler um banco WAL cujo diretório é
+            # gravável. Recusar o formato WAL antes de chamar SQLite evita isso.
+            try:
+                with self.path.open("rb") as handle:
+                    header = handle.read(100)
+            except OSError:
+                raise ProvisionError("provision_state_invalid") from None
+            if (
+                len(header) != 100
+                or header[:16] != b"SQLite format 3\x00"
+                or header[18:20] != b"\x01\x01"
+            ):
+                raise ProvisionError("provision_state_invalid")
+            allowed.remove("supervisor.sqlite3-journal")
         for path in self.directory.iterdir():
             if path.name not in allowed:
                 raise ProvisionError("provision_state_invalid")
             private(path)
 
     def _validate(self):
+        if self._read_only:
+            self._files()
+            marker = self.directory / "identity.json"
+            if (
+                marker.stat().st_size > 1024
+                or json.loads(marker.read_bytes(), object_pairs_hook=_unique_json) != self._marker
+            ):
+                raise ValueError("invalid")
+            if (
+                self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
+                or self.connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"
+            ):
+                raise ValueError("invalid")
         if (
             self.connection.execute("PRAGMA integrity_check").fetchall()[0][0] != "ok"
             or self.connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -309,6 +357,8 @@ class SupervisorStore:
                 raise ValueError("invalid")
         if self.version == 2:
             self._validate_acquisitions(runs)
+        if self._read_only:
+            self._files()
 
     def _validate_acquisitions(self, runs):
         linked = set()
@@ -403,6 +453,7 @@ class SupervisorStore:
 
     def migrate_for_acquisition(self):
         """Migration explícita: somente ledger quiescido, preservando o histórico v1."""
+        self._assert_writable()
         self.assert_locked()
         if self.version != 1:
             raise ProvisionError("provision_transition_invalid")
@@ -431,6 +482,7 @@ class SupervisorStore:
         plan_id: UUID,
         plan_hash: str,
     ) -> AcquisitionTicket:
+        self._assert_writable()
         self.assert_locked()
         if self.version != 2:
             raise ProvisionError("provision_acquisition_required")
@@ -625,6 +677,31 @@ class SupervisorStore:
         ):
             raise ProvisionError("provision_reconciliation_required")
 
+    def execution_blocked_local(self) -> bool:
+        """Estado global do ledger, sem inferir conexão, VM pronta ou autorização."""
+        self.assert_locked()
+        try:
+            self._validate()
+            blocked = bool(
+                (
+                    self.version == 2
+                    and self.connection.execute(
+                        "SELECT 1 FROM acquisitions WHERE status!='completed'"
+                    ).fetchone()
+                )
+                or self.connection.execute(
+                    "SELECT 1 FROM runs WHERE status!='completed'"
+                ).fetchone()
+                or self.connection.execute(
+                    "SELECT 1 FROM requests WHERE status='pending'"
+                ).fetchone()
+            )
+            if self._read_only:
+                self._files()
+            return blocked
+        except OSError, sqlite3.Error, ValueError, TypeError, KeyError:
+            raise ProvisionError("provision_state_invalid") from None
+
     @contextmanager
     def lock(self):
         if self._locked:
@@ -667,6 +744,7 @@ class SupervisorStore:
 
     @contextmanager
     def _transaction(self):
+        self._assert_writable()
         self.assert_locked()
         try:
             self.connection.execute("BEGIN IMMEDIATE")
@@ -686,6 +764,10 @@ class SupervisorStore:
     def assert_locked(self):
         if not self._locked or self._owner_thread != threading.get_ident():
             raise ProvisionError("provision_lock_required")
+
+    def _assert_writable(self):
+        if self._read_only:
+            raise ProvisionError("provision_read_only")
 
     def begin(self, claim: Claim, *, acquisition: AcquisitionTicket | None = None):
         if not isinstance(claim, Claim) or (
@@ -779,6 +861,7 @@ class SupervisorStore:
                 )
 
     def request(self, claim_id: UUID, kind: Literal["renew", "unknown"]) -> UUID:
+        self._assert_writable()
         if type(claim_id) is not UUID or kind not in {"renew", "unknown"}:
             raise ProvisionError("provision_transition_invalid")
         request_id = uuid4()
@@ -891,12 +974,20 @@ class SupervisorStore:
     def _snapshots(self, table: str, limit: int):
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ProvisionError("provision_snapshot_limit_invalid")
-        return [
+        if self._read_only:
+            try:
+                self._validate()
+            except OSError, sqlite3.Error, ValueError, TypeError, KeyError:
+                raise ProvisionError("provision_state_invalid") from None
+        rows = [
             dict(row)
             for row in self.connection.execute(
                 f"SELECT * FROM {table} ORDER BY created_at DESC,rowid DESC LIMIT ?", (limit,)
             )
         ]
+        if self._read_only:
+            self._files()
+        return rows
 
     def close(self):
         if self._locked:
