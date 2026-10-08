@@ -59,7 +59,7 @@ O [kit Linux](guest-image.md) documenta a preparação da imagem e seus limites.
 
 A [ponte de diagnóstico](guest-bridge.md) prepara autenticação TLS por VM e protocolo restrito, sem integração ao provisionamento ou declaração de computador pronto. A [ADR 0002](adr/0002-guest-transport.md) descreve o transporte Hyper-V sockets proposto e os testes físicos ainda necessários.
 
-O checkpoint de [autorização e provisionamento](provisioning.md) acrescenta revisão humana de planos fechados, concessão pontual, claims/intents duráveis, biblioteca nativa para hardware parado e transporte HTTP próprio autenticado por `bp_`. Ainda não há supervisor/launcher de produção integrado à aplicação, VM instalada ou computador utilizável.
+O checkpoint de [autorização e provisionamento](provisioning.md) acrescenta revisão humana de planos fechados, concessão pontual, claims/intents duráveis, inscrição privada, aquisição sob lock, supervisor interno e transporte HTTP próprio autenticado por `bp_`. A biblioteca nativa cobre hardware parado; ainda não há launcher de produção integrado à aplicação, VM instalada ou computador utilizável.
 
 Para concluir BEES-011 faltam:
 

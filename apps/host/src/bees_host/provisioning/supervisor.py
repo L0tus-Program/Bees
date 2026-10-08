@@ -8,7 +8,7 @@ from uuid import UUID
 from bees_host.provisioning.backend import TIMEOUT
 from bees_host.provisioning.contracts import Claim, ProvisionError, check_claim
 from bees_host.provisioning.runner import Runner
-from bees_host.provisioning.supervisor_store import SupervisorStore
+from bees_host.provisioning.supervisor_store import AcquisitionTicket, SupervisorStore
 
 # Não amplia os limites do core nem o prazo do comando nativo.
 MAX_SECONDS = 300
@@ -105,13 +105,19 @@ class Supervisor:
             return
 
     def run(self):
+        with self.store.lock():
+            return self._run_locked()
+
+    def _run_locked(self, *, acquisition: AcquisitionTicket | None = None):
+        """Hand-off interno mantém o mesmo dono desde a aquisição antes da rede."""
+        self.store.assert_locked()
         if self._used:
             raise ProvisionError("provision_reconciliation_required")
         self._used = True
         self._deadline = time.monotonic() + MAX_SECONDS
         journal = self.runner.journal
-        with self.store.lock(), journal.lock():
-            self.store.begin(journal.claim)
+        with journal.lock():
+            self.store.begin(journal.claim, acquisition=acquisition)
             managed = Runner(journal, _Authority(self), self.runner.backend, self.runner.template)
             try:
                 if journal.operations():

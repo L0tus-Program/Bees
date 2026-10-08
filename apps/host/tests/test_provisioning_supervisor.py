@@ -3,6 +3,7 @@
 import threading
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from bees_host.provisioning.contracts import OPERATIONS, ProvisionError
@@ -272,3 +273,85 @@ def test_unproved_child_shutdown_blocks_all_later_operations(fixture, monkeypatc
         Supervisor(supervisor.runner, store).run()
     # Fixture sem subprocesso real; nenhum filho do SO precisa ser encerrado.
     backend.alive = False
+
+
+def test_private_handoff_requires_owner_and_does_not_consume_supervisor(fixture):
+    supervisor, authority, backend, journal, store = fixture
+    with pytest.raises(ProvisionError, match="provision_lock_required"):
+        supervisor._run_locked()
+    assert not supervisor._used and supervisor._deadline is None
+    with store.lock():
+        failures = []
+
+        def foreign():
+            try:
+                supervisor._run_locked()
+            except BaseException as error:
+                failures.append(error)
+
+        thread = threading.Thread(target=foreign)
+        thread.start()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert len(failures) == 1 and str(failures[0]) == "provision_lock_required"
+        assert not supervisor._used and store.runs() == []
+        assert supervisor._run_locked().verified
+        store.assert_locked()
+    assert backend.effects == list(OPERATIONS)
+
+
+@pytest.mark.parametrize("failure", [None, "before_run", "lost_receipt"])
+def test_v2_handoff_keeps_acquisition_lock_and_finishes_atomic(fixture, failure):
+    previous, _, _, old_journal, store = fixture
+    new_journal = None
+    try:
+        with store.lock():
+            store.migrate_for_acquisition()
+            old = old_journal.claim
+            ticket = store.prepare_acquisition(
+                enrollment_store_id=uuid4(),
+                issue_request_id=uuid4(),
+                provisioner_id=old.provisioner_id,
+                origin="http://127.0.0.1:8080",
+                plan_id=old.plan_id,
+                plan_hash=old.plan_hash,
+            )
+            claim = old.model_copy(update={"owner_id": ticket.owner_id})
+            store.accept_acquisition(ticket, claim)
+            new_journal = Journal.initialize(old_journal.directory.parent / "acquired", claim)
+            authority, backend = Authority(claim), Backend(claim)
+            supervisor = Supervisor(
+                Runner(new_journal, authority, backend, previous.runner.template), store
+            )
+
+            def same_owner():
+                store.assert_locked()
+                assert store.acquisitions()[0]["status"] == "running"
+                with pytest.raises(ProvisionError):
+                    with store.lock():
+                        pytest.fail("segundo dono do host")
+
+            backend.on_ready = same_owner
+            if failure == "before_run":
+                supervisor.cancelled.set()
+            elif failure == "lost_receipt":
+                authority.lose_receipt = True
+            if failure is None:
+                assert supervisor._run_locked(acquisition=ticket).verified
+                status = "completed"
+            else:
+                with pytest.raises(ProvisionError):
+                    supervisor._run_locked(acquisition=ticket)
+                status = "stopped" if failure == "before_run" else "unknown"
+            store.assert_locked()
+            assert store.acquisitions()[0]["status"] == store.runs()[0]["status"] == status
+            assert store.acquisitions()[0]["revision"] == 4
+            assert supervisor._deadline is not None and supervisor._used
+            assert not backend.alive
+            if failure == "lost_receipt":
+                assert len(authority.unknowns) == 1 and store.requests()[0]["status"] == "confirmed"
+        with store.lock():
+            assert store.acquisitions()[0]["status"] == status
+    finally:
+        if new_journal is not None:
+            new_journal.close()

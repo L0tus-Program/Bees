@@ -26,7 +26,13 @@ from bees_core.provisioning import OPERATIONS
 
 
 @contextmanager
-def api_process(directory: Path, *, drop_receipt: bool = False, drop_renew: bool = False):
+def api_process(
+    directory: Path,
+    *,
+    drop_receipt: bool = False,
+    drop_renew: bool = False,
+    drop_claim: bool = False,
+):
     """Filho próprio, sem credencial em argv/ambiente; fault injection só nesta fixture."""
     with socket.socket() as reserved:
         reserved.bind(("127.0.0.1", 0))
@@ -43,6 +49,7 @@ def api_process(directory: Path, *, drop_receipt: bool = False, drop_renew: bool
                 str(port),
                 *(["--drop-receipt"] if drop_receipt else []),
                 *(["--drop-renew"] if drop_renew else []),
+                *(["--drop-claim"] if drop_claim else []),
             ],
             stdin=subprocess.DEVNULL,
             stdout=output,
@@ -255,7 +262,14 @@ def test_http_deadline_cancels_slow_drip_without_waiting_for_inactivity(monkeypa
             assert not thread.is_alive()
 
 
-def serve(directory: Path, port: int, *, drop_receipt: bool, drop_renew: bool = False):
+def serve(
+    directory: Path,
+    port: int,
+    *,
+    drop_receipt: bool,
+    drop_renew: bool = False,
+    drop_claim: bool = False,
+):
     """Servidor real de teste; a falha substitui uma resposta após o commit canônico."""
     import uvicorn
     from cryptography.fernet import Fernet
@@ -272,7 +286,7 @@ def serve(directory: Path, port: int, *, drop_receipt: bool, drop_renew: bool = 
             vault_key=SecretStr(Fernet.generate_key().decode()),
         )
     )
-    if drop_receipt or drop_renew:
+    if drop_receipt or drop_renew or drop_claim:
 
         class DropReceipt:
             def __init__(self, app):
@@ -282,7 +296,8 @@ def serve(directory: Path, port: int, *, drop_receipt: bool, drop_renew: bool = 
                 if (
                     scope["type"] != "http"
                     or scope.get("path")
-                    != "/api/v1/provisioner/runtime/" + ("renew" if drop_renew else "receipt")
+                    != "/api/v1/provisioner/runtime/"
+                    + ("claim" if drop_claim else "renew" if drop_renew else "receipt")
                     or self.dropped
                 ):
                     return await self.app(scope, receive, send)
@@ -301,10 +316,11 @@ def serve(directory: Path, port: int, *, drop_receipt: bool, drop_renew: bool = 
 
 
 if __name__ == "__main__":
-    assert len(sys.argv) in {4, 5, 6} and sys.argv[1] == "--serve"
+    assert len(sys.argv) in {4, 5, 6, 7} and sys.argv[1] == "--serve"
     serve(
         Path(sys.argv[2]),
         int(sys.argv[3]),
         drop_receipt="--drop-receipt" in sys.argv[4:],
         drop_renew="--drop-renew" in sys.argv[4:],
+        drop_claim="--drop-claim" in sys.argv[4:],
     )
