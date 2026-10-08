@@ -79,6 +79,22 @@ Lease vencida sem intent pode ser abortada. Havendo despacho sem conclusão, o e
 
 ## Componente nativo fechado
 
+### Inscrição local privada e verificação offline
+
+`EnrollmentStore` armazena a credencial própria `bp_` em estado separado do diagnóstico `bh_`. É um componente interno: ainda não possui inscrição guiada, launcher ou comando de ativação. A composição confiável deve escolher a raiz fixa e fornecer origem e UUIDs esperados da instalação, host, provisionador e emissão. O conteúdo do bootstrap não escolhe caminhos ou concede autoridade para executar planos.
+
+O bootstrap é JSON privado fechado de até 8 KiB, com expiração de até 15 minutos, origem loopback canônica e credencial protegida no objeto em memória. A validação da origem é sintática, sem DNS ou conexão. UUIDs nulos, campos extras/duplicados, números não finitos, credencial de diagnóstico, expiração ou vínculo diferente são recusados. A expiração é conferida novamente antes da remoção do bootstrap.
+
+A inicialização aceita somente uma raiz nova, com ancestral privado. Cria marcador imutável e lock nativo, grava a cifra provisória com fsync e confere a leitura antes de apagar o bootstrap. Confirma sua ausência antes de publicar a cifra final e remover o estágio. Windows exige DPAPI CurrentUser; Linux exige chave Fernet externa explícita. Não há fallback em texto aberto, troca de origem, rotação ou sobrescrita de credencial existente.
+
+`open()`, `load()` e `check_only()` exigem o conjunto final exato, lock exclusivo, arquivos privados sem links/hardlinks e marcador compatível com o conteúdo cifrado e vínculo esperado. Não criam, corrigem permissões, completam estágio ou reconstroem estado ausente. Crash com estágio presente conserva a evidência e impede abertura, mesmo depois de apagar o bootstrap. Segredo emitido e perdido exige revogação humana e nova inscrição futura; não é recuperado por replay da emissão.
+
+`check_only()` permanece offline e sem escrita; retorna somente IDs e `configured_local: true`. Isso comprova integridade local, não credencial ativa, conexão, privilégios, Hyper-V ou VM pronta. Só uma composição posterior poderá carregar o `SecretStr` e consultar a sessão runtime autenticada. A consulta continua sujeita a revogação pelo core.
+
+O formato local 1 é independente do schema 8 canônico e dos journals de ações. A exclusão de toda a raiz e de todos os marcadores elimina evidência local de uso: ausência não deve ser usada pela composição para autorizar nova inicialização. Raiz única, entrega guiada, aquisição durável do claim e recuperação operacional ainda precisam ser integradas. Nenhuma inscrição real é feita automaticamente na instalação padrão.
+
+### Operações nativas
+
 `apps/host/src/bees_host/provisioning` reúne contratos, verificação local do kit, journal, runner e script PowerShell fixo. Não recebe texto livre para executar. O PowerShell usa caminho absoluto do sistema, ambiente mínimo e janela oculta; o processo não recebe credenciais por argumentos/stdin. Ausência de privilégios ou componentes encerra a operação. Não há UAC, instalação de Hyper-V ou alteração de registro/rede automática.
 
 O kit precisa estar previamente copiado em área privada do operador, com hashes/tamanhos fixados. O componente não baixa imagens. O hardware usa um layout derivado do plano. Dados privados de controle exigem ACL da conta atual; diretórios/discos usados pelo VMMS precisam de ACL própria compatível com SYSTEM, Administrators e o acesso específico da VM. Essa fronteira ainda exige prova com Hyper-V real.
@@ -119,7 +135,7 @@ A quarentena local é gravada antes da tentativa de avisar `/unknown`. Um pedido
 
 Testes cruzados em `scripts/tests/test_provisioning_interoperability.py` usam core, runner, SQLite e locks reais, com backend de hardware falso: sequência completa, revogação enquanto o filho aguarda `GO`, perda da resposta após confirmação canônica e expiração de lease depois do efeito. Nenhum teste dessa fixture cria VM ou demonstra isolamento.
 
-## Evidência do checkpoint — 07/10/2026
+## Evidências dos checkpoints — 07–08/10/2026
 
 A suíte completa Windows passou com 1.207 testes e 27 skips; a validação Linux de core, host, guest e APIs afetadas passou com 936 testes e 17 skips. Depois da guarda adicional de leitura por SID estrangeiro, os 60 testes de provisionamento/interoperabilidade passaram no Windows, e 55 no Linux com cinco skips exclusivos do Windows. Esses números descrevem execuções separadas, não devem ser somados como cobertura única.
 
@@ -138,3 +154,7 @@ Ruff, formatação, diff e regras do gitignore passaram. A imagem de verificaç�
 O gerenciamento humano de cadastros passou com 1.452 testes na suíte Windows completa (27 skips), 90 testes afetados no Linux e 465 testes da interface, além de lint, tipos, build e Ruff. Casos negativos incluem credenciais runtime sem sessão humana, Host/Origin/CSRF, host errado, revisão obsoleta, replay, paginação, host revogado e preservação de claims/efeitos em voo ou desconhecidos. A revisão independente corrigiu e conferiu o vínculo de instalação/host.
 
 Na instalação descartável, a revogação persistiu após recarregar; português, inglês, espanhol e viewport de 390 px passaram, sem rolagem horizontal. Servidor e navegador próprios foram encerrados. A instalação padrão foi atualizada pelo launcher: API/worker saudáveis, integridade/FK aprovadas e hashes dos dados anteriores e do cofre preservados. O schema permanece8; nenhum cadastro bp_, claim ou efeito de hardware foi criado na instalação padrão. As imagens de aplicação e de verificação foram reconstruídas. O pacote de diagnóstico continua sem ativação do provisionador.
+
+A inscrição privada local passou em 109 testes nativos Windows (um skip), cinco testes de interoperabilidade e revisão independente. A validação Linux de host, guest, core e APIs afetadas e interoperabilidade passou com 650 testes e 16 skips. Inclui DPAPI/Fernet reais, arquivos/ACL/locks nativos, subprocessos interrompidos após estágio ou publicação, concorrência por um bootstrap, vínculo/cifra trocados, relógio/expiração antes da remoção e perda de entrega sem reemissão. A prova integrada usa emissão privada, API/core reais e consulta de sessão/revogação, sem claims, jobs ou efeitos de hardware.
+
+A suíte completa Windows passou com 1.566 testes e 28 skips, incluindo o executável diagnóstico anterior nos testes opt-in. A imagem de verificação foi reconstruída. O wheel contém as sete fontes exatas de inscrição, supervisor, ledger, transporte, runner, backend e PowerShell. Ruff, formatação, diff, referências locais e regras do gitignore passaram. O executável diagnóstico anterior não foi substituído. A interface permanece na validação anterior de 465 testes. A instalação padrão segue saudável; este componente interno não alterou banco, schema, cofre ou cadastro real e não possui ativação automática.
