@@ -43,7 +43,7 @@ O guia [CONTRIBUTING](../CONTRIBUTING.md) descreve branches, testes, revisão e 
 
 ## Mapa das histórias
 
-Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
+Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. BEES-011.6 (P2), aberta a partir dela, registra o endurecimento posterior dos diagnósticos PowerShell. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
 
 | História | Estado inicial | Prioridade | Marco |
 | --- | --- | --- | --- |
@@ -117,6 +117,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-011.3 — Comprovar provisionamento Hyper-V físico em janela humana autorizada](https://github.com/L0tus-Program/Bees/issues/29)
 - [BEES-011.4 — Integrar boot humano, identidade guest e ponte física exclusiva](https://github.com/L0tus-Program/Bees/issues/30)
 - [BEES-011.5 — Comprovar rede filtrada, recursos e persistência do ambiente próprio](https://github.com/L0tus-Program/Bees/issues/31)
+- [BEES-011.6 — Isolar módulos PowerShell nos diagnósticos de Hyper-V](https://github.com/L0tus-Program/Bees/issues/114) (P2)
 
 ### BEES-012 — Executar arquivos, terminal e apps no computador próprio
 
