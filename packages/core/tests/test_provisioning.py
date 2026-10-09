@@ -739,8 +739,8 @@ def test_stale_context_read_and_revoke_does_not_require_active_agent_or_host(set
     assert revoked["status"] == "revoked"
 
 
-def test_schema8_preserves_existing_environment_and_foreign_keys(setup):
-    assert setup.db.schema_version() == 8
+def test_current_schema_preserves_existing_environment_and_foreign_keys(setup):
+    assert setup.db.schema_version() == 9
     with setup.db.transaction(write=False) as connection:
         assert connection.execute("PRAGMA integrity_check").get == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

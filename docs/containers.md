@@ -37,7 +37,7 @@ O requisito Engine 28+ acompanha a correção de alcance de portas publicadas em
 
 | Volume | Conteúdo |
 | --- | --- |
-| `bees-data` | SQLite, backups de migração, memórias e credenciais cifradas. |
+| `bees-data` | SQLite, backups de migração, memórias, credenciais cifradas e blobs de artefatos (`artifacts/`). |
 | `bees-secrets` | Chave Fernet privada provisionada automaticamente. |
 | `ollama-models` | Modelos de Ollama, somente quando o perfil opcional for usado. |
 
