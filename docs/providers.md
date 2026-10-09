@@ -101,7 +101,22 @@ A biblioteca interna também aceita mensagens de resultado `tool`. Quando uma re
 
 Testes usam transportes controlados e servidores HTTP de loopback com mensagens de teste. Eles exercitam serialização, conversa/funções/resultados nos dois protocolos, restrições de destino, erros sem credenciais e preservação de estado. Isso comprova o driver e seu contrato, não a qualidade de um modelo nem equivalência completa com Dots/Grok Bot.
 
-Nesta máquina não foi encontrado Ollama instalado/escutando na inspeção inicial; não foi feita geração contra serviço pago. A comprovação com um modelo local e um remoto reais continua necessária para completar o aceite operacional. O onboarding integra estes drivers enquanto essa verificação é preparada.
+### Modelos reais comprovados
+
+| Modelo | Protocolo | Capacidades declaradas | Conversa | Delegação `create_text_task` | Uso | Evidência |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gpt-5.4-nano` (OpenAI) | `openai_compatible` (Chat Completions) | `text`, `tool_calls` | Real, persistida e recarregada | Real: o modelo escolheu a função, o Bees confirmou uma tarefa e o worker concluiu | `reported` (entrada/saída/total) | BEES-005.1, 09/10/2026 |
+| Backend local (Ollama) | `ollama` | — | Pendente | Pendente | — | BEES-005.2; Ollama não instalado na máquina de validação |
+
+Aceite remoto de 09/10/2026, na instalação Docker padrão do mantenedor, com abelha e credencial de teste no cofre:
+
+- **Com permissão no turno:** o pedido "resuma em três tópicos curtos a história da apicultura no Brasil" gerou `finish_reason: tool_calls`. O serviço confirmou uma única tarefa, com o tema no título, objetivo e resultado esperado, limite de 1 chamada e 120 s. O worker concluiu em uma chamada (cerca de 1,7 s). O resultado reapareceu no chat e na lista de tarefas após recarregar a página. Uma delegação real anterior, de 08/10, também continuou visível após reiniciar os containers.
+- **Sem permissão no turno:** o mesmo pedido terminou com `finish_reason: stop`, sem tarefa ou delegação nova. O modelo justificou a recusa com um motivo inventado ("fora do objetivo"), em vez da ausência da função. A garantia vem do serviço, não do texto do modelo.
+- **Uso:** as três chamadas registraram uso `reported` do provedor: chat negativo 3.657/81 tokens, chat com delegação 3.959/101 e tarefa 218/125. Nenhum valor foi estimado ou zerado por ausência.
+- **Qualidade observada:** formato atendido (três tópicos em português), com conteúdo genérico e sem marcos históricos concretos. A tarefa recebe somente título, objetivo e resultado esperado escritos pelo modelo do chat. Detalhes do pedido que ele não transcrever não chegam ao worker; em um pedido de teste anterior com exemplos concretos, eles foram substituídos por valores genéricos.
+- **Não induzidos no provedor real:** argumentos inválidos e timeout ou resposta perdida, para não gerar custo ou estado incerto. Esses casos continuam comprovados por testes de falha controlada: recusa sem criar tarefa, ausência de repetição paga e `unknown` preservado.
+
+Uma execução de um modelo não comprova qualidade geral, outros modelos do mesmo fornecedor ou o backend local. O onboarding integra estes drivers; a comprovação local continua em BEES-005.2.
 
 ## Fontes dos protocolos
 

@@ -144,6 +144,6 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
 
-Onboarding (BEES-004) integrado aos drivers de BEES-005; comprovação operacional com modelos reais remoto/local ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e launcher Windows entregues; primeiro acesso dessa distribuição é autorizado automaticamente no navegador. Setup gráfico nas demais distribuições e integração dos ambientes futuros continuam em BEES-028. Computador próprio e conector pessoal são requisitos do MVP completo.
+Onboarding (BEES-004) integrado aos drivers de BEES-005; conversa e delegação com modelo remoto real comprovadas (BEES-005.1, [matriz](docs/providers.md#modelos-reais-comprovados)); backend local real ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e launcher Windows entregues; primeiro acesso dessa distribuição é autorizado automaticamente no navegador. Setup gráfico nas demais distribuições e integração dos ambientes futuros continuam em BEES-028. Computador próprio e conector pessoal são requisitos do MVP completo.
 
 O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.
