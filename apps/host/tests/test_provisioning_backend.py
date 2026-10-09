@@ -371,7 +371,7 @@ def test_readonly_native_hardware_guard_without_hyperv(failure):
     """Somente arquivos descartáveis: não carrega módulo nem altera hardware/ACL global."""
     if os.name != "nt":
         pytest.skip("Guardas de arquivo/ACL Windows nativas.")
-    script = files("bees_host.provisioning").joinpath("hyperv.ps1").read_text()
+    script = files("bees_host.provisioning").joinpath("hyperv.ps1").read_text(encoding="utf-8")
     guards = script.split("# BEGIN_READONLY_GUARDS:", 1)[1].split("\n", 1)[1]
     guards = guards.split("# END_READONLY_GUARDS", 1)[0]
     with private_bridge_directory() as base:
@@ -382,14 +382,27 @@ def test_readonly_native_hardware_guard_without_hyperv(failure):
         if failure == "hardlink":
             os.link(target, base / "alias.bin")
         program = (
-            "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'\n"
+            """
+$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$clock=[Diagnostics.Stopwatch]::StartNew()
+function Write-TestPhase([string]$Phase) {
+    [Console]::Error.WriteLine(('BEES_TEST_PHASE:'+$Phase+':'+$clock.ElapsedMilliseconds))
+    [Console]::Error.Flush()
+}
+Write-TestPhase 'entered'
+"""
             + guards
             + """
 $p=[Console]::In.ReadLine()|ConvertFrom-Json
+Write-TestPhase 'input'
 Initialize-NativeGuard
+Write-TestPhase 'native_initialized'
 if (-not (Test-OwnedPath $p.root $p.root)) {exit 2}
 if (-not (Test-OwnedPath (Join-Path $p.root 'nested') $p.root)) {exit 3}
 if (Test-OwnedPath ($p.root+'-foreign') $p.root) {exit 4}
+Write-TestPhase 'path_checked'
 if ($p.failure -in @('foreign_acl','foreign_read_acl')) {
     $acl=[Security.AccessControl.FileSecurity]::new()
     $owner=[Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -406,31 +419,59 @@ if ($p.failure -in @('foreign_acl','foreign_read_acl')) {
     $acl.AddAccessRule($rule)
     [IO.File]::SetAccessControl($p.file,$acl)
 }
+Write-TestPhase 'acl_prepared'
 try {Assert-HardwareNode $p.file $p.root $false ''; $allowed=$true}
 catch {$allowed=$false}
 if ($allowed -ne ($null -eq $p.failure)) {exit 5}
+Write-TestPhase 'validated'
 exit 0
 """
         )
         system = probe._system_directory()
+        started = time.monotonic()
         with probe._external_library_search():
-            result = subprocess.run(
-                [
-                    str(system / "WindowsPowerShell/v1.0/powershell.exe"),
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-EncodedCommand",
-                    base64.b64encode(program.encode("utf-16-le")).decode(),
-                ],
-                input=json.dumps(
-                    {"root": str(base), "file": str(target), "failure": failure}
-                ).encode(),
-                cwd=system,
-                env=probe._windows_environment(system),
-                timeout=15,
-                capture_output=True,
-                check=False,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+            try:
+                result = subprocess.run(
+                    [
+                        str(system / "WindowsPowerShell/v1.0/powershell.exe"),
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-EncodedCommand",
+                        base64.b64encode(program.encode("utf-16-le")).decode(),
+                    ],
+                    input=(
+                        json.dumps({"root": str(base), "file": str(target), "failure": failure})
+                        + "\n"
+                    ).encode(),
+                    cwd=system,
+                    env=probe._windows_environment(system),
+                    timeout=15,
+                    capture_output=True,
+                    check=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            except subprocess.TimeoutExpired as error:
+                phases = (error.stderr or b"").decode(errors="replace")[-2048:]
+                pytest.fail(
+                    f"Guarda nativa excedeu 15s; caso={failure!r}; "
+                    f"tempo={time.monotonic() - started:.3f}s; fases={phases!r}",
+                    pytrace=False,
+                )
+        diagnostic = result.stderr.decode(errors="replace")
+        assert result.returncode == 0, diagnostic
+        assert not result.stdout
+        phases = [line.split(":") for line in diagnostic.splitlines()]
+        assert [phase[:2] for phase in phases] == [
+            ["BEES_TEST_PHASE", name]
+            for name in (
+                "entered",
+                "input",
+                "native_initialized",
+                "path_checked",
+                "acl_prepared",
+                "validated",
             )
-        assert result.returncode == 0, result.stderr.decode(errors="replace")
-        assert not result.stdout and not result.stderr
+        ], diagnostic
+        timings = [int(phase[2]) for phase in phases]
+        assert timings == sorted(timings)
+        print(f"Guarda nativa {failure!r}: {time.monotonic() - started:.3f}s; {diagnostic}")

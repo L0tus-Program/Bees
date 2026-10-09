@@ -28,6 +28,9 @@ jobs:
       - name: Testar no Linux
         if: runner.os != 'Windows'
         run: uv run --locked pytest
+      - name: Validar guarda nativa de arquivos no Windows
+        if: runner.os == 'Windows'
+        run: uv run --locked python scripts/run-ci-tests.py -q -s --durations=4 apps/host/tests/test_provisioning_backend.py -k readonly_native_hardware_guard_without_hyperv
       - name: Testar no Windows com dono padrão da conta
         if: runner.os == 'Windows'
         run: uv run --locked python scripts/run-ci-tests.py
