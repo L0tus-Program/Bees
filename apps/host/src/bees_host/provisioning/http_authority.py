@@ -33,6 +33,8 @@ from bees_host.provisioning.contracts import (
 ROOT = "/api/v1/provisioner/runtime"
 MAX_BYTES = 16384
 REQUEST_BUDGET = 5.0
+# Prazo de conexão/leitura/escrita por fase, dentro do orçamento total do request.
+PHASE_TIMEOUT = 2.0
 _TRANSITIONS = {
     "claimed": {"claimed", "dispatch_started", "aborted", "outcome_unknown"},
     "dispatch_started": {"dispatch_started", "confirmed", "outcome_unknown"},
@@ -147,6 +149,7 @@ class HTTPAuthority:
         self._dial_origin = dial_origin
         self._authority = authority
         self._transport = transport
+        self._tls = None
         self._closed = False
 
     def __enter__(self):
@@ -170,13 +173,19 @@ class HTTPAuthority:
         if payload is not None:
             headers["Content-Type"] = "application/json"
         extensions = {"sni_hostname": urlsplit(self.origin).hostname}
+        if self._tls is None:
+            # Mesma validação padrão do httpx sem ambiente (certifi, hostname, CERT_REQUIRED).
+            # Recriar o contexto a cada request custava ~150 ms de CPU dentro do orçamento,
+            # com picos acima dos prazos sob carga; o cliente continua sendo por request.
+            self._tls = httpx.create_ssl_context(trust_env=False)
         async with (
             asyncio.timeout(REQUEST_BUDGET),
             httpx.AsyncClient(
                 base_url=self._dial_origin,
-                timeout=httpx.Timeout(2.0, connect=2.0),
+                timeout=httpx.Timeout(PHASE_TIMEOUT, connect=PHASE_TIMEOUT),
                 follow_redirects=False,
                 trust_env=False,
+                verify=self._tls,
                 transport=self._transport,
             ) as client,
         ):
