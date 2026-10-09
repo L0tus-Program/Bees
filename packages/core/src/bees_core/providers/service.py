@@ -10,6 +10,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from bees_core.budgets import releases, reserve, settle
 from bees_core.memory import MemoryService
 from bees_core.models import Agent, Conversation, Message, utc_now
 from bees_core.policies import ActionIntent, PolicyDecision, PolicyService
@@ -633,12 +634,16 @@ class ProviderService:
             self.require_model_policy(decision)
 
         # Nenhum await entre a autorização atual e o início da chamada. A alteração
-        # posterior não desfaz uma geração remota já iniciada.
+        # posterior não desfaz uma geração remota já iniciada. A reserva de consumo é
+        # confirmada no mesmo commit da autorização, antes da rede.
+        reservation: list[UUID] = []
+
         def authorize_generation():
             nonlocal decision
-            with self.store.transaction(write=False) as current:
+            with self.store.transaction(source="provider_chat") as current:
                 decision = self.model_policy(current, prepared)
                 self.require_model_policy(decision)
+                reservation.append(reserve(current, prepared, source="chat").id)
 
         adapter = create_adapter(
             prepared.config.kind,
@@ -646,7 +651,18 @@ class ProviderService:
             transport=self.transport,
             before_generation=authorize_generation,
         )
-        response = await adapter.complete(prepared.config, prepared.request)
+        try:
+            response = await adapter.complete(prepared.config, prepared.request)
+        except BaseException as error:
+            if reservation:
+                # Só recusa explícita do provedor libera; o resto conta como incerto.
+                with self.store.transaction(source="provider_chat") as uow:
+                    settle(uow, reservation[0], released=releases(error))
+            raise
+        if reservation:
+            # Antes de persistir: resposta descartada por conflito também consumiu.
+            with self.store.transaction(source="provider_chat") as uow:
+                settle(uow, reservation[0], usage=response.usage)
         response = self.normalized_response(prepared, response)
         with self.store.transaction(source="provider_chat") as uow:
             prepared = prepared.model_copy(

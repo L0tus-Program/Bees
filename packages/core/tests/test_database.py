@@ -64,10 +64,10 @@ def test_initialization_is_idempotent_and_survives_reopen(tmp_path: Path) -> Non
         add_agent(connection)
     reopened = Database(path)
     reopened.initialize()
-    assert reopened.schema_version() == 9
+    assert reopened.schema_version() == 10
     with reopened.transaction(write=False) as connection:
         assert connection.execute("SELECT name FROM agents WHERE id='agent-1'").get == "agent-1"
-        assert connection.execute("SELECT count(*) FROM schema_migrations").get == 9
+        assert connection.execute("SELECT count(*) FROM schema_migrations").get == 10
         assert connection.execute("PRAGMA integrity_check").get == "ok"
     assert not list(path.parent.glob("*.backup-*.sqlite3"))
 
@@ -237,8 +237,8 @@ def test_checksum_tampering_and_unknown_revision_fail_closed(tmp_path: Path) -> 
                 (migration.version, migration.name, migration.checksum, NOW),
             )
         connection.execute(
-            "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(10,?,?,?)",
-            ("0010_future.sql", "0" * 64, NOW),
+            "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES(11,?,?,?)",
+            ("0011_future.sql", "0" * 64, NOW),
         )
     with pytest.raises(MigrationError, match="desconhecida"):
         database.initialize()
@@ -265,18 +265,18 @@ def test_upgrade_creates_consistent_backup_before_migration(tmp_path: Path, monk
     database.initialize()
     with database.transaction() as connection:
         add_agent(connection)
-    (migrations / "0010_extra.sql").write_text(
+    (migrations / "0011_extra.sql").write_text(
         "CREATE TABLE extra (id TEXT PRIMARY KEY) STRICT;", encoding="utf-8"
     )
     database.initialize()
-    assert database.schema_version() == 10
+    assert database.schema_version() == 11
     backups = list(tmp_path.glob("*.backup-*.sqlite3"))
     assert len(backups) == 1
     backup = apsw.Connection(str(backups[0]))
     try:
         assert backup.execute("PRAGMA integrity_check").get == "ok"
         assert backup.execute("SELECT count(*) FROM agents").get == 1
-        assert backup.execute("SELECT max(version) FROM schema_migrations").get == 9
+        assert backup.execute("SELECT max(version) FROM schema_migrations").get == 10
         assert backup.execute("SELECT name FROM sqlite_schema WHERE name='extra'").get is None
     finally:
         backup.close()
@@ -288,17 +288,17 @@ def test_failed_upgrade_rolls_back_schema_and_history(tmp_path: Path, monkeypatc
     database.initialize()
     with database.transaction() as connection:
         add_agent(connection)
-    (migrations / "0010_first_step.sql").write_text(
+    (migrations / "0011_first_step.sql").write_text(
         "CREATE TABLE first_step (id TEXT PRIMARY KEY) STRICT;", encoding="utf-8"
     )
-    (migrations / "0011_broken.sql").write_text(
+    (migrations / "0012_broken.sql").write_text(
         "CREATE TABLE temporary_table (id TEXT); INSERT INTO nonexistent VALUES(1);",
         encoding="utf-8",
     )
     with pytest.raises(MigrationError, match="revertidas"):
         database.initialize()
     with database.transaction(write=False) as connection:
-        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 9
+        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 10
         assert (
             connection.execute("SELECT name FROM sqlite_schema WHERE name='first_step'").get is None
         )
@@ -318,7 +318,7 @@ def test_backup_creation_failure_preserves_original_before_upgrade(
     database.initialize()
     with database.transaction() as connection:
         add_agent(connection)
-    (migrations / "0010_extra.sql").write_text(
+    (migrations / "0011_extra.sql").write_text(
         "CREATE TABLE extra (id TEXT PRIMARY KEY) STRICT;", encoding="utf-8"
     )
 
@@ -333,7 +333,7 @@ def test_backup_creation_failure_preserves_original_before_upgrade(
     with pytest.raises(FileExistsError):
         database.initialize()
     with database.transaction(write=False) as connection:
-        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 9
+        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 10
         assert connection.execute("SELECT count(*) FROM agents").get == 1
         assert connection.execute("SELECT name FROM sqlite_schema WHERE name='extra'").get is None
     assert conflicting_path.read_text(encoding="utf-8") == "Não sobrescrever backup existente"
@@ -343,14 +343,14 @@ def test_migration_cannot_commit_its_transaction(tmp_path: Path, monkeypatch) ->
     migrations = local_migrations(tmp_path, monkeypatch)
     database = Database(tmp_path / "bees.sqlite3")
     database.initialize()
-    (migrations / "0010_commit.sql").write_text(
+    (migrations / "0011_commit.sql").write_text(
         "CREATE TABLE extra (id TEXT); COMMIT; INSERT INTO nonexistent VALUES(1);",
         encoding="utf-8",
     )
     with pytest.raises(MigrationError, match="revertidas"):
         database.initialize()
     with database.transaction(write=False) as connection:
-        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 9
+        assert connection.execute("SELECT max(version) FROM schema_migrations").get == 10
         assert connection.execute("SELECT name FROM sqlite_schema WHERE name='extra'").get is None
 
 
@@ -358,7 +358,7 @@ def test_migration_executes_statements_after_result_rows(tmp_path: Path, monkeyp
     migrations = local_migrations(tmp_path, monkeypatch)
     database = Database(tmp_path / "bees.sqlite3")
     database.initialize()
-    (migrations / "0010_select.sql").write_text(
+    (migrations / "0011_select.sql").write_text(
         "SELECT 1; CREATE TABLE extra (id TEXT PRIMARY KEY) STRICT;", encoding="utf-8"
     )
     database.initialize()
@@ -366,7 +366,7 @@ def test_migration_executes_statements_after_result_rows(tmp_path: Path, monkeyp
         assert (
             connection.execute("SELECT name FROM sqlite_schema WHERE name='extra'").get == "extra"
         )
-    assert database.schema_version() == 10
+    assert database.schema_version() == 11
 
 
 def test_checksum_is_portable_between_line_endings(tmp_path: Path, monkeypatch) -> None:
@@ -376,7 +376,7 @@ def test_checksum_is_portable_between_line_endings(tmp_path: Path, monkeypatch) 
     sql_file = migrations / "0001_initial.sql"
     sql_file.write_bytes(sql_file.read_bytes().replace(b"\n", b"\r\n"))
     database.initialize()
-    assert database.schema_version() == 9
+    assert database.schema_version() == 10
 
 
 def test_two_concurrent_initializers_apply_once(tmp_path: Path) -> None:
@@ -384,9 +384,9 @@ def test_two_concurrent_initializers_apply_once(tmp_path: Path) -> None:
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(lambda _: Database(path).initialize(), range(2)))
     database = Database(path)
-    assert database.schema_version() == 9
+    assert database.schema_version() == 10
     with database.transaction(write=False) as connection:
-        assert connection.execute("SELECT count(*) FROM schema_migrations").get == 9
+        assert connection.execute("SELECT count(*) FROM schema_migrations").get == 10
 
 
 def test_maintenance_lock_contention_fails_with_bounded_wait(tmp_path: Path) -> None:

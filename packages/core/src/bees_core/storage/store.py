@@ -19,6 +19,7 @@ from bees_core.models import (
     Agent,
     Approval,
     Artifact,
+    BudgetLimit,
     Conversation,
     DomainEvent,
     EntityType,
@@ -38,6 +39,7 @@ from bees_core.models import (
     TaskCommand,
     TaskStatus,
     ToolGrant,
+    UsageEntry,
     utc_now,
 )
 from bees_core.storage.database import Database
@@ -428,6 +430,8 @@ class _Repository[T: Record]:
                         )
             if isinstance(previous, Artifact) and previous.status in ("failed", "deleted"):
                 raise InvalidTransition("Artefato terminal é imutável; crie outro registro.")
+            if isinstance(previous, UsageEntry) and previous.status != "reserved":
+                raise InvalidTransition("Liquidação de consumo é final.")
             self._validate_links(validated)
             updated = self._spec.model.model_validate(
                 validated.model_dump()
@@ -1103,6 +1107,14 @@ class Execution:
                 self.calls._change(
                     call, status="outcome_unknown", error_code="worker_lost", finished_at=now
                 )
+                # O consumo reservado antes da rede também fica incerto e continua contado.
+                usage = UsageEntries(self._context, _USAGE_SPEC)
+                entry = usage.for_model_call(call.id)
+                if entry is not None and entry.status == "reserved":
+                    usage.update(
+                        entry.model_copy(update={"status": "unknown", "settled_at": now}),
+                        entry.revision,
+                    )
                 # A decisão já foi consumida no mesmo commit de begin_call. Uma
                 # morte do processo deve preservar também seu journal de ação.
                 if call.metadata.get("approval_id"):
@@ -1436,6 +1448,64 @@ class Artifacts(_Repository[Artifact]):
         return self._list({"task_id": task_id, "series_id": series_id}, limit, offset)
 
 
+class BudgetLimits(_Repository[BudgetLimit]):
+    def for_agent(self, agent_id: UUID) -> BudgetLimit | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM budget_limits WHERE agent_id=?",
+            (str(UUID(str(agent_id))),),
+        ).fetchone()
+        return self._decode(row) if row is not None else None
+
+
+class UsageEntries(_Repository[UsageEntry]):
+    def for_model_call(self, model_call_id: UUID) -> UsageEntry | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM usage_entries WHERE model_call_id=?",
+            (str(UUID(str(model_call_id))),),
+        ).fetchone()
+        return self._decode(row) if row is not None else None
+
+    def since(self, agent_id: UUID, since: datetime, *, page: int = 1000) -> list[UsageEntry]:
+        """Janela inteira, paginada por chave no mesmo snapshot; nunca truncada.
+
+        Somar uma janela parcial subestimaria o consumo.
+        """
+        self._context.check()
+        _pagination(page, 0)
+        agent, cursor = str(UUID(str(agent_id))), (_timestamp(since), "")
+        result: list[UsageEntry] = []
+        while True:
+            rows = self._context.connection.execute(
+                f"SELECT {','.join(self._spec.columns)} FROM usage_entries "
+                "WHERE agent_id=? AND (created_at>? OR (created_at=? AND id>?)) "
+                "ORDER BY created_at,id LIMIT ?",
+                (agent, cursor[0], cursor[0], cursor[1], page),
+            ).fetchall()
+            result.extend(self._decode(row) for row in rows)
+            if len(rows) < page:
+                return result
+            cursor = (_timestamp(result[-1].created_at), str(result[-1].id))
+
+
+_USAGE_SPEC = _Spec(
+    "usage_entries",
+    "usage_entry",
+    UsageEntry,
+    (
+        "agent_id",
+        "source",
+        "conversation_id",
+        "model_call_id",
+        "provider_kind",
+        "model",
+        "reserved_tokens",
+        "estimate_method",
+    ),
+)
+
+
 class Events:
     def __init__(self, context: _Context) -> None:
         self._context = context
@@ -1559,6 +1629,10 @@ class UnitOfWork:
                 ("task_id", "run_id", "version", "series_id", "previous_id"),
             ),
         )
+        self.budget_limits = BudgetLimits(
+            context, _Spec("budget_limits", "budget_limit", BudgetLimit, ("agent_id",))
+        )
+        self.usage_entries = UsageEntries(context, _USAGE_SPEC)
         self.events = Events(context)
 
 

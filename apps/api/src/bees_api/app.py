@@ -17,6 +17,7 @@ from bees_api import __version__
 from bees_api.approvals import router as approvals_router
 from bees_api.artifacts import router as artifacts_router
 from bees_api.auth import install_auth
+from bees_api.budgets import router as budgets_router
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
@@ -137,6 +138,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(profiles_router)
     app.include_router(tasks_router)
     app.include_router(artifacts_router)
+    app.include_router(budgets_router)
     app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
@@ -182,7 +184,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "invalid_secret_reference",
             )
             else 409
-            if error.code in ("state_conflict", "chat_outcome_unknown", "policy_approval_required")
+            if error.code
+            in (
+                "state_conflict",
+                "chat_outcome_unknown",
+                "policy_approval_required",
+                "budget_exhausted",
+            )
             else 403
             if error.code == "policy_denied"
             else 502

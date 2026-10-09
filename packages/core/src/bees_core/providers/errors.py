@@ -30,6 +30,7 @@ ErrorCode = Literal[
     "chat_outcome_unknown",
     "policy_denied",
     "policy_approval_required",
+    "budget_exhausted",
 ]
 
 MESSAGES: dict[str, str] = {
@@ -64,6 +65,10 @@ MESSAGES: dict[str, str] = {
     "policy_denied": "Uma regra do Bees bloqueia esta geração. Revise as regras de autonomia.",
     "policy_approval_required": (
         "Esta geração exige decisão. Revise a regra de autonomia antes de continuar."
+    ),
+    "budget_exhausted": (
+        "O limite de consumo desta abelha não comporta outra geração agora. Revise o limite "
+        "ou aguarde a janela; nenhuma chamada foi enviada ao provedor."
     ),
 }
 

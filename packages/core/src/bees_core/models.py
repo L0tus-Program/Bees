@@ -54,6 +54,8 @@ EntityType = Literal[
     "environment",
     "host_job",
     "host_link",
+    "budget_limit",
+    "usage_entry",
 ]
 
 
@@ -405,6 +407,61 @@ class Memory(Record):
         if self.scope == "task" and (self.agent_id is None or self.task_id is None):
             raise ValueError("Memória de tarefa exige agente e tarefa.")
         return self
+
+
+class BudgetLimit(Record):
+    """Limite de tokens por abelha numa janela móvel; não é teto da fatura remota."""
+
+    agent_id: UUID
+    token_limit: int = Field(ge=1, le=1_000_000_000)
+    window_seconds: int = Field(default=86400, ge=3600, le=2_592_000)
+    output_allowance: int = Field(default=4096, ge=1, le=1_000_000)
+    status: Literal["active", "disabled"] = "active"
+
+
+class UsageEntry(Record):
+    """Reserva antes da rede e liquidação final; ausência de uso nunca vira zero."""
+
+    agent_id: UUID
+    source: Literal["chat", "task"]
+    conversation_id: UUID | None = None
+    model_call_id: UUID | None = None
+    provider_kind: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=256)
+    status: Literal["reserved", "confirmed", "unknown", "released"] = "reserved"
+    reserved_tokens: int = Field(ge=0)
+    estimate_method: str = Field(min_length=1, max_length=64)
+    usage_kind: Literal["reported", "estimated", "unknown"] | None = None
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    settled_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def settlement(self) -> Self:
+        if (self.status == "reserved") != (self.settled_at is None):
+            raise ValueError("Somente reserva aberta fica sem data de liquidação.")
+        if (self.status == "confirmed") != (self.usage_kind is not None):
+            raise ValueError("Somente consumo confirmado declara o tipo de uso.")
+        if self.status != "confirmed" and any(
+            value is not None
+            for value in (self.input_tokens, self.output_tokens, self.total_tokens)
+        ):
+            raise ValueError("Contagens exigem consumo confirmado.")
+        if (self.source == "task") != (self.model_call_id is not None):
+            raise ValueError("Consumo de tarefa exige a chamada do journal.")
+        return self
+
+    def counted_tokens(self) -> int:
+        """Informado quando completo; reserva quando ausente, parcial ou incerto."""
+        if self.status == "released":
+            return 0
+        if self.status == "confirmed" and self.usage_kind != "unknown":
+            if self.total_tokens is not None:
+                return self.total_tokens
+            if self.input_tokens is not None and self.output_tokens is not None:
+                return self.input_tokens + self.output_tokens
+        return self.reserved_tokens
 
 
 class Artifact(Record):
