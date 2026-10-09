@@ -66,10 +66,10 @@ def test_summary_and_limit_require_session_csrf_and_cas(state):
     assert (limit["token_limit"], limit["revision"], limit["status"]) == (5000, 1, "active")
     assert created.json()["remaining_tokens"] == 5000
     stale = client.put(
-        path, json={"token_limit": 1, "expected_revision": 7}, headers=headers(client)
+        path, json={"token_limit": 6000, "expected_revision": 7}, headers=headers(client)
     )
     assert stale.status_code == 409
-    again = client.put(path, json={"token_limit": 1}, headers=headers(client))
+    again = client.put(path, json={"token_limit": 6000}, headers=headers(client))
     assert again.status_code == 409
     updated = client.put(
         path,
@@ -102,7 +102,12 @@ def test_exhausted_budget_returns_409_without_reaching_provider(state, monkeypat
 
     monkeypatch.setattr(httpx.AsyncClient, "send", observed)
     path = f"/api/v1/agents/{agent.id}/budget"
-    assert client.put(path, json={"token_limit": 1}, headers=headers(client)).status_code == 200
+    assert (
+        client.put(
+            path, json={"token_limit": 5000, "output_allowance": 4999}, headers=headers(client)
+        ).status_code
+        == 200
+    )
     response = client.post(
         f"/api/v1/agents/{agent.id}/chat",
         json={"conversation_id": str(conversation.id), "content": "Pergunta de teste"},

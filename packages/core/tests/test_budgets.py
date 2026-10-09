@@ -13,7 +13,7 @@ import pytest
 
 from bees_core.budgets import BudgetService, LimitInput, estimate_input, reserve
 from bees_core.execution import TaskWorker
-from bees_core.models import Agent, Conversation, utc_now
+from bees_core.models import Agent, Conversation, UsageEntry, utc_now
 from bees_core.providers.contracts import ProviderCapabilities, ProviderConfig
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
@@ -227,10 +227,12 @@ def test_limit_edits_are_cas_and_validated(setup):
         setup.agent.id, LimitInput(token_limit=5000), expected_revision=None
     )
     with pytest.raises(RevisionConflict):
-        setup.budgets.set_limit(setup.agent.id, LimitInput(token_limit=1), expected_revision=None)
+        setup.budgets.set_limit(
+            setup.agent.id, LimitInput(token_limit=6000), expected_revision=None
+        )
     with pytest.raises(RevisionConflict):
         setup.budgets.set_limit(
-            setup.agent.id, LimitInput(token_limit=1), expected_revision=created.revision + 1
+            setup.agent.id, LimitInput(token_limit=6000), expected_revision=created.revision + 1
         )
     updated = setup.budgets.set_limit(
         setup.agent.id, LimitInput(token_limit=7000), expected_revision=created.revision
@@ -341,3 +343,150 @@ def test_upgrade_nine_to_ten_adds_ledger_and_preserves_state(tmp_path, monkeypat
         assert connection.execute("SELECT count(*) FROM usage_entries").get == 0
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert BudgetService(database).summary(agent_id)["counted_tokens"] == 0
+
+
+def test_limit_must_fit_one_generation():
+    with pytest.raises(ValueError):
+        LimitInput(token_limit=100, output_allowance=100)
+    assert LimitInput(token_limit=101, output_allowance=100).token_limit == 101
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        {"prompt_tokens": 10, "completion_tokens": 10**30},
+        {"total_tokens": 10**30},
+    ],
+)
+def test_zero_or_absurd_usage_counts_reservation_and_keeps_paid_response(setup, usage):
+    response = setup.send(handler=lambda request: answer("Resposta paga", usage=usage))
+    assert response.message.content == "Resposta paga"
+    [entry] = setup.entries()
+    assert entry.status == "confirmed" and entry.usage_kind == "unknown"
+    assert entry.counted_tokens() == entry.reserved_tokens
+    with setup.store.transaction(write=False) as uow:
+        assert uow.messages.list(conversation_id=setup.chat.id)[-1].content == "Resposta paga"
+
+
+def test_absurd_usage_in_worker_completes_task(setup):
+    created = task(setup)
+    worker = TaskWorker(
+        setup.database,
+        transport=httpx.MockTransport(lambda r: answer(usage={"total_tokens": 10**30})),
+    )
+    assert asyncio.run(worker.run_once())
+    assert TaskService(setup.database).detail(setup.agent.id, created.id).task.status == (
+        "completed"
+    )
+    [entry] = setup.entries()
+    assert entry.status == "confirmed" and entry.usage_kind == "unknown"
+
+
+def test_blocked_chat_leaves_no_orphan_message(setup):
+    setup.limit(5000, output_allowance=4999)
+    with setup.store.transaction(write=False) as uow:
+        before = uow.messages.list(conversation_id=setup.chat.id)
+    for _ in range(2):
+        with pytest.raises(ProviderError) as caught:
+            setup.send("Bloqueada")
+        assert caught.value.code == "budget_exhausted"
+    with setup.store.transaction(write=False) as uow:
+        assert uow.messages.list(conversation_id=setup.chat.id) == before
+    assert not setup.requests and not setup.entries()
+
+
+@pytest.mark.parametrize(
+    ("failure", "status"),
+    [
+        (httpx.Response(400, json={}), "released"),
+        (httpx.Response(413, json={}), "released"),
+        (httpx.Response(422, json={}), "released"),
+        (httpx.Response(408, json={}), "unknown"),
+        (httpx.Response(409, json={}), "unknown"),
+        (httpx.Response(500, json={}), "unknown"),
+        (httpx.ConnectError("recusada"), "released"),
+        (httpx.ConnectTimeout("sem conexão"), "released"),
+        (httpx.ReadError("cortada"), "unknown"),
+    ],
+)
+def test_release_requires_proof_of_no_generation(setup, failure, status):
+    def handler(request):
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    with pytest.raises(ProviderError):
+        setup.send(handler=handler)
+    [entry] = setup.entries()
+    assert entry.status == status
+
+
+def test_concurrent_write_during_authorization_is_handled_conflict(setup, monkeypatch):
+    import apsw
+
+    from bees_core.providers import service as service_module
+
+    def busy(*args, **kwargs):
+        raise apsw.BusyError("database is locked")
+
+    monkeypatch.setattr(service_module, "reserve", busy)
+    with pytest.raises(ProviderError) as caught:
+        setup.send()
+    assert caught.value.code == "state_conflict"
+    assert not setup.requests and not setup.entries()
+
+
+def test_sql_window_matches_entry_rule_and_partial_is_not_reported(setup):
+    now = utc_now()
+    shapes = [
+        {"status": "reserved"},
+        {"status": "released"},
+        {"status": "unknown"},
+        {"status": "confirmed", "usage_kind": "reported", "total_tokens": 150},
+        {"status": "confirmed", "usage_kind": "reported", "input_tokens": 7, "output_tokens": 3},
+        {"status": "confirmed", "usage_kind": "reported", "output_tokens": 30},
+        {"status": "confirmed", "usage_kind": "reported", "total_tokens": 0},
+        {"status": "confirmed", "usage_kind": "estimated", "total_tokens": 40},
+        {"status": "confirmed", "usage_kind": "unknown"},
+    ]
+    with setup.store.transaction() as uow:
+        for shape in shapes:
+            uow.usage_entries.create(
+                UsageEntry(
+                    agent_id=setup.agent.id,
+                    source="chat",
+                    conversation_id=setup.chat.id,
+                    provider_kind="openai_compatible",
+                    model="fixture-text",
+                    reserved_tokens=1000,
+                    estimate_method="chars_div_3_v1",
+                    settled_at=None if shape["status"] == "reserved" else now,
+                    **shape,
+                )
+            )
+    entries = setup.entries()
+    with setup.store.transaction(write=False) as uow:
+        window = uow.usage_entries.window(setup.agent.id, now - timedelta(days=1))
+    assert window["counted_tokens"] == sum(entry.counted_tokens() for entry in entries)
+    assert window["counted_tokens"] == 1000 + 0 + 1000 + 150 + 10 + 1000 + 1000 + 40 + 1000
+    assert window["reported_tokens"] == 160
+    assert window["open_reservations"] == 1 and window["entries"] == len(shapes)
+    # Incerto, parcial, zerado e confirmado sem uso.
+    assert window["unknown_entries"] == 4
+
+
+def test_worker_checks_budget_before_asking_for_decision(setup):
+    from bees_core.policies import PolicyInput, PolicyService
+
+    PolicyService(setup.database).create(
+        setup.agent.id, PolicyInput(name="Perguntar sempre", effect="ask")
+    )
+    setup.limit(100, output_allowance=50)
+    created = task(setup)
+    worker = TaskWorker(setup.database, transport=httpx.MockTransport(lambda r: answer()))
+    assert asyncio.run(worker.run_once())
+    detail = TaskService(setup.database).detail(setup.agent.id, created.id)
+    assert detail.task.status == "paused" and detail.runs[-1].error == "budget_exhausted"
+    with setup.store.transaction(write=False) as uow:
+        assert uow.approvals.list(limit=100) == []

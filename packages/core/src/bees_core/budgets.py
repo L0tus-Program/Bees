@@ -1,17 +1,18 @@
 """Consumo canônico das gerações e limite de tokens por abelha (BEES-022.1).
 
 A reserva é gravada no mesmo commit da autorização imediatamente antes da rede; a
-liquidação usa o uso informado pelo provedor. Ausência de uso nunca vira zero: o
-registro conta a reserva. O limite local bloqueia a próxima geração antes da rede; não
-corta uma resposta em andamento nem garante teto na fatura do fornecedor.
+liquidação usa o uso informado pelo provedor. Ausência de uso, uso zerado ou absurdo
+nunca vira zero: o registro conta a reserva. O limite local bloqueia a próxima geração
+antes da rede; não corta uma resposta em andamento nem garante teto na fatura.
 """
 
 import json
 import math
 from datetime import datetime, timedelta
+from typing import Self
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from bees_core.models import BudgetLimit, UsageEntry, utc_now
 from bees_core.providers.contracts import ChatRequest, Usage
@@ -19,10 +20,16 @@ from bees_core.providers.errors import ProviderError
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
 
-# Estimativa conservadora e declarada: textos comuns ficam perto de 4 caracteres por
-# token; dividir por 3 superestima a entrada. Não é contagem do fornecedor.
+# Estimativa declarada: textos latinos comuns ficam perto de 4 caracteres por token, e
+# dividir por 3 os superestima. Outras escritas (como CJK) podem ser subestimadas. Não é
+# contagem do fornecedor.
 ESTIMATE_METHOD = "chars_div_3_v1"
 DEFAULT_OUTPUT_ALLOWANCE = 4096
+# Acima disso um contador informado não é plausível nem cabe com folga no SQLite.
+MAX_TOKEN_COUNT = 10**12
+# Respostas HTTP que recusam o pedido sem gerá-lo. 408/409/425/499 e 5xx podem ocorrer
+# depois de processamento em intermediários e permanecem incertos.
+RELEASING_STATUS = frozenset({400, 401, 403, 404, 413, 422, 429})
 
 
 class LimitInput(BaseModel):
@@ -33,6 +40,13 @@ class LimitInput(BaseModel):
     output_allowance: int = Field(default=DEFAULT_OUTPUT_ALLOWANCE, ge=1, le=1_000_000)
     status: str = Field(default="active", pattern="^(active|disabled)$")
 
+    @model_validator(mode="after")
+    def fits_one_generation(self) -> Self:
+        # Um limite menor que a folga de saída bloquearia a abelha para sempre.
+        if self.token_limit <= self.output_allowance:
+            raise ValueError("O limite precisa comportar ao menos uma geração.")
+        return self
+
 
 def estimate_input(request: ChatRequest) -> int:
     payload = json.dumps(request.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
@@ -40,16 +54,49 @@ def estimate_input(request: ChatRequest) -> int:
 
 
 def releases(error: BaseException) -> bool:
-    """Somente recusa HTTP explícita do provedor prova que nenhuma geração ocorreu."""
-    return isinstance(error, ProviderError) and (
-        error.code == "redirect_refused"
-        or (error.upstream_status is not None and 400 <= error.upstream_status < 500)
+    """Liberar só quando há prova de que nenhuma geração ocorreu."""
+    if not isinstance(error, ProviderError):
+        return False
+    return (
+        error.undelivered
+        or error.code == "redirect_refused"
+        or error.upstream_status in RELEASING_STATUS
     )
 
 
-def window_total(uow, agent_id: UUID, *, window_seconds: int, now: datetime) -> int:
-    entries = uow.usage_entries.since(agent_id, now - timedelta(seconds=window_seconds))
-    return sum(entry.counted_tokens() for entry in entries)
+def trusted_usage(usage: Usage | None) -> Usage | None:
+    """Contadores zerados ou fora de escala viram desconhecidos e contam a reserva."""
+    if usage is None or usage.kind == "unknown":
+        return usage
+    counts = (usage.input_tokens, usage.output_tokens, usage.total_tokens)
+    if any(value is not None and value > MAX_TOKEN_COUNT for value in counts):
+        return Usage()
+    total = usage.total_tokens
+    if total is None and usage.input_tokens is not None and usage.output_tokens is not None:
+        total = usage.input_tokens + usage.output_tokens
+    if total == 0:
+        return Usage()
+    return usage
+
+
+def _allowance(limit: BudgetLimit | None) -> int:
+    return limit.output_allowance if limit is not None else DEFAULT_OUTPUT_ALLOWANCE
+
+
+def _exceeds(uow, prepared, limit: BudgetLimit | None, reserved: int, now: datetime) -> bool:
+    if limit is None or limit.status != "active":
+        return False
+    window = uow.usage_entries.window(
+        prepared.agent_id, now - timedelta(seconds=limit.window_seconds)
+    )
+    return window["counted_tokens"] + reserved > limit.token_limit
+
+
+def fits(uow, prepared, *, now: datetime | None = None) -> bool:
+    """Pré-checagem sem reserva, para recusar antes de gravar entrada ou pedir decisão."""
+    limit = uow.budget_limits.for_agent(prepared.agent_id)
+    reserved = estimate_input(prepared.request) + _allowance(limit)
+    return not _exceeds(uow, prepared, limit, reserved, now or utc_now())
 
 
 def reserve(
@@ -63,12 +110,9 @@ def reserve(
     """Dentro da transação de autorização; o commit precede a rede."""
     now = now or utc_now()
     limit = uow.budget_limits.for_agent(prepared.agent_id)
-    allowance = limit.output_allowance if limit is not None else DEFAULT_OUTPUT_ALLOWANCE
-    reserved = estimate_input(prepared.request) + allowance
-    if limit is not None and limit.status == "active":
-        used = window_total(uow, prepared.agent_id, window_seconds=limit.window_seconds, now=now)
-        if used + reserved > limit.token_limit:
-            raise ProviderError("budget_exhausted")
+    reserved = estimate_input(prepared.request) + _allowance(limit)
+    if _exceeds(uow, prepared, limit, reserved, now):
+        raise ProviderError("budget_exhausted")
     return uow.usage_entries.create(
         UsageEntry(
             id=uuid4(),
@@ -98,6 +142,7 @@ def settle(
     entry = uow.usage_entries.get(entry_id)
     if entry is None or entry.status != "reserved":
         return entry
+    usage = trusted_usage(usage)
     update: dict = {"settled_at": now or utc_now()}
     if usage is not None:
         update |= {
@@ -110,6 +155,17 @@ def settle(
     else:
         update["status"] = "released" if released else "unknown"
     return uow.usage_entries.update(entry.model_copy(update=update), entry.revision)
+
+
+def settle_safely(uow, entry_id: UUID, **values) -> None:
+    """Falha de liquidação não pode apagar resposta paga nem o erro original.
+
+    O registro continua ``reserved`` e segue contando a reserva inteira.
+    """
+    try:
+        settle(uow, entry_id, **values)
+    except Exception:
+        pass
 
 
 class BudgetService:
@@ -129,28 +185,12 @@ class BudgetService:
             agent = self._agent(uow, agent_id)
             limit = uow.budget_limits.for_agent(agent)
             window = limit.window_seconds if limit is not None else 86400
-            entries = uow.usage_entries.since(agent, now - timedelta(seconds=window))
-        counted = sum(entry.counted_tokens() for entry in entries)
-        reported = sum(
-            entry.counted_tokens()
-            for entry in entries
-            if entry.status == "confirmed" and entry.usage_kind == "reported"
-        )
-        return {
+            totals = uow.usage_entries.window(agent, now - timedelta(seconds=window))
+        return totals | {
             "limit": limit,
             "window_seconds": window,
-            "counted_tokens": counted,
-            "reported_tokens": reported,
-            "open_reservations": sum(1 for entry in entries if entry.status == "reserved"),
-            "unknown_entries": sum(
-                1
-                for entry in entries
-                if entry.status == "unknown"
-                or (entry.status == "confirmed" and entry.usage_kind == "unknown")
-            ),
-            "entries": len(entries),
             "remaining_tokens": (
-                max(limit.token_limit - counted, 0)
+                max(limit.token_limit - totals["counted_tokens"], 0)
                 if limit is not None and limit.status == "active"
                 else None
             ),

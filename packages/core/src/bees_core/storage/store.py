@@ -1488,6 +1488,42 @@ class UsageEntries(_Repository[UsageEntry]):
                 return result
             cursor = (_timestamp(result[-1].created_at), str(result[-1].id))
 
+    def window(self, agent_id: UUID, since: datetime) -> dict[str, int]:
+        """Agregação da janela em SQL, sem carregar linhas sob o lock de escrita.
+
+        A regra de contagem espelha UsageEntry.counted_tokens/informed_tokens.
+        """
+        self._context.check()
+        informed = (
+            "CASE WHEN status='confirmed' AND usage_kind IN ('reported','estimated') THEN "
+            "CASE WHEN total_tokens IS NOT NULL THEN NULLIF(total_tokens,0) "
+            "WHEN input_tokens IS NOT NULL AND output_tokens IS NOT NULL "
+            "THEN NULLIF(input_tokens+output_tokens,0) END END"
+        )
+        row = self._context.connection.execute(
+            "SELECT "
+            f"COALESCE(SUM(CASE WHEN status='released' THEN 0 "
+            f"ELSE COALESCE({informed},reserved_tokens) END),0),"
+            f"COALESCE(SUM(CASE WHEN usage_kind='reported' THEN {informed} END),0),"
+            "COALESCE(SUM(status='reserved'),0),"
+            f"COALESCE(SUM(status='unknown' OR (status='confirmed' AND ({informed}) IS NULL)),0),"
+            "COUNT(*) FROM usage_entries WHERE agent_id=? AND created_at>=?",
+            (str(UUID(str(agent_id))), _timestamp(since)),
+        ).fetchone()
+        return dict(
+            zip(
+                (
+                    "counted_tokens",
+                    "reported_tokens",
+                    "open_reservations",
+                    "unknown_entries",
+                    "entries",
+                ),
+                row,
+                strict=True,
+            )
+        )
+
 
 _USAGE_SPEC = _Spec(
     "usage_entries",

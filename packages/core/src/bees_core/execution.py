@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from bees_core.approvals import ApprovalService
-from bees_core.budgets import releases, reserve, settle
+from bees_core.budgets import fits, releases, reserve, settle_safely
 from bees_core.models import ExecutionClaim, ModelCall, utc_now
 from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.contracts import SecretResolver
@@ -308,7 +308,8 @@ class TaskWorker:
             uow.execution.assert_claim(claim, now=now)
             entry = uow.usage_entries.for_model_call(call.id)
             if entry is not None:
-                settle(
+                # Falha de liquidação não pode desfazer o resultado; a reserva segue contada.
+                settle_safely(
                     uow,
                     entry.id,
                     usage=response.usage if response is not None else usage,
@@ -457,6 +458,10 @@ class TaskWorker:
                     or current_task.control_revision != call.task_control_revision
                 ):
                     raise RevisionConflict("Controle mudou antes de pedir uma decisão.")
+                if decision.effect != "deny" and not fits(uow, prepared):
+                    # Antes de pedir decisão humana: sem orçamento a geração não aconteceria.
+                    self._settle_local(uow, claim, code="budget_exhausted")
+                    return True
                 approval = self.approvals.check(uow, current_task, current_run, prepared, decision)
                 if decision.effect == "ask" and approval is None:
                     self._wait_for_approval(uow, claim, prepared, decision)

@@ -104,8 +104,13 @@ class HTTPAdapter:
                     headers=headers,
                 ) as client:
                     yield client
+        except httpx.ConnectTimeout:
+            raise ProviderError("timeout", retryable=True, undelivered=True) from None
         except TimeoutError, httpx.TimeoutException:
             raise ProviderError("timeout", retryable=True) from None
+        except httpx.ConnectError:
+            # Falha ao estabelecer a conexão: o pedido nunca foi enviado.
+            raise ProviderError("connection_failed", retryable=True, undelivered=True) from None
         except httpx.RequestError:
             raise ProviderError("connection_failed", retryable=True) from None
 

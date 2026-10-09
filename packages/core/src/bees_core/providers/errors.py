@@ -68,7 +68,7 @@ MESSAGES: dict[str, str] = {
     ),
     "budget_exhausted": (
         "O limite de consumo desta abelha não comporta outra geração agora. Revise o limite "
-        "ou aguarde a janela; nenhuma chamada foi enviada ao provedor."
+        "ou aguarde a janela; nenhuma geração foi solicitada ao provedor."
     ),
 }
 
@@ -81,11 +81,14 @@ class ProviderError(RuntimeError):
         *,
         retryable: bool = False,
         upstream_status: int | None = None,
+        undelivered: bool = False,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
         self.message = MESSAGES[code]
         self.retryable = retryable
+        # Conexão não estabelecida: nenhum byte do pedido chegou ao provedor.
+        self.undelivered = undelivered
         if upstream_status is not None and (
             type(upstream_status) is not int or not 400 <= upstream_status <= 599
         ):

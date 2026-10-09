@@ -452,16 +452,24 @@ class UsageEntry(Record):
             raise ValueError("Consumo de tarefa exige a chamada do journal.")
         return self
 
+    def informed_tokens(self) -> int | None:
+        """Total informado completo e positivo; parcial ou zerado não comprova consumo."""
+        if self.status != "confirmed" or self.usage_kind not in ("reported", "estimated"):
+            return None
+        total = self.total_tokens
+        if total is None and self.input_tokens is not None and self.output_tokens is not None:
+            total = self.input_tokens + self.output_tokens
+        return total if total is not None and total > 0 else None
+
     def counted_tokens(self) -> int:
-        """Informado quando completo; reserva quando ausente, parcial ou incerto."""
+        """Informado quando completo; reserva quando ausente, parcial, zerado ou incerto.
+
+        Mantida igual à agregação SQL de UsageEntries.window.
+        """
         if self.status == "released":
             return 0
-        if self.status == "confirmed" and self.usage_kind != "unknown":
-            if self.total_tokens is not None:
-                return self.total_tokens
-            if self.input_tokens is not None and self.output_tokens is not None:
-                return self.input_tokens + self.output_tokens
-        return self.reserved_tokens
+        informed = self.informed_tokens()
+        return informed if informed is not None else self.reserved_tokens
 
 
 class Artifact(Record):
