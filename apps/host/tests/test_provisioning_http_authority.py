@@ -363,6 +363,56 @@ def test_sync_interface_rejects_active_async_loop_without_coroutine_warning():
         asyncio.run(call())
 
 
+def test_real_loopback_requests_reuse_one_strict_tls_context(monkeypatch):
+    """Cliente por request, sem recriar o contexto TLS padrão (certifi/hostname/required)."""
+    import ssl
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from httpx._transports import default as transports
+
+    claim = claim_fixture()
+    body = json.dumps(context(claim)).encode()
+
+    class Session(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    contexts = []
+    original = transports.create_ssl_context
+
+    def observed(*args, **kwargs):
+        contexts.append(original(*args, **kwargs))
+        return contexts[-1]
+
+    monkeypatch.setattr(transports, "create_ssl_context", observed)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Session)
+    worker = threading.Thread(target=server.serve_forever, name="own-session-server")
+    worker.start()
+    try:
+        with HTTPAuthority(
+            f"http://127.0.0.1:{server.server_address[1]}",
+            SecretStr(TOKEN),
+            installation_id=claim.installation_id,
+            host_id=claim.host_id,
+            provisioner_id=claim.provisioner_id,
+        ) as authority:
+            assert authority.session().revision == authority.session().revision == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=5)
+    assert len(contexts) == 2 and contexts[0] is contexts[1]
+    assert contexts[0].verify_mode == ssl.CERT_REQUIRED and contexts[0].check_hostname
+    assert contexts[0].cert_store_stats()["x509_ca"] > 0
+
+
 def test_closed_adapter_does_not_open_network():
     authority = adapter(claim_fixture(), lambda request: pytest.fail("network"))
     authority.close()
