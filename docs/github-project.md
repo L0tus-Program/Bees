@@ -43,7 +43,7 @@ O guia [CONTRIBUTING](../CONTRIBUTING.md) descreve branches, testes, revisão e 
 
 ## Mapa das histórias
 
-Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. BEES-011.6 (P2), aberta a partir dela, registra o endurecimento posterior dos diagnósticos PowerShell. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
+Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. A partir dela foram abertas BEES-011.6 (P2), para o endurecimento posterior dos diagnósticos PowerShell, e CI-002 (P1), para as falhas intermitentes das interops HTTP no Windows. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
 
 | História | Estado inicial | Prioridade | Marco |
 | --- | --- | --- | --- |
@@ -211,6 +211,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-026.3 — Validar instalação limpa sem terminal e publicar guias de primeira versão](https://github.com/L0tus-Program/Bees/issues/92)
 - [BEES-026.4 — Escolher licença e revisar dependências antes do release formal](https://github.com/L0tus-Program/Bees/issues/93)
 - [CI-001 — Corrigir CI Windows preservando owner privado e bytes da âncora](https://github.com/L0tus-Program/Bees/issues/112)
+- [CI-002 — Investigar falhas intermitentes das interops HTTP do provisionador no Windows](https://github.com/L0tus-Program/Bees/issues/115) (P1)
 
 ### BEES-028 — Concluir todo o setup do usuário final pela interface
 
