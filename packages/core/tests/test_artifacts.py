@@ -98,7 +98,9 @@ def test_crash_after_blob_before_ready_is_reported_and_finished_without_duplicat
     artifact_id = uuid4()
 
     def crash(path):
-        raise Crash
+        # Somente o fsync logo após a publicação do blob; diretórios novos passam.
+        if path.name == "blobs":
+            raise Crash
 
     monkeypatch.setattr(ArtifactStore, "_sync_directory", staticmethod(crash))
     with pytest.raises(Crash):
@@ -140,7 +142,7 @@ def test_foreign_blob_at_target_fails_closed_and_keeps_evidence(setup, monkeypat
         setup.create(artifact_id=artifact_id)
 
 
-def test_disk_full_marks_failed_without_ready_or_partial_file(setup, monkeypatch):
+def test_disk_full_keeps_retryable_draft_without_partial_file(setup, monkeypatch):
     artifact_id = uuid4()
 
     def full(descriptor, data):
@@ -150,10 +152,63 @@ def test_disk_full_marks_failed_without_ready_or_partial_file(setup, monkeypatch
     with pytest.raises(ArtifactError, match="artifact_storage_unavailable"):
         setup.create(artifact_id=artifact_id)
     monkeypatch.undo()
-    failed = setup.row(artifact_id)
-    assert failed.status == "failed"
-    assert failed.metadata == {"error_code": "artifact_storage_unavailable"}
+    # Falha do ambiente não é terminal: nada parcial, rascunho pronto para repetição.
+    assert setup.row(artifact_id).status == "draft"
     assert setup.files() == []
+    assert setup.create(artifact_id=artifact_id).status == "ready"
+
+
+def test_extra_link_from_interrupted_link_window_is_never_terminal(setup, monkeypatch):
+    """Publicador morto entre link e unlink (POSIX) ou concorrente dentro da janela."""
+    artifact_id = uuid4()
+
+    def crash(*args):
+        raise Crash
+
+    monkeypatch.setattr(ArtifactStore, "_write_staging", crash)
+    with pytest.raises(Crash):
+        setup.create(artifact_id=artifact_id)
+    monkeypatch.undo()
+    blob = setup.root / "blobs" / str(artifact_id)
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    (setup.root / "staging").mkdir(exist_ok=True)
+    blob.write_bytes(REPORT)
+    stale = setup.root / "staging" / f"{artifact_id}.interrompido.part"
+    os.link(blob, stale)
+    if os.name == "nt":
+        # O protocolo Windows usa rename e não cria esse link; mesmo assim nunca é terminal.
+        with pytest.raises(ArtifactError, match="artifact_integrity_failed"):
+            setup.create(artifact_id=artifact_id)
+        assert setup.row(artifact_id).status == "draft" and stale.exists()
+        return
+    assert setup.create(artifact_id=artifact_id).status == "ready"
+    assert not stale.exists() and blob.read_bytes() == REPORT and blob.stat().st_nlink == 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Retentativa de rename é exclusiva do Windows.")
+def test_windows_sharing_violation_is_retried_then_kept_retryable(setup, monkeypatch):
+    original = module.os.rename
+    calls = []
+
+    def busy(source, target, *, until):
+        calls.append(source)
+        if len(calls) <= until:
+            raise PermissionError(13, "arquivo em uso por outro processo", None, 32)
+        return original(source, target)
+
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(module.os, "rename", lambda s, t: busy(s, t, until=2))
+    assert setup.create().status == "ready" and len(calls) == 3
+    calls.clear()
+    artifact_id = uuid4()
+    monkeypatch.setattr(module.os, "rename", lambda s, t: busy(s, t, until=99))
+    with pytest.raises(ArtifactError, match="artifact_storage_unavailable"):
+        setup.create(artifact_id=artifact_id)
+    assert len(calls) == module._RENAME_ATTEMPTS
+    assert setup.row(artifact_id).status == "draft"
+    assert not list((setup.root / "staging").iterdir())
+    monkeypatch.setattr(module.os, "rename", original)
+    assert setup.create(artifact_id=artifact_id).status == "ready"
 
 
 def test_replay_of_ready_is_idempotent_and_keeps_single_blob(setup):
@@ -250,20 +305,94 @@ def test_versions_keep_previous_and_concurrent_writers_have_one_winner(setup):
         assert uow.artifacts.list(series_id=first.id) == [first, second, third]
 
 
-def test_sql_triggers_protect_published_content_and_history(setup):
+def test_interrupted_version_is_readopted_or_abandoned_without_locking_series(setup, monkeypatch):
+    first = setup.create()
+
+    def crash(*args):
+        raise Crash
+
+    monkeypatch.setattr(ArtifactStore, "_write_staging", crash)
+    with pytest.raises(Crash):
+        setup.store.create_version(setup.agent.id, first.id, content=b"# v2\n")
+    monkeypatch.undo()
+    with StateStore(setup.database).transaction(write=False) as uow:
+        [pending] = [item for item in uow.artifacts.list(series_id=first.id) if item.version == 2]
+    assert pending.status == "draft"
+    # Outro conteúdo não ocupa a posição; o mesmo pedido readota o rascunho pelo id.
+    with pytest.raises(ArtifactError, match="artifact_version_pending"):
+        setup.store.create_version(setup.agent.id, first.id, content=b"# outra v2\n")
+    readopted = setup.store.create_version(setup.agent.id, first.id, content=b"# v2\n")
+    assert readopted.id == pending.id and readopted.status == "ready"
+    # Abandono explícito libera a posição sem tocar arquivos; falha não ocupa versão.
+    monkeypatch.setattr(ArtifactStore, "_write_staging", crash)
+    with pytest.raises(Crash):
+        setup.store.create_version(setup.agent.id, readopted.id, content=b"# v3\n")
+    monkeypatch.undo()
+    with StateStore(setup.database).transaction(write=False) as uow:
+        [draft] = [item for item in uow.artifacts.list(series_id=first.id) if item.version == 3]
+    with pytest.raises(NotFoundError):
+        setup.store.abandon(setup.other.id, draft.id, expected_revision=draft.revision)
+    abandoned = setup.store.abandon(setup.agent.id, draft.id, expected_revision=draft.revision)
+    assert abandoned.status == "failed"
+    assert abandoned.metadata == {"error_code": "artifact_abandoned"}
+    with pytest.raises(ArtifactError, match="artifact_terminal"):
+        setup.store.abandon(setup.agent.id, draft.id, expected_revision=abandoned.revision)
+    third = setup.store.create_version(setup.agent.id, readopted.id, content=b"# outra v3\n")
+    assert third.version == 3 and third.status == "ready"
+
+
+def test_sql_triggers_protect_declared_content_lineage_and_history(setup, monkeypatch):
     artifact = setup.create()
+    draft_id = uuid4()
+
+    def crash(*args):
+        raise Crash
+
+    monkeypatch.setattr(ArtifactStore, "_write_staging", crash)
+    with pytest.raises(Crash):
+        setup.create(artifact_id=draft_id)
+    monkeypatch.undo()
     statements = [
         ("UPDATE artifacts SET sha256=? WHERE id=?", ("b" * 64, str(artifact.id))),
         ("UPDATE artifacts SET status='draft' WHERE id=?", (str(artifact.id),)),
         ("UPDATE artifacts SET version=7 WHERE id=?", (str(artifact.id),)),
         ("UPDATE artifacts SET storage_key='blob/v1/x' WHERE id=?", (str(artifact.id),)),
+        (
+            "UPDATE artifacts SET created_at='2000-01-01T00:00:00+00:00' WHERE id=?",
+            (str(artifact.id),),
+        ),
         ("DELETE FROM artifacts WHERE id=?", (str(artifact.id),)),
+        # Rascunho: conteúdo declarado também é imutável antes da publicação.
+        ("UPDATE artifacts SET sha256=? WHERE id=?", ("b" * 64, str(draft_id))),
+        ("UPDATE artifacts SET size_bytes=1 WHERE id=?", (str(draft_id),)),
+        ("UPDATE artifacts SET media_type='text/plain' WHERE id=?", (str(draft_id),)),
     ]
     for sql, values in statements:
         with pytest.raises(Exception, match="immutable|append-only"):
             with setup.database.transaction() as connection:
                 connection.execute(sql, values)
     assert setup.row(artifact.id) == artifact
+    now = utc_now().isoformat()
+    inserts = [
+        # v1 precisa iniciar a própria série; versão anterior precisa estar pronta.
+        (str(uuid4()), str(artifact.id), 1, None),
+        (str(uuid4()), str(artifact.id), 3, str(artifact.id)),
+        (str(uuid4()), str(draft_id), 2, str(draft_id)),
+    ]
+    for new_id, series, version, previous in inserts:
+        with pytest.raises(Exception, match="lineage is inconsistent"):
+            with setup.database.transaction() as connection:
+                connection.execute(
+                    "INSERT INTO artifacts(id,task_id,name,version,series_id,previous_id,"
+                    "created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                    (new_id, str(setup.task.id), "x.md", version, series, previous, now, now),
+                )
+
+
+def test_csv_with_large_field_is_valid(setup):
+    content = b'"' + b"x" * (200 * 1024) + b'",fim\n'
+    artifact = setup.create(content, name="grande.csv", media_type="text/csv")
+    assert setup.store.read(setup.agent.id, artifact.id)[1] == content
 
 
 @pytest.mark.parametrize(

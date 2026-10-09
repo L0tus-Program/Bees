@@ -210,9 +210,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(ArtifactError)
     async def artifact_error(request: Request, error: ArtifactError) -> JSONResponse:
+        # Armazenamento indisponível é temporário; estado/integridade exigem atenção.
+        unavailable = error.code == "artifact_storage_unavailable"
         return JSONResponse(
-            {"error": {"code": error.code, "message": "Artefato indisponível; atualize a tela."}},
-            status_code=409,
+            {"error": {"code": error.code, "message": "Artefato indisponível no momento."}},
+            status_code=503 if unavailable else 409,
         )
 
     @app.exception_handler(TaskError)

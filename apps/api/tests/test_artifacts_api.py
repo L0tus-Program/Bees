@@ -127,3 +127,18 @@ def test_download_is_read_only_and_mutations_are_not_routed(state):
     assert response.status_code == 405
     with client.app.state.store.transaction(write=False) as unit:
         assert unit.artifacts.get(artifact.id) == artifact
+
+
+def test_storage_outage_is_temporary_503_without_details(state, monkeypatch):
+    from bees_core.artifacts import ArtifactError, ArtifactStore
+
+    client, first, _, _, artifact, _ = state
+
+    def unavailable(self):
+        raise ArtifactError("artifact_storage_unavailable")
+
+    monkeypatch.setattr(ArtifactStore, "_check_root", unavailable)
+    response = client.get(f"/api/v1/agents/{first.id}/artifacts/{artifact.id}/download")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "artifact_storage_unavailable"
+    assert "artifacts" not in response.text and "Relat" not in response.text
