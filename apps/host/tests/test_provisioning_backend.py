@@ -32,6 +32,34 @@ _INVENTORY = {
 }
 
 
+def _script_section(name: str) -> str:
+    """Trecho marcado do script empacotado; testes nativos executam o código de produção."""
+    script = files("bees_host.provisioning").joinpath("hyperv.ps1").read_text(encoding="utf-8")
+    section = script.split(f"# BEGIN_{name}:", 1)[1].split("\n", 1)[1]
+    return section.split(f"# END_{name}", 1)[0]
+
+
+def _native_powershell(program: str, env: dict[str, str] | None = None, **kwargs):
+    system = probe._system_directory()
+    with probe._external_library_search():
+        return subprocess.run(
+            [
+                str(system / "WindowsPowerShell/v1.0/powershell.exe"),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                base64.b64encode(program.encode("utf-16-le")).decode("ascii"),
+            ],
+            cwd=system,
+            env=env or probe._windows_environment(system),
+            capture_output=True,
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            **kwargs,
+        )
+
+
 def _fixture_command(body: str) -> Command:
     """Filho real descartável, somente stdout/espera; nenhum efeito de hardware."""
     script = "import sys,time,os,json\ninventory=" + repr(json.dumps(_INVENTORY)) + "\n" + body
@@ -339,13 +367,11 @@ def test_unsupported_platform_has_no_process_or_plaintext_fallback(monkeypatch):
 
 @pytest.mark.skipif(os.name != "nt", reason="Protocolo PowerShell nativo Windows")
 def test_native_powershell_prepared_go_reads_separate_stdin_statements():
-    """Contraste com o protocolo de produção; nenhum módulo/efeito de Hyper-V."""
+    """Preâmbulo e protocolo de produção; nenhum módulo/efeito de Hyper-V."""
     request_id = uuid4()
     program = (
-        """
-$ErrorActionPreference='Stop'
-[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        _script_section("HOST_PREAMBLE")
+        + """
 $line=[Console]::In.ReadLine()
 $p=$line | ConvertFrom-Json
 if (-not $p.request_id) {exit 2}
@@ -393,6 +419,52 @@ if ($go -cne ('GO:'+$p.request_id)) {exit 3}
     assert process.poll() == 0 and process.stdin.closed and process.stdout.closed
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Módulos PowerShell5.1 nativos")
+def test_native_preamble_ignores_shadow_modules_and_disables_autoload(tmp_path):
+    """Módulo anterior no PSModulePath não substitui cmdlets base nem entra por autoload."""
+    shadow = tmp_path / "BeesShadow"
+    shadow.mkdir()
+    (shadow / "BeesShadow.psm1").write_text(
+        "function ConvertFrom-Json { [Console]::Out.WriteLine('shadow') }\n"
+        "function Get-BeesShadow { [Console]::Out.WriteLine('shadow') }\n",
+        encoding="utf-8",
+    )
+    (shadow / "BeesShadow.psd1").write_text(
+        f"@{{RootModule='BeesShadow.psm1';ModuleVersion='1.0';GUID='{uuid4()}';"
+        "FunctionsToExport=@('ConvertFrom-Json','Get-BeesShadow')}\n",
+        encoding="utf-8",
+    )
+    env = probe._windows_environment(probe._system_directory())
+    env["PSModulePath"] = f"{tmp_path};{env['PSModulePath']}"
+    body = r"""
+$p='{"value":1}' | ConvertFrom-Json
+$blocked=$false
+try { Get-BeesShadow } catch [Management.Automation.CommandNotFoundException] { $blocked=$true }
+$base=[IO.Path]::GetFullPath($PSHOME).TrimEnd('\')
+$outside=@(Get-Module | Where-Object {
+    [IO.Path]::GetFullPath($_.ModuleBase).TrimEnd('\') -ine $base
+})
+$names=@(Get-Module | ForEach-Object { $_.Name } | Sort-Object)
+$state=@{value=$p.value;blocked=$blocked;outside=$outside.Count;names=$names}
+[Console]::Out.WriteLine(($state | ConvertTo-Json -Compress))
+"""
+    # Contraste: sem o preâmbulo, o PS5.1 resolve o cmdlet pelo módulo sombra.
+    contrast = _native_powershell(body, env=env, timeout=30)
+    assert contrast.stdout.decode().splitlines()[:2] == ["shadow", "shadow"]
+    result = _native_powershell(_script_section("HOST_PREAMBLE") + body, env=env, timeout=15)
+    assert result.returncode == 0 and not result.stderr, result.stderr
+    assert json.loads(result.stdout) == {
+        "value": 1,
+        "blocked": True,
+        "outside": 0,
+        "names": [
+            "Microsoft.PowerShell.Management",
+            "Microsoft.PowerShell.Security",
+            "Microsoft.PowerShell.Utility",
+        ],
+    }
+
+
 @pytest.mark.parametrize("admin", [False, True])
 def test_preflight_accepts_native_vmms_acl_and_only_checks_existing_elevation(monkeypatch, admin):
     """Área própria com ACL real; resposta administrativa falsa, sem UAC/processo."""
@@ -424,12 +496,10 @@ def test_preflight_accepts_native_vmms_acl_and_only_checks_existing_elevation(mo
 
 @pytest.mark.parametrize("failure", [None, "hardlink", "foreign_acl", "foreign_read_acl"])
 def test_readonly_native_hardware_guard_without_hyperv(failure):
-    """Somente arquivos descartáveis: não carrega módulo nem altera hardware/ACL global."""
+    """Somente arquivos descartáveis: não carrega Hyper-V nem altera hardware/ACL global."""
     if os.name != "nt":
         pytest.skip("Guardas de arquivo/ACL Windows nativas.")
-    script = files("bees_host.provisioning").joinpath("hyperv.ps1").read_text(encoding="utf-8")
-    guards = script.split("# BEGIN_READONLY_GUARDS:", 1)[1].split("\n", 1)[1]
-    guards = guards.split("# END_READONLY_GUARDS", 1)[0]
+    guards = _script_section("READONLY_GUARDS")
     with private_bridge_directory() as base:
         from bees_host.provisioning.journal import create
 
@@ -439,15 +509,15 @@ def test_readonly_native_hardware_guard_without_hyperv(failure):
             os.link(target, base / "alias.bin")
         program = (
             """
-$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue'
-[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $clock=[Diagnostics.Stopwatch]::StartNew()
 function Write-TestPhase([string]$Phase) {
     [Console]::Error.WriteLine(('BEES_TEST_PHASE:'+$Phase+':'+$clock.ElapsedMilliseconds))
     [Console]::Error.Flush()
 }
 Write-TestPhase 'entered'
+"""
+            + _script_section("HOST_PREAMBLE")
+            + """Write-TestPhase 'preamble'
 """
             + guards
             + """
@@ -485,36 +555,22 @@ Write-TestPhase 'validated'
 exit 0
 """
         )
-        system = probe._system_directory()
         started = time.monotonic()
-        with probe._external_library_search():
-            try:
-                result = subprocess.run(
-                    [
-                        str(system / "WindowsPowerShell/v1.0/powershell.exe"),
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-EncodedCommand",
-                        base64.b64encode(program.encode("utf-16-le")).decode(),
-                    ],
-                    input=(
-                        json.dumps({"root": str(base), "file": str(target), "failure": failure})
-                        + "\n"
-                    ).encode(),
-                    cwd=system,
-                    env=probe._windows_environment(system),
-                    timeout=15,
-                    capture_output=True,
-                    check=False,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
-                )
-            except subprocess.TimeoutExpired as error:
-                phases = (error.stderr or b"").decode(errors="replace")[-2048:]
-                pytest.fail(
-                    f"Guarda nativa excedeu 15s; caso={failure!r}; "
-                    f"tempo={time.monotonic() - started:.3f}s; fases={phases!r}",
-                    pytrace=False,
-                )
+        try:
+            result = _native_powershell(
+                program,
+                input=(
+                    json.dumps({"root": str(base), "file": str(target), "failure": failure}) + "\n"
+                ).encode(),
+                timeout=15,
+            )
+        except subprocess.TimeoutExpired as error:
+            phases = (error.stderr or b"").decode(errors="replace")[-2048:]
+            pytest.fail(
+                f"Guarda nativa excedeu 15s; caso={failure!r}; "
+                f"tempo={time.monotonic() - started:.3f}s; fases={phases!r}",
+                pytrace=False,
+            )
         diagnostic = result.stderr.decode(errors="replace")
         assert result.returncode == 0, diagnostic
         assert not result.stdout
@@ -523,6 +579,7 @@ exit 0
             ["BEES_TEST_PHASE", name]
             for name in (
                 "entered",
+                "preamble",
                 "input_read",
                 "input",
                 "native_initialized",
