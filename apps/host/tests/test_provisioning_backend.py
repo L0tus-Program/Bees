@@ -448,9 +448,12 @@ $names=@(Get-Module | ForEach-Object { $_.Name } | Sort-Object)
 $state=@{value=$p.value;blocked=$blocked;outside=$outside.Count;names=$names}
 [Console]::Out.WriteLine(($state | ConvertTo-Json -Compress))
 """
-    # Contraste: sem o preâmbulo, o PS5.1 resolve o cmdlet pelo módulo sombra.
-    contrast = _native_powershell(body, env=env, timeout=30)
-    assert contrast.stdout.decode().splitlines()[:2] == ["shadow", "shadow"]
+    # Contraste: sem o preâmbulo, o PS5.1 resolve o cmdlet pelo módulo sombra. Termina antes
+    # de qualquer cmdlet base: no runner, esse autoload varreria Program Files e excederia o prazo.
+    contrast = _native_powershell(
+        "$null='{}' | ConvertFrom-Json\nGet-BeesShadow\nexit 0\n", env=env, timeout=30
+    )
+    assert contrast.returncode == 0 and contrast.stdout.decode().split() == ["shadow"] * 2
     result = _native_powershell(_script_section("HOST_PREAMBLE") + body, env=env, timeout=15)
     assert result.returncode == 0 and not result.stderr, result.stderr
     assert json.loads(result.stdout) == {
