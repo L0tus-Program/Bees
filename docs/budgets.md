@@ -54,7 +54,18 @@ Rotas com sessão; edição com Origin, CSRF e CAS:
 - `GET /api/v1/agents/{agent_id}/budget`: limite atual, consumo contado na janela, uso informado, tokens restantes, reservas abertas, registros incertos e quantidade de registros.
 - `PUT /api/v1/agents/{agent_id}/budget`: `token_limit`, `window_seconds`, `output_allowance` e `status`. Sem `expected_revision` cria o primeiro limite; editar exige a revisão lida. Revisão divergente retorna `409`.
 
-A interface de orçamento e atividade é a BEES-022.4.
+## Interface
+
+A vista **Consumo** de cada abelha mostra:
+- a janela;
+- o consumo contado, o informado pelo provedor, os registros incertos, as chamadas em andamento e as gerações;
+- limite e restante, somente quando há limite ativo confirmado pelo serviço.
+
+Ela explica que o incerto conta a reserva e pode ter sido cobrado. Quando o limite é atingido, indica o caminho: aumentar o limite, aguardar a janela e retomar tarefas pausadas.
+
+O formulário edita limite, janela, folga e ativação com CAS. Um conflito recarrega os valores sem sobrescrever. Um erro mantém o último estado com aviso de desatualizado, sem inventar orçamento livre.
+
+Timeline por tarefa/execução, parada global e atenção pendente continuam em BEES-022.2/022.3/022.4.
 
 ## Limites deste checkpoint
 
