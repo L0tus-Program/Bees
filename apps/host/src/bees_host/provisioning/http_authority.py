@@ -33,6 +33,8 @@ from bees_host.provisioning.contracts import (
 ROOT = "/api/v1/provisioner/runtime"
 MAX_BYTES = 16384
 REQUEST_BUDGET = 5.0
+# Prazo de conexão/leitura/escrita por fase, dentro do orçamento total do request.
+PHASE_TIMEOUT = 2.0
 _TRANSITIONS = {
     "claimed": {"claimed", "dispatch_started", "aborted", "outcome_unknown"},
     "dispatch_started": {"dispatch_started", "confirmed", "outcome_unknown"},
@@ -180,7 +182,7 @@ class HTTPAuthority:
             asyncio.timeout(REQUEST_BUDGET),
             httpx.AsyncClient(
                 base_url=self._dial_origin,
-                timeout=httpx.Timeout(2.0, connect=2.0),
+                timeout=httpx.Timeout(PHASE_TIMEOUT, connect=PHASE_TIMEOUT),
                 follow_redirects=False,
                 trust_env=False,
                 verify=self._tls,
