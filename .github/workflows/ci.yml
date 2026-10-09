@@ -25,7 +25,12 @@ jobs:
       - run: uv sync --locked
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
-      - run: uv run --locked pytest
+      - name: Testar no Linux
+        if: runner.os != 'Windows'
+        run: uv run --locked pytest
+      - name: Testar no Windows com dono padrão da conta
+        if: runner.os == 'Windows'
+        run: uv run --locked python scripts/run-ci-tests.py
 
   web:
     name: Interface

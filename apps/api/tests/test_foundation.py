@@ -37,7 +37,8 @@ def test_spa_does_not_hide_api_or_asset_errors(tmp_path: Path) -> None:
     ) as client:
         assert client.get("/").status_code == 200
         assert "Bees de teste" in client.get("/connections").text
-        assert client.get("/app.js").headers["content-type"].startswith("text/javascript")
+        javascript_type = client.get("/app.js").headers["content-type"].split(";", 1)[0]
+        assert javascript_type in {"text/javascript", "application/javascript"}
         assert client.get("/missing.js").status_code == 404
         assert client.get("/api/v1/health").headers["content-type"] == "application/json"
         for path in ("/api", "/api/unknown", "/api/v1/unknown"):

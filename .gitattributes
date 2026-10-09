@@ -4,3 +4,4 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.sql text eol=lf
+scripts/packaging/debian-cd.asc text eol=lf
