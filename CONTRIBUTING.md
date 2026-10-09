@@ -21,7 +21,7 @@ Migrações exigem serviço quiescido e backup. Confira [persistência](docs/per
 
 - Escreva commits e descrições em português, com problema, comportamento resultante e validação. Relacione o ID de planejamento e a issue (`Refs #numero`); use `Closes #numero` somente quando o aceite completo estiver comprovado.
 - Salve um commit a cada checkpoint relevante e faça push normal da branch. Evite force-push e reescrita de histórico compartilhado.
-- Abra uma PR com o recorte, testes executados, evidências e limitações. Uma subtarefa pode terminar enquanto a história ampla permanece aberta.
+- Abra uma PR para a branch de integração `dev` com o recorte, testes executados, evidências e limitações. Quando uma ou mais issues terminam, a PR é integrada na `dev` com merge commit. A `main` recebe a `dev` somente por decisão do mantenedor. Merge na `dev` não fecha issues automaticamente: atualize e feche a issue manualmente quando o aceite estiver comprovado. Uma subtarefa pode terminar enquanto a história ampla permanece aberta.
 - Atualize checklists, evidências, dependências e estado no Project. Bloqueios precisam de motivo concreto e condição de desbloqueio. Não marque **Done** com base apenas em sucesso simulado.
 - Não publique arquivos de execução, cofre, bootstrap, dumps, diretórios privados ou os documentos locais ignorados de planejamento. Issues e documentação versionada precisam ser suficientes para outro contribuidor entender o trabalho.
 
