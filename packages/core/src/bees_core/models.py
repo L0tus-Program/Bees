@@ -417,6 +417,9 @@ class Artifact(Record):
     size_bytes: int = Field(default=0, ge=0)
     version: int = Field(default=1, ge=1)
     status: Literal["draft", "ready", "failed", "deleted"] = "draft"
+    # Série estável das versões; registros anteriores à linhagem ficam sem série.
+    series_id: UUID | None = None
+    previous_id: UUID | None = None
 
     @model_validator(mode="after")
     def ready_metadata(self) -> Self:
@@ -424,6 +427,10 @@ class Artifact(Record):
             raise ValueError(
                 "Artefato ready exige storage_key e sha256; blob não é verificado aqui."
             )
+        if self.previous_id is not None and (
+            self.series_id is None or self.previous_id == self.id or self.version < 2
+        ):
+            raise ValueError("Versão anterior exige série própria e versão posterior.")
         return self
 
 

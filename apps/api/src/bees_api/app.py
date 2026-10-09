@@ -15,6 +15,7 @@ from starlette.types import Scope
 
 from bees_api import __version__
 from bees_api.approvals import router as approvals_router
+from bees_api.artifacts import router as artifacts_router
 from bees_api.auth import install_auth
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
@@ -34,6 +35,7 @@ from bees_api.safety import RequestSafetyMiddleware
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
 from bees_core.approvals import ApprovalError
+from bees_core.artifacts import ArtifactError, ArtifactStore
 from bees_core.environments import EnvironmentError
 from bees_core.policies import PolicyError
 from bees_core.providers.errors import ProviderError
@@ -108,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.resolver = build_secret_resolver(application.state.vault)
         application.state.providers = ProviderService(database, application.state.resolver)
         application.state.receipts = Receipts()
+        application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
         try:
             yield
         finally:
@@ -118,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             del application.state.resolver
             del application.state.providers
             del application.state.receipts
+            del application.state.artifacts
 
     app = FastAPI(title="Bees API", version=__version__, lifespan=lifespan)
     install_auth(
@@ -132,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(configuration_router)
     app.include_router(profiles_router)
     app.include_router(tasks_router)
+    app.include_router(artifacts_router)
     app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
@@ -201,6 +206,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": code, "message": "Registro ausente ou alterado; atualize a tela."}},
             status_code=status,
+        )
+
+    @app.exception_handler(ArtifactError)
+    async def artifact_error(request: Request, error: ArtifactError) -> JSONResponse:
+        # Armazenamento indisponível é temporário; estado/integridade exigem atenção.
+        unavailable = error.code == "artifact_storage_unavailable"
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Artefato indisponível no momento."}},
+            status_code=503 if unavailable else 409,
         )
 
     @app.exception_handler(TaskError)

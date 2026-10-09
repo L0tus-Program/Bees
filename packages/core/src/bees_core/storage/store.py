@@ -1426,9 +1426,14 @@ class Memories(_Repository[Memory]):
 
 class Artifacts(_Repository[Artifact]):
     def list(
-        self, *, task_id: UUID | None = None, limit: int = 100, offset: int = 0
+        self,
+        *,
+        task_id: UUID | None = None,
+        series_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[Artifact]:
-        return self._list({"task_id": task_id}, limit, offset)
+        return self._list({"task_id": task_id, "series_id": series_id}, limit, offset)
 
 
 class Events:
@@ -1546,7 +1551,13 @@ class UnitOfWork:
             context, _Spec("memories", "memory", Memory, ("agent_id", "task_id", "scope"))
         )
         self.artifacts = Artifacts(
-            context, _Spec("artifacts", "artifact", Artifact, ("task_id", "run_id", "version"))
+            context,
+            _Spec(
+                "artifacts",
+                "artifact",
+                Artifact,
+                ("task_id", "run_id", "version", "series_id", "previous_id"),
+            ),
         )
         self.events = Events(context)
 

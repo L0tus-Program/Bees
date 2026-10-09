@@ -18,12 +18,12 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
-| artifacts | Metadados versionados de resultado, referência de armazenamento e hash. |
+| artifacts | Metadados de resultado, referência de armazenamento, hash/tamanho, série e versão anterior (migração 0009); blobs ficam em `artifacts/` fora do SQLite. |
 | domain_events | Ledger de criação/edição/reconciliação com IDs, revisão e estado. |
 
 UUIDs, datas UTC com timezone, validação de tipos e revisões fazem parte dos contratos. SQLite também verifica FKs, vínculos entre agentes/tarefas, estados e JSON. `tzdata` acompanha as dependências para validar fusos no Windows.
 
-Os repositórios armazenam **registros**; não executam agenda ou autorização por si. [Políticas](policies.md) e [aprovações](approvals.md) compõem a autorização das gerações no executor. Rotinas ainda não possuem agenda em execução. Metadados de artefato `ready` exigem referência/hash, mas não comprovam a presença do blob: publicação/download de arquivos entram na implementação do ArtifactStore. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
+Os repositórios armazenam **registros**; não executam agenda ou autorização por si. [Políticas](policies.md) e [aprovações](approvals.md) compõem a autorização das gerações no executor. Rotinas ainda não possuem agenda em execução. Metadados de artefato `ready` exigem referência/hash. Pelo [ArtifactStore](artifacts.md), `ready` só é gravado depois de o blob ser publicado e relido com o mesmo hash/tamanho; registros gravados diretamente pelo repositório continuam sem essa prova. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
 
 ## Transações e revisões
 
@@ -80,6 +80,8 @@ A migração 0007 acrescenta vínculo imutável de execução às ações e a da
 
 A migração 0008 acrescenta a autoridade própria de provisionamento: planos imutáveis, autorizações pontuais, credenciais em hash, gerações e claims exclusivos, intents/receipts, comandos e vínculo do VMID observado. Atualizações preservam as tabelas e checksums anteriores. Unknown mantém a instalação em quarentena, inclusive após novo pareamento de host; reconhecimento humano não libera efeitos. Hardware confirmado continua sem uso/boot. Consulte [provisionamento](provisioning.md).
 
+A migração 0009 acrescenta a linhagem de versões dos artefatos: `series_id`, `previous_id`, unicidade de `storage_key` e de `(series_id, version)` entre registros não `failed`. Gatilhos exigem linhagem coerente na inserção e tornam imutáveis identidade, vínculos, chave de armazenamento, conteúdo declarado (hash/tamanho/tipo, já no rascunho), retorno de `ready` e estados terminais; linhas não podem ser apagadas. Linhas anteriores ficam sem série e preservam seus metadados; uma nova versão de um registro legado inicia a série pelo id dele. Uma base com `storage_key` legado duplicado não migra: a transação é revertida, a versão 8 e o backup ficam preservados, e a duplicidade precisa de decisão do operador. Consulte [artefatos](artifacts.md).
+
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 
 Uma base existente recebe backup coerente pela Backup API antes de uma migração pendente. O arquivo aparece ao lado da base como `bees.sqlite3.backup-<instante-UTC>.sqlite3`; falha de backup impede a migração. O backup é verificado e preservado quando uma migração falha. Reinício sem migração pendente não cria outro backup.
@@ -96,7 +98,7 @@ Dados canônicos e ledger ficam preservados por padrão. Apenas `cache_entries` 
 - BEES_CACHE_TTL_SECONDS / --cache-ttl-seconds: TTL padrão de 86400 segundos; de 1 a 31536000.
 - BEES_CACHE_PRUNE_LIMIT / --cache-prune-limit: até 1000 entradas expiradas por inicialização; de 1 a 1000.
 
-Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Memórias possuem exclusão explícita com revisão: registro removido e evento sem conteúdo confirmados na mesma transação. Isso não elimina backups, páginas livres ou WAL; veja [memória](memory.md). Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
+Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Memórias possuem exclusão explícita com revisão: registro removido e evento sem conteúdo confirmados na mesma transação. Isso não elimina backups, páginas livres ou WAL; veja [memória](memory.md). Artefatos não têm exclusão nem retenção: linhas são append-only e blobs publicados não são removidos. Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
 
 ## Serviço e validação
 
@@ -108,4 +110,4 @@ Testes usam bases reais em pastas temporárias: grafo inteiro reaberto em outro 
 
 A migração 0002 acrescenta identidade individual, bootstrap de uso único, sessões e limites de tentativas. Senhas são hashes Argon2id; tokens de sessão/bootstrap são armazenados por hash. Sessões têm validade absoluta e revogação persistida. Os códigos de teste de conexão ficam em memória por cinco minutos; uma criação confirmada possui evidência de idempotência no banco, permitindo reconhecer o mesmo pedido após reinício.
 
-Chaves de modelo são arquivos cifrados em `BEES_DATA_DIR/vault`; o banco guarda referências opacas. Backup da base sozinho não inclui o cofre. Preserve os arquivos e o acesso à chave externa no Linux ou ao perfil DPAPI original no Windows. Copiar blobs DPAPI para outro usuário/máquina não constitui restauração portável. Não há exportação/restauração guiada de segredos nesta etapa.
+Chaves de modelo são arquivos cifrados em `BEES_DATA_DIR/vault`; o banco guarda referências opacas. Backup da base sozinho não inclui o cofre nem os blobs de `BEES_DATA_DIR/artifacts`; copie a pasta de dados inteira com os serviços parados. Preserve os arquivos e o acesso à chave externa no Linux ou ao perfil DPAPI original no Windows. Copiar blobs DPAPI para outro usuário/máquina não constitui restauração portável. Não há exportação/restauração guiada de segredos nesta etapa.
