@@ -19,6 +19,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
 | artifacts | Metadados de resultado, referência de armazenamento, hash/tamanho, série e versão anterior (migração 0009); blobs ficam em `artifacts/` fora do SQLite. |
+| budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (migração 0010). |
 | domain_events | Ledger de criação/edição/reconciliação com IDs, revisão e estado. |
 
 UUIDs, datas UTC com timezone, validação de tipos e revisões fazem parte dos contratos. SQLite também verifica FKs, vínculos entre agentes/tarefas, estados e JSON. `tzdata` acompanha as dependências para validar fusos no Windows.
@@ -81,6 +82,8 @@ A migração 0007 acrescenta vínculo imutável de execução às ações e a da
 A migração 0008 acrescenta a autoridade própria de provisionamento: planos imutáveis, autorizações pontuais, credenciais em hash, gerações e claims exclusivos, intents/receipts, comandos e vínculo do VMID observado. Atualizações preservam as tabelas e checksums anteriores. Unknown mantém a instalação em quarentena, inclusive após novo pareamento de host; reconhecimento humano não libera efeitos. Hardware confirmado continua sem uso/boot. Consulte [provisionamento](provisioning.md).
 
 A migração 0009 acrescenta a linhagem de versões dos artefatos: `series_id`, `previous_id`, unicidade de `storage_key` e de `(series_id, version)` entre registros não `failed`. Gatilhos exigem linhagem coerente na inserção e tornam imutáveis identidade, vínculos, chave de armazenamento, conteúdo declarado (hash/tamanho/tipo, já no rascunho), retorno de `ready` e estados terminais; linhas não podem ser apagadas. Linhas anteriores ficam sem série e preservam seus metadados; uma nova versão de um registro legado inicia a série pelo id dele. Uma base com `storage_key` legado duplicado não migra: a transação é revertida, a versão 8 e o backup ficam preservados, e a duplicidade precisa de decisão do operador. Consulte [artefatos](artifacts.md).
+
+A migração 0010 acrescenta `budget_limits` e `usage_entries`. Identidade e reserva do consumo são imutáveis, a liquidação é final e as linhas são append-only. Limites são desativados, não apagados. Nenhum dado anterior é alterado. Consulte [consumo e limites](budgets.md).
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

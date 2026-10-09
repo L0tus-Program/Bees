@@ -7,9 +7,11 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import apsw
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from bees_core.budgets import fits, releases, reserve, settle_safely
 from bees_core.memory import MemoryService
 from bees_core.models import Agent, Conversation, Message, utc_now
 from bees_core.policies import ActionIntent, PolicyDecision, PolicyService
@@ -631,14 +633,25 @@ class ProviderService:
             )
             decision = self.model_policy(uow, prepared)
             self.require_model_policy(decision)
+            # Como a política: recusar antes de gravar a entrada evita histórico órfão.
+            if not fits(uow, prepared):
+                raise ProviderError("budget_exhausted")
 
         # Nenhum await entre a autorização atual e o início da chamada. A alteração
-        # posterior não desfaz uma geração remota já iniciada.
+        # posterior não desfaz uma geração remota já iniciada. A reserva de consumo é
+        # confirmada no mesmo commit da autorização, antes da rede.
+        reservation: list[UUID] = []
+
         def authorize_generation():
             nonlocal decision
-            with self.store.transaction(write=False) as current:
-                decision = self.model_policy(current, prepared)
-                self.require_model_policy(decision)
+            try:
+                with self.store.transaction(source="provider_chat") as current:
+                    decision = self.model_policy(current, prepared)
+                    self.require_model_policy(decision)
+                    reservation.append(reserve(current, prepared, source="chat").id)
+            except apsw.BusyError:
+                # Escrita concorrente além do timeout: nenhuma geração foi iniciada.
+                raise ProviderError("state_conflict") from None
 
         adapter = create_adapter(
             prepared.config.kind,
@@ -646,7 +659,25 @@ class ProviderService:
             transport=self.transport,
             before_generation=authorize_generation,
         )
-        response = await adapter.complete(prepared.config, prepared.request)
+        try:
+            response = await adapter.complete(prepared.config, prepared.request)
+        except BaseException as error:
+            if reservation:
+                # Só recusa explícita do provedor libera; o resto conta como incerto.
+                try:
+                    with self.store.transaction(source="provider_chat") as uow:
+                        settle_safely(uow, reservation[0], released=releases(error))
+                except Exception:
+                    pass
+            raise
+        if reservation:
+            # Antes de persistir: resposta descartada por conflito também consumiu. Uma
+            # falha aqui deixa a reserva contada e não apaga a resposta paga.
+            try:
+                with self.store.transaction(source="provider_chat") as uow:
+                    settle_safely(uow, reservation[0], usage=response.usage)
+            except Exception:
+                pass
         response = self.normalized_response(prepared, response)
         with self.store.transaction(source="provider_chat") as uow:
             prepared = prepared.model_copy(

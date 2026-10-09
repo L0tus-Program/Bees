@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import httpx
 
 from bees_core.approvals import ApprovalService
+from bees_core.budgets import fits, releases, reserve, settle_safely
 from bees_core.models import ExecutionClaim, ModelCall, utc_now
 from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.contracts import SecretResolver
@@ -233,6 +234,8 @@ class TaskWorker:
                     if approval is not None
                     else None
                 )
+                # Orçamento esgotado reverte este commit inteiro, inclusive o contador.
+                reserve(uow, prepared, source="task", model_call_id=calls[0].id)
                 call = uow.execution.begin_call(claim, calls[0], now=utc_now())
                 call = uow.model_calls._change(
                     call,
@@ -288,10 +291,31 @@ class TaskWorker:
             # O adapter fecha transporte em cancellation. Nunca deixar await órfão.
             await asyncio.gather(operation, return_exceptions=True)
 
-    def _finish(self, claim, call, prepared, *, elapsed_ms, response=None, error_code=None):
+    def _finish(
+        self,
+        claim,
+        call,
+        prepared,
+        *,
+        elapsed_ms,
+        response=None,
+        error_code=None,
+        usage=None,
+        released=False,
+    ):
         with self.store.transaction(actor="worker", source="task_result") as uow:
             now = utc_now()
             uow.execution.assert_claim(claim, now=now)
+            entry = uow.usage_entries.for_model_call(call.id)
+            if entry is not None:
+                # Falha de liquidação não pode desfazer o resultado; a reserva segue contada.
+                settle_safely(
+                    uow,
+                    entry.id,
+                    usage=response.usage if response is not None else usage,
+                    released=released,
+                    now=now,
+                )
             task = uow.execution.charge_active(claim, elapsed_ms, now=now)
             run = uow.runs.get(claim.run.id)
             output = None
@@ -434,6 +458,10 @@ class TaskWorker:
                     or current_task.control_revision != call.task_control_revision
                 ):
                     raise RevisionConflict("Controle mudou antes de pedir uma decisão.")
+                if decision.effect != "deny" and not fits(uow, prepared):
+                    # Antes de pedir decisão humana: sem orçamento a geração não aconteceria.
+                    self._settle_local(uow, claim, code="budget_exhausted")
+                    return True
                 approval = self.approvals.check(uow, current_task, current_run, prepared, decision)
                 if decision.effect == "ask" and approval is None:
                     self._wait_for_approval(uow, claim, prepared, decision)
@@ -458,9 +486,13 @@ class TaskWorker:
         )
         response = None
         error_code = None
+        usage = None
+        released = False
         dispatched = [call]
         try:
             response, claim = await self._dispatch(claim, prepared, remaining, dispatched, start)
+            # Uma resposta recusada pelo contrato ainda consumiu o que o provedor informou.
+            usage = response.usage
             response = self.providers.normalized_response(prepared, response)
             if response.message.tool_calls:
                 raise ProviderError("invalid_response")
@@ -469,6 +501,7 @@ class TaskWorker:
         except ProviderError as error:
             response = None
             error_code = error.code
+            released = usage is None and releases(error)
         except RevisionConflict:
             # Outro dono/recuperação ganhou a lease; nenhum commit pelo dono antigo.
             if dispatched[0].status != "prepared":
@@ -528,6 +561,8 @@ class TaskWorker:
             elapsed_ms=math.ceil((time.monotonic() - start) * 1000),
             response=response,
             error_code=error_code,
+            usage=usage,
+            released=released,
         )
         return True
 
