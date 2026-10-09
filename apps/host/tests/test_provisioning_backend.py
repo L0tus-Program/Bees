@@ -337,6 +337,62 @@ def test_unsupported_platform_has_no_process_or_plaintext_fallback(monkeypatch):
         HyperVBackend(Path.home()).preflight()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Protocolo PowerShell nativo Windows")
+def test_native_powershell_prepared_go_reads_separate_stdin_statements():
+    """Contraste com o protocolo de produção; nenhum módulo/efeito de Hyper-V."""
+    request_id = uuid4()
+    program = (
+        """
+$ErrorActionPreference='Stop'
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$line=[Console]::In.ReadLine()
+$p=$line | ConvertFrom-Json
+if (-not $p.request_id) {exit 2}
+$ready=@{ready=$true;pid=$PID;start_ticks=([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().ToFileTimeUtc())}
+[Console]::Out.WriteLine(($ready | ConvertTo-Json -Compress))
+[Console]::Out.Flush()
+$go=[Console]::In.ReadLine()
+if ($go -cne ('GO:'+$p.request_id)) {exit 3}
+"""
+        + "[Console]::Out.WriteLine('"
+        + json.dumps(_INVENTORY)
+        + "');exit 0"
+    )
+    system = probe._system_directory()
+    with probe._external_library_search():
+        process = subprocess.Popen(
+            [
+                str(system / "WindowsPowerShell/v1.0/powershell.exe"),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                base64.b64encode(program.encode("utf-16-le")).decode("ascii"),
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            cwd=system,
+            env=probe._windows_environment(system),
+            close_fds=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    command = Command(process, request_id)
+    try:
+        # stdin fica aberto até GO: não depender de EOF para ler a primeira linha.
+        process.stdin.write(json.dumps({"request_id": str(request_id)}).encode() + b"\n")
+        process.stdin.flush()
+        pid, ticks = command.ready()
+        assert pid == process.pid and ticks > 0
+        assert not process.stdin.closed and process.poll() is None
+        command.go()
+        assert command.finish().powered_off is True
+    finally:
+        command.close()
+    assert process.poll() == 0 and process.stdin.closed and process.stdout.closed
+
+
 @pytest.mark.parametrize("admin", [False, True])
 def test_preflight_accepts_native_vmms_acl_and_only_checks_existing_elevation(monkeypatch, admin):
     """Área própria com ACL real; resposta administrativa falsa, sem UAC/processo."""
@@ -395,7 +451,9 @@ Write-TestPhase 'entered'
 """
             + guards
             + """
-$p=[Console]::In.ReadLine()|ConvertFrom-Json
+$line=[Console]::In.ReadLine()
+Write-TestPhase 'input_read'
+$p=$line | ConvertFrom-Json
 Write-TestPhase 'input'
 Initialize-NativeGuard
 Write-TestPhase 'native_initialized'
@@ -465,6 +523,7 @@ exit 0
             ["BEES_TEST_PHASE", name]
             for name in (
                 "entered",
+                "input_read",
                 "input",
                 "native_initialized",
                 "path_checked",
