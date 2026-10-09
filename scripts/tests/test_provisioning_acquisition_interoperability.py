@@ -6,6 +6,7 @@ import secrets
 import socket
 import subprocess
 import tempfile
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,12 +14,16 @@ from uuid import UUID, uuid4
 
 import pytest
 from bees_host.provisioning import acquisition as module
+from bees_host.provisioning import assets as assets_module
 from bees_host.provisioning import root_store as root_module
+from bees_host.provisioning import runtime as runtime_module
 from bees_host.provisioning.acquisition import Acquisition
+from bees_host.provisioning.assets import KIT_FILES, AssetsBinding, AssetsStore
 from bees_host.provisioning.contracts import Plan, ProvisionError, canonical
 from bees_host.provisioning.enrollment import EnrollmentBinding, EnrollmentStore
 from bees_host.provisioning.journal import Journal, create
 from bees_host.provisioning.root_store import RootStore
+from bees_host.provisioning.runtime import ProvisionerRuntime
 from bees_host.provisioning.supervisor_store import SupervisorStore
 from bees_host.security import DPAPICipher, FernetCipher, check_private
 from cryptography.fernet import Fernet
@@ -181,6 +186,134 @@ def root_fingerprint(directory):
         )
         for path in (directory, *directory.rglob("*"))
     }
+
+
+def operational_composition(prepared, origin, monkeypatch):
+    """Root/assets/cifra/ledger/HTTP reais; kit/hardware/ACL VMMS falsos explícitos."""
+    _, plan, _, _, private_base = prepared
+    binding, bootstrap, cipher = bootstrap_configuration(prepared, origin)
+    directory = private_base / "bees-provisioner"
+    monkeypatch.setattr(root_module, "_native_root", lambda: directory)
+    manager = RootStore.initialize(binding=binding, bootstrap=bootstrap, cipher=cipher)
+    resources = ProvisionerRuntime.initialize_assets(binding=binding, cipher=cipher)
+    checked = manager.check_only()
+    resource_binding = AssetsBinding.from_root_check(checked)
+    assert resources.binding == resource_binding
+    for name in KIT_FILES:
+        create(resources.kit_directory / name, b"fixture kit, not an installable image")
+    hardware_root = private_base / "bees-provisioner-hardware"
+    hardware_root.mkdir(mode=0o700)
+    check_private(hardware_root, directory=True, protect=True)
+    create(
+        hardware_root / "identity.json",
+        canonical(assets_module._identity(resource_binding).model_dump(mode="json")),
+    )
+    create(hardware_root / "owner.lock", b"0")
+    # ACL CurrentUser/SYSTEM/Admin possui prova nativa na suíte host. Aqui a
+    # fronteira hardware inteira é double e não concede permissões de VMMS.
+    monkeypatch.setattr(
+        assets_module, "validate_hardware_root", lambda path: check_private(path, directory=True)
+    )
+    monkeypatch.setattr(assets_module, "validate_hardware_file", check_private)
+    hardware = SupervisedHardware(Hardware(SimpleNamespace(plan=plan)))
+    constructed = []
+
+    def backend(path):
+        assert path == hardware_root
+        constructed.append(True)
+        return hardware
+
+    def template(path):
+        assert path == resources.kit_directory
+        return SimpleNamespace(verify=lambda plan: private_base / "fixture.iso")
+
+    monkeypatch.setattr(runtime_module, "HyperVBackend", backend)
+    monkeypatch.setattr(runtime_module, "LocalTemplate", template)
+    runtime = ProvisionerRuntime.open(binding=binding, cipher=cipher)
+    assert constructed == []  # open não instancia nem sonda backend.
+    return runtime, hardware, manager, directory, binding, cipher, constructed
+
+
+@pytest.mark.parametrize("failure", [None, "claim_response", "receipt_response", "cancel"])
+def test_operational_runtime_real_http_preserves_completed_and_unknown_without_retry(
+    prepared, monkeypatch, failure
+):
+    core, plan, issued, _, private_base = prepared
+    with api_process(
+        core.database.path.parent,
+        drop_claim=failure == "claim_response",
+        drop_receipt=failure == "receipt_response",
+    ) as (origin, _):
+        runtime, hardware, manager, directory, binding, cipher, constructed = (
+            operational_composition(prepared, origin, monkeypatch)
+        )
+        cancelled = threading.Event()
+        if failure == "cancel":
+            hardware.during_wait = cancelled.set
+        if failure is None:
+            assert runtime.run(plan, cancelled=cancelled).verified
+        else:
+            with pytest.raises(ProvisionError, match="provision_acquisition_unknown"):
+                runtime.run(plan, cancelled=cancelled)
+        assert constructed == [True]
+        ledger = SupervisorStore.open_read_only(directory / "state/ledger")
+        try:
+            with ledger.lock():
+                row = ledger.acquisitions()[0]
+                assert row["status"] == ("completed" if failure is None else "unknown")
+                canonical_claim(core, row)
+        finally:
+            ledger.close()
+        count = {None: 6, "claim_response": 0, "receipt_response": 1, "cancel": 1}[failure]
+        assert len(hardware.effects) == count
+        with core.database.transaction(write=False) as connection:
+            assert connection.execute("SELECT count(*) FROM provisioning_effects").get == count
+            if failure is None:
+                assert core.get(plan.plan_id)["status"] == "hardware_verified"
+                assert connection.execute("SELECT status FROM environments").get == "provisioning"
+        with pytest.raises(ProvisionError):
+            runtime.run(plan)
+        assert len(hardware.effects) == count
+        before = root_fingerprint(private_base)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Abertura local tentou rede/processo/backend ou mutação")
+
+    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
+    monkeypatch.setattr(socket.socket, "connect", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    monkeypatch.setattr(runtime_module, "HyperVBackend", forbidden)
+    monkeypatch.setattr(runtime_module, "LocalTemplate", forbidden)
+    monkeypatch.setattr(Journal, "initialize", forbidden)
+    monkeypatch.setattr(AssetsStore, "initialize", forbidden)
+    reopened = ProvisionerRuntime.open(binding=binding, cipher=cipher)
+    check = manager.check_only()
+    assert check.execution_blocked_local == (failure is not None)
+    with pytest.raises(ProvisionError):
+        reopened.run(plan)
+    assert len(hardware.effects) == count
+    assert root_fingerprint(private_base) == before
+    assert issued.credential.get_secret_value() not in check.model_dump_json()
+
+
+def test_operational_runtime_refuses_corrupt_kit_before_http_claim(prepared, monkeypatch):
+    core, plan, _, _, _ = prepared
+    with api_process(core.database.path.parent) as (origin, _):
+        runtime, hardware, _, directory, _, _, constructed = operational_composition(
+            prepared, origin, monkeypatch
+        )
+        # Recoloca verificador de imagem real: o kit falso não pode obter claim.
+        from bees_host.provisioning.image import LocalTemplate
+
+        monkeypatch.setattr(runtime_module, "LocalTemplate", LocalTemplate)
+        before = root_fingerprint(directory)
+        with pytest.raises(ProvisionError):
+            runtime.run(plan)
+        assert not hardware.effects and constructed == [True]
+        assert root_fingerprint(directory) == before
+        with core.database.transaction(write=False) as connection:
+            assert connection.execute("SELECT count(*) FROM provisioning_claims").get == 0
+            assert connection.execute("SELECT count(*) FROM provisioning_effects").get == 0
 
 
 @pytest.mark.parametrize("failure", [None, "claim_response", "receipt_response"])

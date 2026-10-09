@@ -5,6 +5,7 @@ consulta o serviço, reserva plano ou ativa o provisionador. A credencial bp_ nu
 compartilha o estado bh_ do helper diagnóstico.
 """
 
+import ctypes
 import json
 import os
 import re
@@ -187,6 +188,118 @@ def _read(path: Path, limit: int) -> bytes:
     return data
 
 
+class _WindowsFileInfo(ctypes.Structure):
+    _fields_ = [
+        ("attributes", ctypes.c_uint32),
+        ("creation", ctypes.c_uint32 * 2),
+        ("access", ctypes.c_uint32 * 2),
+        ("write", ctypes.c_uint32 * 2),
+        ("volume", ctypes.c_uint32),
+        ("size_high", ctypes.c_uint32),
+        ("size_low", ctypes.c_uint32),
+        ("links", ctypes.c_uint32),
+        ("index_high", ctypes.c_uint32),
+        ("index_low", ctypes.c_uint32),
+    ]
+
+
+def _windows_mark_deleted(handle):
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.SetFileInformationByHandle.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    ]
+    kernel.SetFileInformationByHandle.restype = ctypes.c_int
+    # FILE_DISPOSITION_INFO contém BOOLEAN, de um byte; não BOOL/DWORD.
+    disposition = ctypes.c_ubyte(1)
+    if not kernel.SetFileInformationByHandle(handle, 4, ctypes.byref(disposition), 1):
+        raise OSError("bootstrap_consumption_unavailable")
+
+
+def _windows_consume_bootstrap(path, original, binding, check_lifetime):
+    """Consome uma única vez pelo HANDLE exclusivo, sem DeleteFileW concorrente.
+
+    A marca de exclusão só é aplicada depois das guardas. O CRT assume ownership
+    do HANDLE; seu close verificado efetiva a exclusão antes da publicação final.
+    Não cria sidecar, altera ACL ou tenta novamente uma falha de compartilhamento.
+    """
+    import msvcrt
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    pointer = ctypes.c_void_p
+    kernel.CreateFileW.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        pointer,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        pointer,
+    ]
+    kernel.CreateFileW.restype = pointer
+    kernel.CloseHandle.argtypes = [pointer]
+    kernel.CloseHandle.restype = ctypes.c_int
+    kernel.GetFileInformationByHandle.argtypes = [pointer, ctypes.POINTER(_WindowsFileInfo)]
+    kernel.GetFileInformationByHandle.restype = ctypes.c_int
+    private(path)
+    # GENERIC_READ|DELETE, share=0, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT.
+    handle = kernel.CreateFileW(str(path), 0x80010000, 0, None, 3, 0x00200000, None)
+    if handle in (None, pointer(-1).value):
+        raise OSError("bootstrap_consumption_unavailable")
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY | os.O_NOINHERIT)
+    except BaseException:
+        if not kernel.CloseHandle(handle):
+            raise OSError("bootstrap_consumption_unavailable") from None
+        raise
+    with os.fdopen(descriptor, "rb") as source:
+
+        def checked_info():
+            info = _WindowsFileInfo()
+            if (
+                not kernel.GetFileInformationByHandle(handle, ctypes.byref(info))
+                or info.links != 1
+                or info.attributes & (0x400 | 0x10)
+            ):
+                raise ProvisionError("provision_enrollment_invalid")
+            private(path)
+            opened, current = os.fstat(source.fileno()), path.stat()
+            if (
+                opened.st_nlink != 1
+                or not 0 < opened.st_size <= MAX_JSON
+                or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise ProvisionError("provision_enrollment_invalid")
+            return opened
+
+        initial = checked_info()
+        data = source.read(MAX_JSON + 1)
+        final = checked_info()
+        if (
+            data != original
+            or len(data) != initial.st_size
+            or final.st_size != initial.st_size
+            or final.st_mtime_ns != initial.st_mtime_ns
+        ):
+            raise ProvisionError("provision_enrollment_invalid")
+        _same_binding(_decode(data, EnrollmentBootstrap), binding)
+        checked_info()
+        check_lifetime()
+        _windows_mark_deleted(handle)
+
+
+def _consume_bootstrap(path, original, binding, check_lifetime):
+    if os.name == "nt":
+        _windows_consume_bootstrap(path, original, binding, check_lifetime)
+    else:
+        if _read(path, MAX_JSON) != original:
+            raise ProvisionError("provision_enrollment_invalid")
+        check_lifetime()
+        path.unlink()
+
+
 @contextmanager
 def _exclusive(directory: Path):
     private(directory, directory=True)
@@ -283,16 +396,16 @@ class EnrollmentStore:
                 if verified != state:
                     raise ProvisionError("provision_enrollment_invalid")
                 _same_binding(verified, binding)
-                # Vínculo e bytes originais são reavaliados imediatamente antes de apagar.
-                if _read(bootstrap_file, MAX_JSON) != original:
-                    raise ProvisionError("provision_enrollment_invalid")
-                elapsed = time.monotonic() - started
-                current_time = now + timedelta(seconds=elapsed)
-                if not explicit_now:
-                    current_time = max(current_time, datetime.now(UTC))
-                if elapsed < 0 or current_time >= bootstrap.expires_at:
-                    raise ProvisionError("provision_enrollment_expired")
-                bootstrap_file.unlink()
+
+                def check_lifetime():
+                    elapsed = time.monotonic() - started
+                    current_time = now + timedelta(seconds=elapsed)
+                    if not explicit_now:
+                        current_time = max(current_time, datetime.now(UTC))
+                    if elapsed < 0 or current_time >= bootstrap.expires_at:
+                        raise ProvisionError("provision_enrollment_expired")
+
+                _consume_bootstrap(bootstrap_file, original, binding, check_lifetime)
                 sync_directory(bootstrap_file.parent)
                 if bootstrap_file.exists() or bootstrap_file.is_symlink():
                     raise ProvisionError("provision_enrollment_invalid")

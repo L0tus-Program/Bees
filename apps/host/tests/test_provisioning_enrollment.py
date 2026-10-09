@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -429,14 +430,21 @@ def test_write_failure_preserves_partial_evidence_and_blocks_reinitialize(
 def test_unlink_failure_is_quarantined_even_after_bootstrap_consumption(fixture, monkeypatch, name):
     base, binding, bootstrap, cipher, _ = fixture
     original_unlink = Path.unlink
+    original_consume = module._consume_bootstrap
 
     def fail(path, *args, **kwargs):
         if path.name == name:
             raise OSError("private unlink failure " + SECRET)
         return original_unlink(path, *args, **kwargs)
 
+    def consume(path, *args, **kwargs):
+        if name == "bootstrap.json":
+            raise OSError("private consume failure " + SECRET)
+        return original_consume(path, *args, **kwargs)
+
     with monkeypatch.context() as patch:
         patch.setattr(Path, "unlink", fail)
+        patch.setattr(module, "_consume_bootstrap", consume)
         with pytest.raises(ProvisionError, match="provision_enrollment_unavailable"):
             initialize(fixture)
     directory = base / "enrollment"
@@ -605,15 +613,15 @@ EnrollmentStore.initialize(Path(sys.argv[1]),Path(sys.argv[2]),binding=Enrollmen
 def test_two_roots_competing_for_one_bootstrap_only_one_can_seal(fixture, monkeypatch):
     base, binding, bootstrap, cipher, now = fixture
     barrier = threading.Barrier(2)
-    original_unlink = Path.unlink
+    original_consume = module._consume_bootstrap
 
     def synchronized(path, *args, **kwargs):
         if path == bootstrap:
             barrier.wait(timeout=10)
-        return original_unlink(path, *args, **kwargs)
+        return original_consume(path, *args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(Path, "unlink", synchronized)
+        patch.setattr(module, "_consume_bootstrap", synchronized)
         with ThreadPoolExecutor(max_workers=2) as pool:
             pending = [
                 pool.submit(
@@ -643,6 +651,235 @@ def test_two_roots_competing_for_one_bootstrap_only_one_can_seal(fixture, monkey
             assert not (directory / "credentials.bin").exists()
             with pytest.raises(ProvisionError):
                 EnrollmentStore.open(directory, binding=binding, cipher=cipher)
+
+
+def test_two_processes_compete_at_native_consumption_boundary(fixture):
+    base, binding, bootstrap, cipher, _ = fixture
+    environment = dict(os.environ)
+    if os.name != "nt":
+        import base64
+
+        environment["BEES_HOST_STATE_KEY"] = base64.urlsafe_b64encode(
+            cipher.cipher._signing_key + cipher.cipher._encryption_key
+        ).decode()
+    code = """
+import os,sys,time
+from pathlib import Path
+from bees_host.provisioning import enrollment as m
+from bees_host.provisioning.enrollment import EnrollmentBinding,EnrollmentStore
+from bees_host.provisioning.contracts import ProvisionError
+from bees_host.provisioning.journal import create
+from bees_host.security import native_cipher
+base=Path(sys.argv[1]); name=sys.argv[2]
+binding=EnrollmentBinding.model_validate_json(sys.stdin.read())
+original=m._consume_bootstrap
+def synchronized(*args,**kwargs):
+ create(base/(name+'.ready'),b'0')
+ deadline=time.monotonic()+15
+ while not (base/'go').exists():
+  if time.monotonic()>deadline: sys.exit(29)
+  time.sleep(.01)
+ return original(*args,**kwargs)
+m._consume_bootstrap=synchronized
+try:
+ EnrollmentStore.initialize(base/name,base/'bootstrap.json',binding=binding,cipher=native_cipher())
+except ProvisionError:
+ sys.exit(19)
+sys.exit(0)
+"""
+    children = []
+    try:
+        for name in ("first", "second"):
+            child = subprocess.Popen(
+                [sys.executable, "-c", code, str(base), name],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+            )
+            children.append(child)
+            child.stdin.write(binding.model_dump_json())
+            child.stdin.close()
+            child.stdin = None
+        deadline = time.monotonic() + 20
+        while not all((base / (name + ".ready")).exists() for name in ("first", "second")):
+            assert time.monotonic() < deadline
+            assert all(child.poll() is None for child in children)
+            time.sleep(0.01)
+        create(base / "go", b"0")
+        for child in children:
+            stdout, stderr = child.communicate(timeout=20)
+            assert not stdout and not stderr
+        assert sorted(child.returncode for child in children) == [0, 19]
+        assert not bootstrap.exists()
+        for name, child in zip(("first", "second"), children, strict=True):
+            directory = base / name
+            if child.returncode == 0:
+                assert (
+                    EnrollmentStore.open(directory, binding=binding, cipher=cipher)
+                    .check_only()
+                    .configured_local
+                )
+            else:
+                assert (directory / "staged.bin").exists()
+                assert not (directory / "credentials.bin").exists()
+                with pytest.raises(ProvisionError):
+                    EnrollmentStore.open(directory, binding=binding, cipher=cipher)
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()  # Somente subprocesso de fixture criado neste teste.
+            child.communicate(timeout=10)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Compartilhamento nativo Windows")
+def test_windows_open_reader_prevents_consumption_and_seal(fixture):
+    base, _, bootstrap, _, _ = fixture
+    original = bootstrap.read_bytes()
+    with bootstrap.open("rb"):
+        with pytest.raises(ProvisionError, match="provision_enrollment_unavailable"):
+            initialize(fixture)
+    assert bootstrap.read_bytes() == original
+    assert (base / "enrollment/staged.bin").exists()
+    assert not (base / "enrollment/credentials.bin").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Disposition nativo Windows")
+def test_windows_expiration_during_last_private_guard_preserves_bootstrap(fixture, monkeypatch):
+    base, _, bootstrap, _, _ = fixture
+    original = bootstrap.read_bytes()
+    consume = module._windows_consume_bootstrap
+    private = module.private
+    tick = 100.0
+    consuming = False
+    guards = 0
+
+    def guarded(path, **kwargs):
+        nonlocal tick, guards
+        private(path, **kwargs)
+        if consuming and path == bootstrap:
+            guards += 1
+            if guards == 4:  # pré-open + três guardas do HANDLE, incluindo a última.
+                tick += 600
+
+    def entered(*args):
+        nonlocal consuming
+        consuming = True
+        return consume(*args)
+
+    monkeypatch.setattr(module.time, "monotonic", lambda: tick)
+    monkeypatch.setattr(module, "private", guarded)
+    monkeypatch.setattr(module, "_windows_consume_bootstrap", entered)
+    with pytest.raises(ProvisionError, match="provision_enrollment_expired"):
+        initialize(fixture)
+    assert guards == 4
+    assert bootstrap.read_bytes() == original
+    assert (base / "enrollment/staged.bin").exists()
+    assert not (base / "enrollment/credentials.bin").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Disposition nativo Windows")
+def test_windows_disposition_failure_keeps_source_and_partial(fixture, monkeypatch):
+    base, binding, bootstrap, cipher, _ = fixture
+    original = bootstrap.read_bytes()
+
+    def fail(handle):
+        raise OSError("private disposition failure " + SECRET)
+
+    monkeypatch.setattr(module, "_windows_mark_deleted", fail)
+    with pytest.raises(ProvisionError, match="provision_enrollment_unavailable") as error:
+        initialize(fixture)
+    assert SECRET not in str(error.value)
+    assert bootstrap.read_bytes() == original
+    assert (base / "enrollment/staged.bin").exists()
+    assert not (base / "enrollment/credentials.bin").exists()
+    with pytest.raises(ProvisionError):
+        EnrollmentStore.open(base / "enrollment", binding=binding, cipher=cipher)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Guarda do handle exclusivo Windows")
+@pytest.mark.parametrize("change", ["hardlink", "acl", "bytes", "size"])
+def test_windows_source_changes_at_consumption_boundary_are_preserved(fixture, monkeypatch, change):
+    base, _, bootstrap, _, _ = fixture
+    original_consume = module._windows_consume_bootstrap
+
+    def changed(*args):
+        if change == "hardlink":
+            os.link(bootstrap, base / "alias")
+        elif change == "acl":
+            allow_everyone(bootstrap)
+        elif change == "bytes":
+            data = bootstrap.read_bytes().replace(SECRET.encode(), ("bp_" + "b" * 43).encode())
+            bootstrap.write_bytes(data)
+        else:
+            bootstrap.write_bytes(b"{}")
+        return original_consume(*args)
+
+    monkeypatch.setattr(module, "_windows_consume_bootstrap", changed)
+    with pytest.raises(ProvisionError):
+        initialize(fixture)
+    assert bootstrap.exists() and (base / "enrollment/staged.bin").exists()
+    assert not (base / "enrollment/credentials.bin").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Ownership CRT nativo Windows")
+def test_windows_consumption_descriptor_is_not_inheritable(fixture, monkeypatch):
+    import msvcrt
+
+    original_open = msvcrt.open_osfhandle
+    descriptors = []
+
+    def opened(handle, flags):
+        descriptor = original_open(handle, flags)
+        descriptors.append(descriptor)
+        assert flags & os.O_NOINHERIT
+        assert not os.get_inheritable(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(msvcrt, "open_osfhandle", opened)
+    assert initialize(fixture).check_only().configured_local
+    assert len(descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Crash em disposition/close Windows")
+@pytest.mark.parametrize("after_disposition", [False, True])
+def test_windows_crash_at_disposition_never_publishes_final(fixture, after_disposition):
+    base, binding, bootstrap, cipher, _ = fixture
+    code = """
+import os,sys
+from pathlib import Path
+from bees_host.provisioning import enrollment as m
+from bees_host.provisioning.enrollment import EnrollmentBinding,EnrollmentStore
+from bees_host.security import native_cipher
+original=m._windows_mark_deleted
+def crash(handle):
+ if sys.argv[2]=='after': original(handle)
+ os._exit(37)
+m._windows_mark_deleted=crash
+base=Path(sys.argv[1])
+EnrollmentStore.initialize(base/'enrollment',base/'bootstrap.json',binding=EnrollmentBinding.model_validate_json(sys.stdin.read()),cipher=native_cipher())
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(base), "after" if after_disposition else "before"],
+        input=binding.model_dump_json(),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 37 and not result.stdout and not result.stderr
+    assert bootstrap.exists() == (not after_disposition)
+    assert (base / "enrollment/staged.bin").exists()
+    assert not (base / "enrollment/credentials.bin").exists()
+    before = snapshot(base / "enrollment")
+    with pytest.raises(ProvisionError):
+        EnrollmentStore.open(base / "enrollment", binding=binding, cipher=cipher)
+    with pytest.raises(ProvisionError, match="provision_state_already_present"):
+        initialize(fixture)
+    assert snapshot(base / "enrollment") == before
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Chave externa é requisito Linux")

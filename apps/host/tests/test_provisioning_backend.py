@@ -7,6 +7,7 @@ import threading
 import time
 from importlib.resources import files
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from bees_host import probe
 from bees_host.provisioning.backend import Command, HyperVBackend
 from bees_host.provisioning.contracts import ProvisionError
 from test_guest_bridge_tls import private_bridge_directory
+from test_provisioning_assets import fingerprint, set_hardware_acl
 
 _INVENTORY = {
     "vm_id": None,
@@ -325,8 +327,6 @@ def test_packaged_script_exists_and_powershell_parse_is_readonly():
 
 
 def test_unsupported_platform_has_no_process_or_plaintext_fallback(monkeypatch):
-    from types import SimpleNamespace
-
     import bees_host.provisioning.backend as module
 
     monkeypatch.setattr(module, "os", SimpleNamespace(name="posix"))
@@ -335,6 +335,35 @@ def test_unsupported_platform_has_no_process_or_plaintext_fallback(monkeypatch):
     )
     with pytest.raises(ProvisionError, match="provision_transport_unsupported"):
         HyperVBackend(Path.home()).preflight()
+
+
+@pytest.mark.parametrize("admin", [False, True])
+def test_preflight_accepts_native_vmms_acl_and_only_checks_existing_elevation(monkeypatch, admin):
+    """Área própria com ACL real; resposta administrativa falsa, sem UAC/processo."""
+    if os.name != "nt":
+        pytest.skip("ACL VMMS nativa é Windows.")
+    import bees_host.provisioning.backend as module
+
+    calls = []
+
+    def library(name):
+        calls.append(name)
+        assert name == "shell32"
+        return SimpleNamespace(IsUserAnAdmin=lambda: admin)
+
+    monkeypatch.setattr(module, "ctypes", SimpleNamespace(WinDLL=library))
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: pytest.fail("Processo inesperado"))
+    with private_bridge_directory() as base:
+        hardware = base / "hardware"
+        hardware.mkdir()
+        set_hardware_acl(hardware)
+        before = fingerprint(base)
+        if admin:
+            HyperVBackend(hardware).preflight()
+        else:
+            with pytest.raises(ProvisionError, match="provision_elevation_required"):
+                HyperVBackend(hardware).preflight()
+        assert fingerprint(base) == before and calls == ["shell32"]
 
 
 @pytest.mark.parametrize("failure", [None, "hardlink", "foreign_acl", "foreign_read_acl"])

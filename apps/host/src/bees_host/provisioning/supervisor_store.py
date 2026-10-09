@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 
 from bees_host.errors import HostError
 from bees_host.provisioning.contracts import Claim, ProvisionError, canonical
-from bees_host.provisioning.enrollment import _origin
+from bees_host.provisioning.enrollment import _exclusive, _origin
 from bees_host.provisioning.journal import create, private, sync_directory
 from bees_host.security import check_private
 
@@ -83,6 +83,17 @@ def _date(value):
     if result.tzinfo is None or result.utcoffset() is None:
         raise ValueError("invalid")
     return result
+
+
+def _audit_time(*previous: str) -> str:
+    """Carimbo local ordenado; não participa de lease, TTL ou autorização.
+
+    O relógio civil pode recuar. Preservar as datas aware dos registros ligados
+    evita gravar um estado que a validação recusaria depois, sem mudar prazos.
+    """
+    return (
+        max((datetime.now(UTC), *(_date(value) for value in previous))).astimezone(UTC).isoformat()
+    )
 
 
 def _positive(value):
@@ -166,7 +177,49 @@ class SupervisorStore:
         """Check-only interno: sem criação, migração ou recuperação de journal."""
         return cls(directory, _read_only=True)
 
-    def __init__(self, directory: Path, *, _read_only: bool = False):
+    @classmethod
+    @contextmanager
+    def open_execution_locked(cls, directory: Path):
+        """Entrada operacional: lock nativo antes de SQLite RW, sem recovery.
+
+        Mantém o mesmo dono/epoch até fechar a conexão. Não substitui abertura
+        legada nem adota tickets anteriores; só aceita o ledger versão2 íntegro.
+        """
+        directory = Path(directory).absolute()
+        store = None
+        try:
+            private(directory, directory=True)
+            lock = directory / "owner.lock"
+            if not lock.exists():
+                raise ProvisionError("provision_state_missing")
+            private(lock)
+            if lock.stat().st_size != 1:
+                raise ProvisionError("provision_state_invalid")
+            with _exclusive(directory):
+                store = cls(directory, _strict_execution=True)
+                if store.version != 2:
+                    raise ProvisionError("provision_acquisition_required")
+                store._locked = True
+                store._owner_thread = threading.get_ident()
+                store._lock_epoch = object()
+                try:
+                    yield store
+                finally:
+                    store._locked = False
+                    store._owner_thread = None
+                    store._lock_epoch = None
+                    store._tickets.clear()
+                    store.close()
+                    store = None
+        except OSError, sqlite3.Error, ValueError, TypeError, KeyError, RecursionError:
+            raise ProvisionError("provision_state_invalid") from None
+        finally:
+            if store is not None:
+                store.close()
+
+    def __init__(
+        self, directory: Path, *, _read_only: bool = False, _strict_execution: bool = False
+    ):
         self.directory = Path(directory).absolute()
         self.path = self.directory / "supervisor.sqlite3"
         self.connection = None
@@ -175,6 +228,7 @@ class SupervisorStore:
         self._lock_epoch = None
         self._tickets = {}
         self._read_only = _read_only
+        self._opening_strict = _strict_execution
         self._files()
         try:
             marker_path = self.directory / "identity.json"
@@ -195,7 +249,7 @@ class SupervisorStore:
                 timeout=2,
                 isolation_level=None,
             )
-            if self._read_only:
+            if self._read_only or self._opening_strict:
                 self._files()
             self.connection.row_factory = sqlite3.Row
             self.version = self.connection.execute("PRAGMA user_version").fetchone()[0]
@@ -212,6 +266,9 @@ class SupervisorStore:
             self.installation_id = UUID(marker["installation_id"])
             self.host_id = UUID(marker["host_id"])
             self._validate()
+            if self._opening_strict:
+                self._files()
+            self._opening_strict = False
         except OSError, sqlite3.Error, ValueError, TypeError, KeyError:
             if self.connection is not None:
                 self.connection.close()
@@ -245,7 +302,7 @@ class SupervisorStore:
             "supervisor.sqlite3",
             "supervisor.sqlite3-journal",
         }
-        if self._read_only:
+        if self._read_only or self._opening_strict:
             # mode=ro pode criar sidecars ao ler um banco WAL cujo diretório é
             # gravável. Recusar o formato WAL antes de chamar SQLite evita isso.
             try:
@@ -523,7 +580,7 @@ class SupervisorStore:
                 ).fetchone()
             ):
                 raise ProvisionError("provision_claim_reused")
-            now = datetime.now(UTC).isoformat()
+            now = _audit_time()
             self.connection.execute(
                 "INSERT INTO acquisitions VALUES(?,?,?,?,?,?,?,?,1,'prepared',"
                 "NULL,NULL,NULL,NULL,NULL,?,?)",
@@ -597,8 +654,9 @@ class SupervisorStore:
         except TypeError, ValueError:
             raise ProvisionError("provision_claim_stale") from None
 
-    def _acquisition_transition(self, ticket, before, after, now):
+    def _acquisition_transition(self, ticket, before, after, now=None):
         row = self._ticket(ticket, before)
+        now = _audit_time(row["created_at"], row["updated_at"], *((now,) if now else ()))
         if (
             self.connection.execute(
                 "UPDATE acquisitions SET status=?,revision=revision+1,updated_at=? "
@@ -631,9 +689,7 @@ class SupervisorStore:
                 "SELECT 1 FROM runs WHERE claim_id=?", (str(claim.claim_id),)
             ).fetchone():
                 raise ProvisionError("provision_claim_reused")
-            self._acquisition_transition(
-                ticket, "prepared", "accepted", datetime.now(UTC).isoformat()
-            )
+            self._acquisition_transition(ticket, "prepared", "accepted")
             self.connection.execute(
                 "UPDATE acquisitions SET claim_id=?,generation=?,claim_revision=?,"
                 "lease_expires_at=?,claim_status=? WHERE request_id=?",
@@ -656,7 +712,7 @@ class SupervisorStore:
             state = self._tickets.get(ticket._token) if type(ticket) is AcquisitionTicket else None
             if state is None or state[3] not in {"prepared", "accepted"}:
                 raise ProvisionError("provision_reconciliation_required")
-            self._acquisition_transition(ticket, state[3], status, datetime.now(UTC).isoformat())
+            self._acquisition_transition(ticket, state[3], status)
 
     def acquisitions(self, *, limit: int = 100):
         if self.version != 2:
@@ -827,7 +883,9 @@ class SupervisorStore:
                 "SELECT 1 FROM runs WHERE claim_id=?", (str(claim.claim_id),)
             ).fetchone():
                 raise ProvisionError("provision_claim_reused")
-            now = datetime.now(UTC).isoformat()
+            now = _audit_time(
+                *((acquired["created_at"], acquired["updated_at"]) if acquired is not None else ())
+            )
             self.connection.execute(
                 "INSERT INTO runs VALUES(?,?,?,?,?,?,?,?,?,'running',?,?)",
                 (
@@ -853,13 +911,11 @@ class SupervisorStore:
         with self._transaction():
             acquired = self._live_claim(claim_id, {"running"}) if self.version == 2 else None
             run = self.connection.execute(
-                "SELECT claim_status FROM runs WHERE claim_id=?", (str(claim_id),)
+                "SELECT * FROM runs WHERE claim_id=?", (str(claim_id),)
             ).fetchone()
-            if (
-                status == "completed"
-                and run is not None
-                and run[0] in {"outcome_unknown", "aborted"}
-            ):
+            if run is None:
+                raise ProvisionError("provision_transition_invalid")
+            if status == "completed" and run["claim_status"] in {"outcome_unknown", "aborted"}:
                 raise ProvisionError("provision_reconciliation_required")
             if (
                 status == "completed"
@@ -868,9 +924,14 @@ class SupervisorStore:
                 ).fetchone()
             ):
                 raise ProvisionError("provision_reconciliation_required")
+            now = _audit_time(
+                run["created_at"],
+                run["updated_at"],
+                *((acquired[1]["created_at"], acquired[1]["updated_at"]) if acquired else ()),
+            )
             count = self.connection.execute(
                 "UPDATE runs SET status=?,updated_at=? WHERE claim_id=? AND status='running'",
-                (status, datetime.now(UTC).isoformat(), str(claim_id)),
+                (status, now, str(claim_id)),
             ).rowcount
             if count != 1:
                 raise ProvisionError("provision_transition_invalid")
@@ -878,7 +939,7 @@ class SupervisorStore:
                 count = self.connection.execute(
                     "UPDATE acquisitions SET status=?,revision=revision+1,updated_at=? "
                     "WHERE claim_id=? AND status='running'",
-                    (status, datetime.now(UTC).isoformat(), str(claim_id)),
+                    (status, now, str(claim_id)),
                 ).rowcount
                 if count != 1:
                     raise ProvisionError("provision_transition_invalid")
@@ -933,7 +994,7 @@ class SupervisorStore:
                     run["generation"],
                     kind,
                     run["revision"],
-                    datetime.now(UTC).isoformat(),
+                    _audit_time(run["created_at"], run["updated_at"]),
                 ),
             )
         return request_id
@@ -977,7 +1038,7 @@ class SupervisorStore:
                 )
             ):
                 raise ProvisionError("provision_claim_stale")
-            now = datetime.now(UTC).isoformat()
+            now = _audit_time(run["created_at"], run["updated_at"], request["created_at"])
             self.connection.execute(
                 "UPDATE runs SET revision=?,lease_expires_at=?,claim_status=?,updated_at=? "
                 "WHERE claim_id=?",

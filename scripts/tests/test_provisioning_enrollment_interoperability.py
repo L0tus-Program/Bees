@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from bees_host.provisioning import enrollment as enrollment_module
 from bees_host.provisioning.contracts import ProvisionError
 from bees_host.provisioning.enrollment import EnrollmentBinding, EnrollmentStore
 from bees_host.provisioning.http_authority import HTTPAuthority
@@ -135,14 +136,14 @@ def test_failed_delivery_keeps_private_issue_and_partial_state_without_reissue(
 ):
     core, host, issued, request_id, private_root, cipher = registration
     expected, bootstrap = prepare_bootstrap(registration, "http://localhost:8080")
-    original_unlink = Path.unlink
+    original_consume = enrollment_module._consume_bootstrap
 
     def unavailable(path, *args, **kwargs):
         if path == bootstrap:
             raise PermissionError("fixture")
-        return original_unlink(path, *args, **kwargs)
+        return original_consume(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "unlink", unavailable)
+    monkeypatch.setattr(enrollment_module, "_consume_bootstrap", unavailable)
     directory = private_root / "partial"
     with pytest.raises(ProvisionError):
         EnrollmentStore.initialize(directory, bootstrap, binding=expected, cipher=cipher)

@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from bees_host import probe
 from bees_host.provisioning.contracts import Inventory, Operation, Plan, ProvisionError, canonical
-from bees_host.provisioning.journal import private
+from bees_host.provisioning.hardware_security import validate_hardware_root
 
 TIMEOUT = 30
 GUARD_INTERVAL = 1.0
@@ -218,7 +218,7 @@ class HyperVBackend:
     def preflight(self):
         if os.name != "nt":
             raise ProvisionError("provision_transport_unsupported")
-        private(self.storage_root, directory=True)
+        validate_hardware_root(self.storage_root)
         if not ctypes.WinDLL("shell32").IsUserAnAdmin():
             raise ProvisionError("provision_elevation_required")
 

@@ -288,10 +288,9 @@ class RootStore:
     def lock(self):
         """Trava exclusiva externa; métodos internos exigem o mesmo thread."""
         with self._lock():
-            self._check_locked()
-            yield
+            yield self._check_locked()
 
-    def _check_locked(self) -> RootCheck:
+    def _check_locked(self, *, ledger=None) -> RootCheck:
         if self._owner_thread != threading.get_ident():
             raise ProvisionError("provision_lock_required")
         identity = self._anchor()
@@ -314,20 +313,15 @@ class RootStore:
         ).check_only()
         if enrolled.store_id != composition.enrollment_store_id:
             raise ProvisionError("provision_root_invalid")
-        ledger = SupervisorStore.open_read_only(state / "ledger")
-        try:
-            with ledger.lock():
-                if (
-                    ledger.version != 2
-                    or ledger.store_id != composition.ledger_store_id
-                    or ledger.installation_id != self.binding.installation_id
-                    or ledger.host_id != self.binding.host_id
-                ):
-                    raise ProvisionError("provision_root_invalid")
-                self._check_plans_locked(plans, ledger, composition.enrollment_store_id)
-                blocked = ledger.execution_blocked_local()
-        finally:
-            ledger.close()
+        if ledger is None:
+            reader = SupervisorStore.open_read_only(state / "ledger")
+            try:
+                with reader.lock():
+                    blocked = self._check_ledger_locked(reader, composition, state)
+            finally:
+                reader.close()
+        else:
+            blocked = self._check_ledger_locked(ledger, composition, state)
         if (
             self._anchor() != identity
             or _decode(_read(self._directory / "composition.json", 8192), _Composition)
@@ -344,6 +338,19 @@ class RootStore:
             provisioner_id=self.binding.provisioner_id,
             execution_blocked_local=blocked,
         )
+
+    def _check_ledger_locked(self, ledger, composition, state):
+        ledger.assert_locked()
+        if (
+            ledger.directory != state / "ledger"
+            or ledger.version != 2
+            or ledger.store_id != composition.ledger_store_id
+            or ledger.installation_id != self.binding.installation_id
+            or ledger.host_id != self.binding.host_id
+        ):
+            raise ProvisionError("provision_root_invalid")
+        self._check_plans_locked(state / "plans", ledger, composition.enrollment_store_id)
+        return ledger.execution_blocked_local()
 
     def _check_plans_locked(self, plans, ledger, enrollment_store_id):
         """Root → ledger → journal; consulta integral, sem adoção ou recuperação."""

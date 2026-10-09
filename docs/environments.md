@@ -2,6 +2,8 @@
 
 BEES-011 começa com pedidos persistentes e diagnóstico de instalação. **Este checkpoint não cria uma VM e não permite que a abelha use navegador, terminal ou apps.** O catálogo descreve o alvo Linux com Chromium e LibreOffice; não comprova imagem instalada, isolamento ou disponibilidade.
 
+O [componente de provisionamento](provisioning.md#composição-operacional-interna) já combina inscrição privada, kit, aquisição e supervisor sob caminhos fixos, como biblioteca interna. A entrega guiada do kit/workspace e o launcher/pacote operacional continuam pendentes; o helper atualmente distribuído realiza diagnóstico.
+
 ## Uso pela interface
 
 Abra a aba **Computador** da abelha. Escolha nome e recursos, confira o aviso e registre o plano. A tela mostra que o computador aguarda preparação da instalação. O pedido sobrevive a recarregar a página, reiniciar a API e recriar containers com os mesmos volumes. Um pedido ainda não iniciado pode ser cancelado; seu histórico é preservado.
