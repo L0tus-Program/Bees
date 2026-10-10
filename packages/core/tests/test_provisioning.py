@@ -740,7 +740,7 @@ def test_stale_context_read_and_revoke_does_not_require_active_agent_or_host(set
 
 
 def test_current_schema_preserves_existing_environment_and_foreign_keys(setup):
-    assert setup.db.schema_version() == 10
+    assert setup.db.schema_version() == 11
     with setup.db.transaction(write=False) as connection:
         assert connection.execute("PRAGMA integrity_check").get == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -1016,3 +1016,69 @@ def test_heartbeat_only_changes_report_revision_never_human_authority_or_claim_l
     observed = setup.service.assert_current(token, binding(claim))
     assert observed["lease_expires_at"] == claim["lease_expires_at"]
     assert observed["revision"] == claim["revision"]
+
+
+def test_global_stop_cuts_at_begin_and_fences_old_claim_after_resume(setup):
+    from bees_core.provisioning import ProvisioningError
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    _, _, token, claim = setup.claimed()
+    first = begin(claim)
+    effect = setup.service.begin_dispatch(token, first)
+    safety = SafetyService(setup.db)
+    stopped = safety.command(
+        SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1)
+    )
+    # Etapa já iniciada não é cancelada: guarda, renovação, replay e recibo continuam.
+    setup.service.assert_current(token, binding(claim))
+    setup.service.renew(token, binding(claim, client_request_id=uuid4()))
+    replay = setup.service.begin_dispatch(token, first)
+    assert replay["effect_request_id"] == effect["effect_request_id"]
+    confirmed = setup.service.record_receipt(token, receipt(claim, effect))
+    assert confirmed["status"] == "confirmed"
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.begin_dispatch(token, begin(claim, "create_vm"))
+    safety.command(
+        SafetyCommand(
+            client_request_id=uuid4(), kind="resume", expected_revision=stopped["revision"]
+        )
+    )
+    # Claim da geração anterior não inicia nova etapa nem depois da retomada.
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.begin_dispatch(token, begin(claim, "create_vm"))
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_effects").get == 1
+        assert connection.execute("SELECT safety_generation FROM provisioning_claims").get == 0
+    with setup.db.transaction() as connection:
+        with pytest.raises(apsw.ConstraintError, match="immutable"):
+            connection.execute("UPDATE provisioning_claims SET safety_generation=1")
+
+
+def test_global_stop_refuses_new_claim_and_keeps_unknown_evidence(setup):
+    from bees_core.provisioning import ProvisioningError
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    plan = setup.authorize(setup.prepare())
+    _, token = setup.issuer()
+    safety = SafetyService(setup.db)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+    value = {
+        "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"],
+        "owner_id": uuid4(),
+        "client_request_id": uuid4(),
+    }
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.claim(token, value)
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_claims").get == 0
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2))
+    claim = setup.service.claim(token, value)
+    effect = setup.service.begin_dispatch(token, begin(claim))
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=3))
+    # Incerteza do efeito em voo continua registrável enquanto parado.
+    unknown = setup.service.mark_unknown(
+        token,
+        binding(claim, effect_request_id=effect["effect_request_id"], client_request_id=uuid4()),
+    )
+    assert unknown["status"] == "outcome_unknown"

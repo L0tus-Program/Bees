@@ -22,6 +22,7 @@ from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
 from bees_api.environments import router as environments_router
+from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
@@ -139,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(artifacts_router)
     app.include_router(budgets_router)
+    app.include_router(global_stop_router)
     app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
@@ -190,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "chat_outcome_unknown",
                 "policy_approval_required",
                 "budget_exhausted",
+                "global_stop",
             )
             else 403
             if error.code == "policy_denied"

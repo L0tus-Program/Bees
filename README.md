@@ -143,6 +143,8 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Kit Linux](docs/guest-image.md): imagem oficial, aplicações, confiança e limites de validação.
 - [Primeiro acesso e segurança](docs/onboarding.md): identidade, sessões, cofre e proxy HTTPS.
 - [Modelos e CLI](docs/providers.md): configuração, credenciais, conversa, troca de backend e diagnóstico.
+- [Consumo e limites](docs/budgets.md): registro de consumo, limite de tokens por abelha e incerteza.
+- [Parada global](docs/safety.md): parar e retomar todas as gerações, tarefas, ferramentas e provisionamento.
 
 Onboarding (BEES-004) integrado aos drivers de BEES-005; conversa e delegação com modelo remoto real comprovadas (BEES-005.1, [matriz](docs/providers.md#modelos-reais-comprovados)); backend local real ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e launcher Windows entregues; primeiro acesso dessa distribuição é autorizado automaticamente no navegador. Setup gráfico nas demais distribuições e integração dos ambientes futuros continuam em BEES-028. Computador próprio e conector pessoal são requisitos do MVP completo.
 

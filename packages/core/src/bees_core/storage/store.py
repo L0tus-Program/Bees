@@ -817,6 +817,9 @@ class Execution:
         self._ttl(ttl_seconds)
         owner_id = UUID(str(owner_id))
         self.recover_expired(now=now)
+        # Parada global: nenhuma tarefa é reivindicada; a recuperação de donos segue.
+        if read_safety(self._context.connection).status != "running":
+            return None
         global_lease = self._lease(self.GLOBAL_RESOURCE)
         if global_lease and global_lease[0] is not None and global_lease[3] > _timestamp(now):
             return None
@@ -1525,6 +1528,137 @@ class UsageEntries(_Repository[UsageEntry]):
         )
 
 
+@dataclass(frozen=True)
+class SafetyState:
+    status: str
+    generation: int
+    revision: int
+    changed_at: datetime
+    reason: str | None
+
+
+def read_safety(connection: apsw.Connection) -> SafetyState:
+    row = connection.execute(
+        "SELECT status,generation,revision,changed_at,reason FROM safety_control WHERE id=1"
+    ).fetchone()
+    if row is None:
+        # Sem a linha não há como provar que despachos estão liberados.
+        raise IntegrityError("Controle de parada ausente.")
+    return SafetyState(row[0], row[1], row[2], datetime.fromisoformat(row[3]), row[4])
+
+
+class Safety:
+    """Parada global durável; comandos humanos idempotentes por UUID e CAS."""
+
+    def __init__(self, context: _Context) -> None:
+        self._context = context
+
+    def state(self) -> SafetyState:
+        self._context.check()
+        return read_safety(self._context.connection)
+
+    def command(
+        self,
+        *,
+        kind: str,
+        client_request_id: UUID,
+        expected_revision: int,
+        reason: str | None,
+        now: datetime,
+    ) -> tuple[SafetyState, bool]:
+        """Devolve (estado, replay). Replay só com pedido idêntico; nunca reaplica."""
+        self._context.check(write=True)
+        connection = self._context.connection
+        row = connection.execute(
+            "SELECT kind,expected_revision,reason FROM safety_commands WHERE client_request_id=?",
+            (str(UUID(str(client_request_id))),),
+        ).fetchone()
+        if row is not None:
+            if tuple(row) != (kind, expected_revision, reason):
+                raise IntegrityError("Pedido de parada já registrado com outros dados.")
+            return read_safety(connection), True
+        state = read_safety(connection)
+        if state.revision != expected_revision:
+            raise RevisionConflict("O estado de parada mudou; releia antes de decidir.")
+        target = "stopped" if kind == "stop" else "running"
+        if kind not in ("stop", "resume") or state.status == target:
+            raise InvalidTransition("Comando de parada não altera o estado atual.")
+        # Estado e comando confirmam juntos: a transação inteira é atômica.
+        connection.execute(
+            "UPDATE safety_control SET status=?,generation=?,revision=?,changed_at=?,reason=? "
+            "WHERE id=1 AND revision=?",
+            (
+                target,
+                state.generation + (1 if kind == "stop" else 0),
+                state.revision + 1,
+                _timestamp(now),
+                reason,
+                state.revision,
+            ),
+        )
+        if connection.changes() != 1:
+            raise RevisionConflict("O estado de parada mudou durante o comando.")
+        command_id = str(uuid4())
+        connection.execute(
+            "INSERT INTO safety_commands(id,client_request_id,kind,expected_revision,"
+            "resulting_revision,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (
+                command_id,
+                str(UUID(str(client_request_id))),
+                kind,
+                expected_revision,
+                expected_revision + 1,
+                self._context.actor,
+                reason,
+                _timestamp(now),
+            ),
+        )
+        current = read_safety(connection)
+        # Auditoria canônica sem o texto do motivo, como nos demais eventos.
+        connection.execute(
+            "INSERT INTO domain_events(id,created_at,entity_type,entity_id,event_type,"
+            "payload_json,actor,source,correlation_id) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                str(uuid4()),
+                _timestamp(now),
+                "safety_control",
+                command_id,
+                target,
+                _json(
+                    {
+                        "revision": current.revision,
+                        "previous_revision": state.revision,
+                        "generation": current.generation,
+                        "previous_status": state.status,
+                    }
+                ),
+                self._context.actor,
+                self._context.source,
+                self._context.correlation_id,
+            ),
+        )
+        return current, False
+
+    def in_flight(self) -> dict[str, int]:
+        """Operações já despachadas: a parada não comprova que o efeito remoto acabou."""
+        self._context.check()
+        connection = self._context.connection
+        return {
+            "model_calls": connection.execute(
+                "SELECT count(*) FROM model_calls WHERE status='dispatch_started'"
+            ).fetchone()[0],
+            "tool_actions": connection.execute(
+                "SELECT count(*) FROM actions WHERE status='dispatch_started'"
+            ).fetchone()[0],
+            "chat_reservations": connection.execute(
+                "SELECT count(*) FROM usage_entries WHERE status='reserved' AND source='chat'"
+            ).fetchone()[0],
+            "provisioning_effects": connection.execute(
+                "SELECT count(*) FROM provisioning_claims WHERE status='dispatch_started'"
+            ).fetchone()[0],
+        }
+
+
 _USAGE_SPEC = _Spec(
     "usage_entries",
     "usage_entry",
@@ -1669,6 +1803,7 @@ class UnitOfWork:
             context, _Spec("budget_limits", "budget_limit", BudgetLimit, ("agent_id",))
         )
         self.usage_entries = UsageEntries(context, _USAGE_SPEC)
+        self.safety = Safety(context)
         self.events = Events(context)
 
 

@@ -49,7 +49,9 @@ Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_res
 
 ## Limites e falhas
 
-Uma tarefa faz uma geração final por padrão. Novas instruções e retomadas podem consumir chamadas adicionais: os limites padrão são três chamadas e 120 segundos ativos, com máximos de 50 chamadas e 1.800 segundos. Os contadores não reiniciam ao pausar/retomar. Esses limites não equivalem a orçamento financeiro ou limite de tokens; BEES-022 complementará esse controle.
+Uma tarefa faz uma geração final por padrão. Novas instruções e retomadas podem consumir chamadas adicionais: os limites padrão são três chamadas e 120 segundos ativos, com máximos de 50 chamadas e 1.800 segundos. Os contadores não reiniciam ao pausar/retomar. Esses limites não equivalem a orçamento financeiro ou limite de tokens; veja [consumo e limites](budgets.md).
+
+Com a [parada global](safety.md) ativa, o worker não reivindica tarefas. Uma tarefa já reivindicada volta para a fila sem iniciar a chamada, e a autorização final recusa uma preparação de geração anterior mesmo após a retomada. A retomada reavalia políticas e limites; pausa e resultado desconhecido continuam exigindo decisão humana.
 
 O journal distingue chamada preparada, despacho iniciado, resposta confirmada, falha sem efeito comprovada e resultado desconhecido. Timeout, cancelamento ou queda após iniciar o despacho podem deixar consumo no provedor sem resposta registrada. **Nenhuma chamada desconhecida é repetida automaticamente.** Uma nova tentativa exige decisão explícita, com aviso sobre possível consumo adicional; o registro anterior continua desconhecido.
 
