@@ -31,6 +31,7 @@ from bees_core.providers.contracts import (
 )
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import EnvSecretResolver
+from bees_core.safety import ensure_running
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore, UnitOfWork
 
@@ -634,6 +635,7 @@ class ProviderService:
             decision = self.model_policy(uow, prepared)
             self.require_model_policy(decision)
             # Como a política: recusar antes de gravar a entrada evita histórico órfão.
+            generation = ensure_running(uow).generation
             if not fits(uow, prepared):
                 raise ProviderError("budget_exhausted")
 
@@ -646,6 +648,8 @@ class ProviderService:
             nonlocal decision
             try:
                 with self.store.transaction(source="provider_chat") as current:
+                    # Parada ou nova geração desde a pré-checagem: nada é enviado.
+                    ensure_running(current, generation)
                     decision = self.model_policy(current, prepared)
                     self.require_model_policy(decision)
                     reservation.append(reserve(current, prepared, source="chat").id)

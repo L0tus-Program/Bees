@@ -45,6 +45,8 @@ Se o consumo contado mais a nova reserva ultrapassar o limite, a geração é re
 - **Chat:** a API responde `409` e a mensagem não entra no histórico. Uma escrita concorrente que exceda o timeout do SQLite na autorização responde `state_conflict`, sem geração.
 - **Worker:** a tarefa pausa com atenção (`budget_exhausted`), sem incrementar chamadas nem despachar. Retomar exige revisar o limite ou esperar a janela.
 
+Para interromper todas as abelhas de uma vez, use a [parada global](safety.md); ela não altera limites nem liquidações.
+
 As reservas de chat e worker usam transações de escrita serializadas no SQLite, então duas gerações simultâneas não compartilham a mesma folga. Desativar o limite é escolha explícita; o histórico continua contando.
 
 ## API

@@ -25,7 +25,7 @@ def test_service_restarts_with_persisted_agent_memory_and_decision(tmp_path: Pat
         assert client.get("/api/v1/state/status").json() == {
             "status": "ready",
             "engine": "sqlite",
-            "schema_version": 10,
+            "schema_version": 11,
         }
         with first.state.store.transaction() as uow:
             agent = uow.agents.create(Agent(name="Estado privado de teste"))

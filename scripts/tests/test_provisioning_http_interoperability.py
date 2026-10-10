@@ -148,6 +148,43 @@ def test_http_revocation_before_go_prevents_effect_and_keeps_unknown(integration
     assert hardware.effects == []
 
 
+@pytest.mark.parametrize("resume", [False, True])
+def test_http_global_stop_keeps_started_step_receipt_and_refuses_next(integration, resume):
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    core, _, _, _, journal, _, hardware = integration
+    safety = SafetyService(core.database)
+
+    def stop():
+        stopped = safety.command(
+            SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1)
+        )
+        if resume:
+            # Retomar não revalida o claim da geração anterior para a próxima etapa.
+            safety.command(
+                SafetyCommand(
+                    client_request_id=uuid4(),
+                    kind="resume",
+                    expected_revision=stopped["revision"],
+                )
+            )
+
+    hardware.before_go = stop
+    with remote(integration) as (authority, _):
+        runner = Runner(journal, authority, hardware, Template())
+        # O corte é o commit do intent: a etapa iniciada termina e publica o recibo.
+        assert runner.execute_next().verified
+        hardware.before_go = lambda: None
+        with pytest.raises(ProvisionError):
+            runner.execute_next()
+    assert hardware.effects == ["create_vhd"]
+    assert journal.operations()["create_vhd"]["status"] == "confirmed"
+    with core.database.transaction(write=False) as connection:
+        assert connection.execute("SELECT status FROM provisioning_effects").fetchall() == [
+            ("confirmed",)
+        ]
+
+
 def test_http_failed_response_after_committed_receipt_never_repeats(integration):
     core, _, _, _, journal, _, hardware = integration
     with remote(integration, drop_receipt=True) as (authority, _):

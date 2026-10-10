@@ -43,7 +43,7 @@ O guia [CONTRIBUTING](../CONTRIBUTING.md) descreve branches, testes, revisão e 
 
 ## Mapa das histórias
 
-Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. A partir dela foram abertas BEES-011.6 (P2), para o endurecimento posterior dos diagnósticos PowerShell, e CI-002 (P1), para as falhas intermitentes das interops HTTP no Windows. A investigação da CI-002 abriu BEES-011.7 (P2), para calibrar com medição os prazos HTTP do provisionador local. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
+Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. A partir dela foram abertas BEES-011.6 (P2), para o endurecimento posterior dos diagnósticos PowerShell, e CI-002 (P1), para as falhas intermitentes das interops HTTP no Windows. A investigação da CI-002 abriu BEES-011.7 (P2), para calibrar com medição os prazos HTTP do provisionador local. A revisão da parada global (BEES-022.2) abriu BEES-011.8 (P2), para distinguir recusa definitiva da autoridade de incerteza no provisionador local. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
 
 | História | Estado inicial | Prioridade | Marco |
 | --- | --- | --- | --- |
@@ -119,6 +119,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-011.5 — Comprovar rede filtrada, recursos e persistência do ambiente próprio](https://github.com/L0tus-Program/Bees/issues/31)
 - [BEES-011.6 — Isolar módulos PowerShell nos diagnósticos de Hyper-V](https://github.com/L0tus-Program/Bees/issues/114) (P2)
 - [BEES-011.7 — Calibrar prazos HTTP do provisionador local com evidência de latência](https://github.com/L0tus-Program/Bees/issues/119) (P2)
+- [BEES-011.8 — Distinguir recusa definitiva da autoridade de incerteza no provisionador local](https://github.com/L0tus-Program/Bees/issues/124) (P2)
 
 ### BEES-012 — Executar arquivos, terminal e apps no computador próprio
 
