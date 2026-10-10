@@ -366,6 +366,12 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .policy-target code { font-size: 11px; }
 .policy-reason { font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .policy-actions { display: flex; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 15px; }
+.budget-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 18px 0; }
+.budget-stats > div { border: 1px solid #e3e5da; border-radius: 10px; padding: 12px 14px; background: #fbfbf7; min-width: 0; }
+.budget-stats dt { font-size: 11px; color: var(--muted); }
+.budget-stats dd { margin: 4px 0 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.budget-form { margin-top: 18px; }
+.budget-check { display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.6; margin: 6px 0 4px; }
 .policy-form { padding: 22px 0; margin-top: 20px; border-top: 1px solid var(--line); }
 .policy-form h3 { margin-bottom: 20px; }
 .policy-form h3:focus-visible { outline: 2px solid #94711f; outline-offset: 4px; }
@@ -375,6 +381,8 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 @media (max-width: 550px) {
   .policy-panel .form-heading { flex-direction: column; }
   .policy-panel .form-heading > button { width: 100%; }
+  .budget-panel .form-heading { flex-direction: column; }
+  .budget-panel .form-heading > button { width: 100%; }
   .policy-card { padding: 16px 13px; }
   .policy-actions { justify-content: flex-start; }
   .policy-actions .button { flex: 1; }
