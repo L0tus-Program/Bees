@@ -85,6 +85,9 @@ migração adicional de schema nem atualização automática da instalação do 
   36 novos casos, com SQLite real, commit concorrente e consulta HTTP loopback.
   Cobrem autenticação, parâmetros fechados, vínculos, cursor, intervalo, eventos
   inválidos, privacidade, histórico com mais de mil execuções e operações fora da janela.
+  Cancelamento antes da resposta é sincronizado no servidor HTTP de teste e exige
+  o erro canônico `cancelled_after_dispatch`; resposta já confirmada conserva o uso
+  informado. O teste não depende de qual lado vence uma corrida de agendamento.
 - Suíte Python completa: 2.164 passaram, 38 skips específicos do ambiente Windows.
 - Interface: 637 testes, TypeScript, ESLint e build aprovados. Casos negativos
   cobrem snapshot, microssegundos, bindings, abort, reload, campos extras e replay

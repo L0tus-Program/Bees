@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 from datetime import timedelta
 from uuid import uuid4
 
@@ -47,6 +48,8 @@ scenario = http_scenario
 def test_cancel_keeps_confirmed_or_unknown_consumption_and_read_is_pure(scenario, control):
     task = scenario.task()
     observed = []
+    release_response = threading.Event()
+    response_waiting = threading.Event()
 
     def respond(request):
         page = ActivityService(Database(scenario.database.path)).list(scenario.agent.id)
@@ -57,22 +60,42 @@ def test_cancel_keeps_confirmed_or_unknown_consumption_and_read_is_pure(scenario
             task, control, **({"instruction": "Novo recorte"} if control == "redirect" else {})
         )
         observed.append(page)
+        if control == "cancel":
+            # Nenhum header/body chega ao cliente antes de ele encerrar o envio.
+            # O prazo apenas limita falha do harness; o código canônico abaixo
+            # distingue cancelamento humano de timeout de transporte.
+            response_waiting.set()
+            assert release_response.wait(10), "Worker não encerrou a chamada cancelada."
         return response("Resultado privado que não pode aparecer na timeline")
 
     scenario.respond = respond
-    assert scenario.run_once()
+    try:
+        assert scenario.run_once()
+        if control == "cancel":
+            assert response_waiting.wait(1) and not release_response.is_set()
+    finally:
+        # Também libera a thread HTTP quando uma asserção falha.
+        release_response.set()
     if control == "redirect":
         scenario.command(task, "cancel")
     before = rows(scenario.database)
     page = ActivityService(Database(scenario.database.path)).list(scenario.agent.id)
     assert rows(scenario.database) == before
-    assert scenario.detail(task).task.status == "cancelled"
+    detail = scenario.detail(task)
+    assert detail.task.status == "cancelled" and detail.task.calls_started == 1
+    [call] = detail.calls
+    [entry] = scenario.entries()
+    assert entry.model_call_id == call.id
     assert page.operations.model_calls_in_flight == 0
     if control == "redirect":
         assert page.usage.counted_tokens == page.usage.reported_tokens == 15
+        assert page.usage.unknown_entries == page.operations.unknown_model_calls == 0
+        assert call.status == "confirmed" and call.error_code is None
     else:
         assert page.usage.counted_tokens == page.usage.unknown_tokens > 15
+        assert page.usage.reported_tokens == 0 and page.usage.unknown_entries == 1
         assert page.operations.unknown_model_calls == 1
+        assert call.status == "outcome_unknown" and call.error_code == "cancelled_after_dispatch"
     assert page.usage.entries == 1
     facts = [item for item in page.items if item.entity_type == "usage_entry"]
     assert len(facts) == 2
@@ -101,6 +124,8 @@ def test_cancel_keeps_confirmed_or_unknown_consumption_and_read_is_pure(scenario
     ):
         assert private not in serialized
     assert len(scenario.requests) == 1 and len(observed) == 1
+    assert not scenario.run_once() and len(scenario.requests) == 1
+    assert rows(scenario.database) == before
 
 
 def test_certainty_buckets_are_disjoint_and_window_uses_reservation_date(tmp_path):
