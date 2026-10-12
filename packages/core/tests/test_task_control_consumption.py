@@ -54,6 +54,7 @@ class Scenario:
         self.requests = []
         self.respond = lambda request: response()
         self.errors = []
+        self.request_threads = []
 
     def service(self):
         return TaskService(Database(self.database.path))
@@ -117,6 +118,7 @@ class Scenario:
 def scenario(tmp_path):
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            state.request_threads.append(threading.current_thread())
             try:
                 assert self.path == "/v1/chat/completions"
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -126,11 +128,16 @@ def scenario(tmp_path):
                 state.errors.append(error)
                 status, result = 500, {"error": "Falha no servidor próprio de teste"}
             encoded = json.dumps(result).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.end_headers()
-            self.wfile.write(encoded)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+            except BrokenPipeError, ConnectionResetError:
+                # Cancelamento fecha o cliente antes de uma resposta tardia.
+                # Asserções do callback continuam registradas em state.errors.
+                pass
 
         def log_message(self, *args):
             pass
@@ -146,6 +153,9 @@ def scenario(tmp_path):
         server.server_close()
         thread.join(timeout=5)
         assert not thread.is_alive()
+        for request_thread in state.request_threads:
+            request_thread.join(timeout=5)
+            assert not request_thread.is_alive()
         assert not state.errors, state.errors
 
 

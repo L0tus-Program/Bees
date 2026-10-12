@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { onboarding } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
@@ -10,7 +10,9 @@ import { ModelEditor } from '../bee/ModelEditor'
 import { MemoryPanel } from '../memory/MemoryPanel'
 import { TaskPanel } from '../tasks/TaskPanel'
 import { PolicyPanel } from '../policies/PolicyPanel'
-import { BudgetPanel } from '../budgets/BudgetPanel'
+import { ActivityPanel } from '../activity/ActivityPanel'
+import { rememberWorkspace, restoreWorkspace } from '../activity/context'
+import type { WorkspaceView } from '../activity/context'
 import { EnvironmentSummary } from '../environments/EnvironmentSummary'
 import { SafetyControl } from '../safety/SafetyControl'
 import { AttentionPanel } from '../attention/AttentionPanel'
@@ -30,12 +32,14 @@ export function Dashboard({ userName }: { userName: string }) {
   const { t: policies } = useTranslation('policies')
   const { t: tools } = useTranslation('tools')
   const { t: environments } = useTranslation('environments')
-  const { t: budgets } = useTranslation('budgets')
+  const { t: activity } = useTranslation('activity')
   const { t: attention } = useTranslation('attention')
   const { resource, reload } = useResource(onboarding)
   const [creating, setCreating] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view, setView] = useState<'conversation' | 'profile' | 'model' | 'memories' | 'policies' | 'usage' | 'attention' | 'tools' | 'computer'>('conversation')
+  const [workspace] = useState(restoreWorkspace)
+  const [selectedId, setSelectedId] = useState<string | null>(workspace.selectedId)
+  const [view, setView] = useState<WorkspaceView>(workspace.view)
+  useEffect(() => { rememberWorkspace(selectedId, view) }, [selectedId, view])
   const [notice, setNotice] = useState<string | null>(null)
   if (resource.state === 'loading') return <LoadingNotice />
   if (resource.state === 'error') return <div className="surface resource-error"><ErrorNotice error={resource.error} /><button className="button secondary" onClick={reload} type="button">{t('retry')}</button></div>
@@ -56,13 +60,13 @@ export function Dashboard({ userName }: { userName: string }) {
           <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><EnvironmentSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /><div className="environment-card"><h3>{t('personalComputer')}</h3><span>{t('preparing')}</span><p>{t('personalComputerDescription')}</p></div><p className="quiet-note">{t('environmentScope')}</p></section>
         </aside>
         <div className="conversation-column">
-          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : item === 'usage' ? budgets('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
+          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
-          {view === 'usage' && <BudgetPanel key={selected.id} agent={selected} />}
+          {view === 'usage' && <ActivityPanel key={selected.id} agent={selected} onPreferences={() => setView('attention')} />}
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}
           {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'computer' && <Suspense fallback={<LoadingNotice />}><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}

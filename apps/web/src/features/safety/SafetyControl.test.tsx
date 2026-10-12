@@ -6,12 +6,12 @@ import { I18nextProvider } from 'react-i18next'
 import { ApiError } from '../../api/client'
 import type { SafetyState } from '../../api/safety'
 import { safetyResources } from '../../locales/safety'
-import { SafetyConfirmation, SafetyStatusView } from './SafetyControl'
-import { inFlightTotal, safetyFailure } from './state'
+import { SafetyConfirmation, SafetyControl, SafetyStatusView } from './SafetyControl'
+import { checkedSafetySnapshot, inFlightTotal, safetyFailure } from './state'
 import type { SafetyIntent } from './state'
 
 const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0 }
-const running: SafetyState = { status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
+const running: SafetyState = { snapshot: { event_seq: 1, observed_at: '2026-10-12T12:00:00Z' }, status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
 const stopped: SafetyState = { ...running, status: 'stopped', generation: 1, revision: 2, changed_at: '2026-10-10T12:00:00+00:00', reason: 'Revisão de custos', in_flight: { ...flight, model_calls: 2, tool_actions: 1 } }
 const intent: SafetyIntent = { kind: 'stop', revision: 1, requestId: 'request-1', reason: '', sent: false }
 const noop = () => undefined
@@ -23,6 +23,16 @@ async function render(element: ReactElement, language = 'pt-BR') {
 }
 
 describe('global stop control', () => {
+  it('uses a neutral loading label before any canonical state is available', async () => {
+    const html = await render(<SafetyControl />)
+    expect(html).toContain('aria-label="Consultando estado da execução…"')
+    expect(html).not.toContain('Execução ativa')
+  })
+  it('refuses stale authority but accepts fewer in-flight operations at the same human revision', () => {
+    expect(checkedSafetySnapshot({ ...stopped, in_flight: flight, snapshot: { ...stopped.snapshot, observed_at: '2026-10-12T12:01:00Z' } }, stopped).in_flight).toEqual(flight)
+    for (const change of [{ revision: 1 }, { generation: 0 }, { status: 'running' as const }, { reason: 'Rewritten' }, { changed_at: '2026-10-10T11:00:00Z' }]) expect(() => checkedSafetySnapshot({ ...stopped, ...change }, stopped)).toThrow('invalid_response')
+    expect(() => checkedSafetySnapshot({ ...stopped, snapshot: { ...stopped.snapshot, event_seq: 0 } }, stopped)).toThrow('invalid_response')
+  })
   it('offers stopping while running without inventing in-flight work', async () => {
     const html = await render(<SafetyStatusView state={running} disabled={false} onStart={noop} />)
     expect(html).toContain('Execução ativa')

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getBudget, putBudget } from '../../api/budgets'
+import { checkedBudgetSnapshot, getBudget, putBudget } from '../../api/budgets'
 import type { BudgetStatus, BudgetSummary } from '../../api/budgets'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
@@ -39,6 +39,10 @@ export function BudgetSummaryView({ summary }: { summary: BudgetSummary }) {
 }
 
 export function BudgetPanel({ agent }: { agent: AgentSummary }) {
+  return <BudgetResource key={agent.id} agent={agent} />
+}
+
+function BudgetResource({ agent }: { agent: AgentSummary }) {
   const { t } = useTranslation('budgets')
   const label = useWindowLabel()
   const [data, setData] = useState<BudgetSummary | null>(null)
@@ -51,18 +55,24 @@ export function BudgetPanel({ agent }: { agent: AgentSummary }) {
   const [form, setForm] = useState({ token_limit: '', window_seconds: 86400, output_allowance: '4096', status: 'active' as BudgetStatus })
   const read = useRef<AbortController | null>(null)
   const mutation = useRef<AbortController | null>(null)
+  const canonical = useRef<BudgetSummary | null>(null)
   useEffect(() => {
     const controller = new AbortController(); read.current = controller
-    getBudget(agent.id, controller.signal).then((summary) => {
-      if (controller.signal.aborted) return
-      // Erro posterior conserva o último estado carregado; nunca inventa orçamento livre.
-      setData(summary); setError(null); setLoading(false)
-    }, (failure: unknown) => { if (!controller.signal.aborted) { setError(asApiError(failure)); setLoading(false) } })
+    void (async () => {
+      try {
+        const summary = await getBudget(agent.id, controller.signal)
+        if (controller.signal.aborted) return
+        checkedBudgetSnapshot(summary, canonical.current); canonical.current = summary
+        setData(summary); setError(null)
+      } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
+      finally { if (!controller.signal.aborted) setLoading(false) }
+    })()
     return () => controller.abort()
   }, [agent.id, reload])
   useEffect(() => () => mutation.current?.abort(), [])
   const refresh = () => { read.current?.abort(); setLoading(true); setReload((value) => value + 1) }
   function edit(summary: BudgetSummary) {
+    if (loading || busy || error) return
     const limit = summary.limit
     setForm({
       token_limit: limit ? String(limit.token_limit) : '',
@@ -74,16 +84,17 @@ export function BudgetPanel({ agent }: { agent: AgentSummary }) {
   }
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (!data) return
+    if (!data || busy || loading || error) return
     const tokenLimit = Number(form.token_limit), allowance = Number(form.output_allowance)
     if (!Number.isSafeInteger(tokenLimit) || !Number.isSafeInteger(allowance) || allowance < 1 || tokenLimit <= allowance) { setNotice('limitTooSmall'); return }
+    read.current?.abort()
     const controller = new AbortController(); mutation.current = controller; setBusy(true); setError(null); setNotice(null)
     try {
       const summary = await putBudget(agent.id, {
         token_limit: tokenLimit, window_seconds: form.window_seconds, output_allowance: allowance, status: form.status,
         ...(data.limit ? { expected_revision: data.limit.revision } : {}),
       }, controller.signal)
-      if (!controller.signal.aborted) { setData(summary); setEditing(false); setNotice('saved') }
+      if (!controller.signal.aborted) { checkedBudgetSnapshot(summary, canonical.current); canonical.current = summary; setData(summary); setEditing(false); setNotice('saved') }
     } catch (failure) {
       if (controller.signal.aborted) return
       const apiError = asApiError(failure)
@@ -106,7 +117,7 @@ export function BudgetPanel({ agent }: { agent: AgentSummary }) {
       <label className="field"><span>{t('outputAllowance')}</span><input type="number" inputMode="numeric" min={1} step={1} required value={form.output_allowance} disabled={busy} onChange={(event) => setForm({ ...form, output_allowance: event.target.value })} /></label>
       <p className="quiet-note">{t('outputHelp')}</p>
       <label className="budget-check"><input type="checkbox" checked={form.status === 'active'} disabled={busy} onChange={(event) => setForm({ ...form, status: event.target.checked ? 'active' : 'disabled' })} />{t('active')}</label>
-      <div className="policy-actions"><button className="button secondary" type="button" disabled={busy} onClick={() => setEditing(false)}>{t('cancel')}</button><button className="button primary" type="submit" disabled={busy}>{t(busy ? 'saving' : 'save')}</button></div>
+      <div className="policy-actions"><button className="button secondary" type="button" disabled={busy} onClick={() => setEditing(false)}>{t('cancel')}</button><button className="button primary" type="submit" disabled={busy || loading || !!error}>{t(busy ? 'saving' : 'save')}</button></div>
     </form>}
     {!editing && <button className="text-button" type="button" disabled={loading || busy} onClick={refresh}>{t('refresh')}</button>}
   </section>

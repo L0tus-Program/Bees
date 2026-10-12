@@ -179,14 +179,22 @@ class BudgetService:
             raise NotFoundError("Agente não encontrado.")
         return agent.id
 
-    def summary(self, agent_id: UUID | str, *, now: datetime | None = None) -> dict:
-        now = now or utc_now()
+    def summary(
+        self, agent_id: UUID | str, *, now: datetime | None = None, include_snapshot: bool = False
+    ) -> dict:
+        from bees_core.activity import observe
+
         with self.store.transaction(write=False) as uow:
+            snapshot = observe(uow.tasks._context.connection, now=now)
+            now = snapshot.observed_at
             agent = self._agent(uow, agent_id)
             limit = uow.budget_limits.for_agent(agent)
             window = limit.window_seconds if limit is not None else 86400
+            # Saldo espelha a guarda, inclusive reservas com relógio adiantado: nunca
+            # oferecer orçamento que a autorização canônica recusará.
             totals = uow.usage_entries.window(agent, now - timedelta(seconds=window))
-        return totals | {
+        result = totals | {
+            "agent_id": str(agent),
             "limit": limit,
             "window_seconds": window,
             "remaining_tokens": (
@@ -195,6 +203,15 @@ class BudgetService:
                 else None
             ),
         }
+        if include_snapshot:
+            result |= {
+                "snapshot": snapshot.model_dump(mode="json"),
+                "interval": {
+                    "since": (now - timedelta(seconds=window)).isoformat(),
+                    "until": now.isoformat(),
+                },
+            }
+        return result
 
     def set_limit(
         self,
