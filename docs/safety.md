@@ -45,6 +45,11 @@ API, com sessão humana, Origin e CSRF como nas demais rotas:
 - `GET /api/v1/safety`: estado e contagens em andamento;
 - `POST /api/v1/safety/commands`: `{client_request_id, kind, expected_revision, reason?}`. O motivo tem até 500 caracteres.
 
+Estado e contagens são lidos na mesma transação, com snapshot global
+(`event_seq`, `observed_at`). A UI compara snapshot, revisão e geração antes de
+aceitar uma resposta. Uma consulta atrasada não desfaz uma parada já confirmada;
+novas contagens podem chegar com a mesma revisão do controle.
+
 Conteúdo de conversas, sites, documentos ou modelos não chega a esse canal. Não existe parada ou retomada automática.
 
 ## Onde a parada é verificada

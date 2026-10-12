@@ -7,7 +7,7 @@ import { budgetResources } from '../../locales/budgets'
 import { BudgetSummaryView } from './BudgetPanel'
 
 const limit = { token_limit: 10000, window_seconds: 86400, output_allowance: 4096, status: 'active' as const, revision: 1, updated_at: '2026-10-09T18:00:00+00:00' }
-const summary: BudgetSummary = { limit, window_seconds: 86400, counted_tokens: 1500, reported_tokens: 1200, remaining_tokens: 8500, open_reservations: 1, unknown_entries: 2, entries: 5 }
+const summary: BudgetSummary = { agent_id: '11111111-1111-4111-8111-111111111111', snapshot: { event_seq: 1, observed_at: '2026-10-12T12:00:00Z' }, interval: { since: '2026-10-11T12:00:00Z', until: '2026-10-12T12:00:00Z' }, limit, window_seconds: 86400, counted_tokens: 1500, reported_tokens: 1200, remaining_tokens: 8500, open_reservations: 1, unknown_entries: 2, entries: 5 }
 
 async function render(value: BudgetSummary, language = 'pt-BR') {
   const i18n = createInstance()

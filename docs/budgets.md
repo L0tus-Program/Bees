@@ -56,6 +56,16 @@ Rotas com sessão; edição com Origin, CSRF e CAS:
 - `GET /api/v1/agents/{agent_id}/budget`: limite atual, consumo contado na janela, uso informado, tokens restantes, reservas abertas, registros incertos e quantidade de registros.
 - `PUT /api/v1/agents/{agent_id}/budget`: `token_limit`, `window_seconds`, `output_allowance` e `status`. Sem `expected_revision` cria o primeiro limite; editar exige a revisão lida. Revisão divergente retorna `409`.
 
+As respostas identificam a abelha, o intervalo da janela e o snapshot observado
+(`event_seq`, `observed_at`). Limite e totais são consultados na mesma transação.
+A interface recusa vínculo incorreto, campo extra e observação regressiva; uma
+janela nova pode alterar totais sem mudar a revisão do limite.
+
+O saldo usa exatamente a soma conservadora da guarda de execução. Se um registro
+tiver data futura por divergência de relógio, ele continua contando no limite.
+A timeline recorta o intervalo observado e pode, nesse caso, mostrar total menor;
+ela não substitui a guarda nem libera essa reserva.
+
 ## Interface
 
 A vista **Consumo** de cada abelha mostra:
@@ -67,7 +77,9 @@ Ela explica que o incerto conta a reserva e pode ter sido cobrado. Quando o limi
 
 O formulário edita limite, janela, folga e ativação com CAS. Um conflito recarrega os valores sem sobrescrever. Um erro mantém o último estado com aviso de desatualizado, sem inventar orçamento livre.
 
-A [parada global](safety.md) e a [atenção das tarefas textuais](attention.md) têm painéis próprios. A timeline agregada de consumo por tarefa/execução continua em BEES-022.4.
+A [atividade](activity.md) agrega consumo e timeline por tarefa/execução, com unidade,
+fonte e grau de certeza explícitos. A [parada global](safety.md) e a
+[atenção das tarefas textuais](attention.md) mantêm seus controles humanos próprios.
 
 ## Limites deste checkpoint
 

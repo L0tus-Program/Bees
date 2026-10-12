@@ -31,6 +31,9 @@ def _service(request: Request) -> BudgetService:
 def _view(summary: dict) -> dict:
     limit = summary["limit"]
     return {
+        "agent_id": summary["agent_id"],
+        "snapshot": summary["snapshot"],
+        "interval": summary["interval"],
         "limit": (
             {
                 "token_limit": limit.token_limit,
@@ -56,7 +59,7 @@ def _view(summary: dict) -> dict:
 
 @router.get("/{agent_id}/budget")
 def get_budget(agent_id: UUID, request: Request, session: _SESSION) -> dict:
-    return _view(_service(request).summary(agent_id))
+    return _view(_service(request).summary(agent_id, include_snapshot=True))
 
 
 @router.put("/{agent_id}/budget")
@@ -72,4 +75,4 @@ def put_budget(agent_id: UUID, body: BudgetInput, request: Request, session: _SE
         ),
         expected_revision=body.expected_revision,
     )
-    return _view(service.summary(agent_id))
+    return _view(service.summary(agent_id, include_snapshot=True))

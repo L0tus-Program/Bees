@@ -5,7 +5,7 @@ import type { ApiError } from '../../api/client'
 import { getSafety, sendSafetyCommand } from '../../api/safety'
 import type { SafetyKind, SafetyState } from '../../api/safety'
 import { ErrorNotice } from '../../components/Feedback'
-import { FLIGHT, inFlightTotal, safetyFailure } from './state'
+import { checkedSafetySnapshot, FLIGHT, inFlightTotal, safetyFailure } from './state'
 import type { SafetyIntent } from './state'
 
 type Notice = 'stopped' | 'resumed' | 'conflict' | null
@@ -62,6 +62,7 @@ export function SafetyControl() {
   const [notice, setNotice] = useState<Notice>(null)
   const reader = useRef<AbortController | null>(null)
   const mutation = useRef<AbortController | null>(null)
+  const canonical = useRef<SafetyState | null>(null)
   const intentRef = useRef(intent); intentRef.current = intent
   // Acompanhamento em segundo plano não marca a região como ocupada nem trava os botões.
   const load = useCallback(async (background = false) => {
@@ -71,6 +72,7 @@ export function SafetyControl() {
     try {
       const next = await getSafety(operation.signal)
       if (operation.signal.aborted) return
+      checkedSafetySnapshot(next, canonical.current); canonical.current = next
       setState(next); setError(null)
       // Decisão ainda não enviada sobre revisão antiga não vale para o estado novo.
       const pending = intentRef.current
@@ -88,7 +90,8 @@ export function SafetyControl() {
     return () => window.clearTimeout(timer)
   }, [watching, state, load])
   function start(kind: SafetyKind) {
-    if (!state) return
+    if (!state || loading || busy || error || intent) return
+    reader.current?.abort()
     setNotice(null); setLost(false); setError(null)
     setIntent({ kind, revision: state.revision, requestId: crypto.randomUUID(), reason: '', sent: false })
   }
@@ -99,7 +102,8 @@ export function SafetyControl() {
     if (sent) void load()
   }
   async function confirm() {
-    if (!intent || busy) return
+    if (!intent || busy || loading || (error && !lost)) return
+    reader.current?.abort()
     const command = { ...intent, sent: true }
     const reason = command.reason.trim()
     setIntent(command); setBusy(true); setError(null); setNotice(null)
@@ -110,6 +114,7 @@ export function SafetyControl() {
         ...(command.kind === 'stop' && reason ? { reason } : {}),
       }, operation.signal)
       if (operation.signal.aborted) return
+      checkedSafetySnapshot(next, canonical.current); canonical.current = next
       setState(next); setIntent(null); setLost(false); setPolls(0); setNotice(command.kind === 'stop' ? 'stopped' : 'resumed')
     } catch (failure) {
       if (operation.signal.aborted) return
@@ -120,9 +125,9 @@ export function SafetyControl() {
     } finally { if (!operation.signal.aborted) setBusy(false) }
   }
   const stopped = state?.status === 'stopped'
-  return <section className={`surface safety-control ${stopped ? 'stopped' : ''}`} aria-labelledby={state ? 'safety-heading' : undefined} aria-label={state ? undefined : t('runningTitle')} aria-busy={loading || busy}>
+  return <section className={`surface safety-control ${stopped ? 'stopped' : ''}`} aria-labelledby={state ? 'safety-heading' : undefined} aria-label={state ? undefined : t('loading')} aria-busy={loading || busy}>
     {!state && loading && <p className="loading-notice" role="status">{t('loading')}</p>}
-    {state && <SafetyStatusView state={state} disabled={busy || !!intent} onStart={start} />}
+    {state && <SafetyStatusView state={state} disabled={loading || !!error || busy || !!intent} onStart={start} />}
     {notice && <p className={notice === 'conflict' ? 'form-error' : 'form-success'} role={notice === 'conflict' ? 'alert' : 'status'}>{t(notice)}</p>}
     {error && <ErrorNotice error={error} />}
     {intent && <SafetyConfirmation intent={intent} busy={busy} lost={lost} onReason={(reason) => setIntent({ ...intent, reason })} onConfirm={() => { void confirm() }} onCancel={cancel} />}

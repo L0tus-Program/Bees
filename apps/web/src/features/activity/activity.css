@@ -1,0 +1,29 @@
+.activity-panel { margin-top: 20px; }
+.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.activity-filters .field { min-width: min(240px, 100%); margin: 0; }
+.activity-interval { margin-block: 1rem; font-size: 11px; line-height: 1.8; color: var(--muted); }
+.activity-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 14px; margin-block: 1rem; }
+.activity-stats dt, .activity-fact-usage dt { font-size: 11px; }
+.activity-stats dd { margin: .3rem 0 0; font-weight: 600; font-size: 14px; }
+.activity-panel > div > h3 { margin-top: 1.25rem; font-size: 14px; }
+.activity-timeline { display: grid; gap: 1rem; margin-block: 1.25rem; }
+.activity-task { border: 1px solid var(--line); border-radius: 12px; padding: 1rem; min-width: 0; }
+.activity-task > h3 { font-size: 15px; overflow-wrap: anywhere; }
+.activity-actions, .activity-run-heading, .activity-fact-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem; justify-content: space-between; }
+.activity-actions { justify-content: start; margin-block: .75rem; }
+.activity-run { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .75rem; }
+.activity-run-heading h4 { min-width: 0; font-size: 11px; line-height: 1.8; overflow-wrap: anywhere; }
+.activity-run ol { list-style: none; padding: 0; margin: .75rem 0 0; }
+.activity-action h5 { font-size: 11px; margin-top: .75rem; overflow-wrap: anywhere; }
+.activity-fact { padding-block: .75rem; border-top: 1px solid var(--line); font-size: 12px; }
+.activity-fact:first-child { border-top: 0; }
+.activity-fact-heading strong { font-size: 12px; }
+.activity-fact-heading time { color: var(--muted); font-size: 10px; }
+.activity-fact > p { margin-top: .5rem; overflow-wrap: anywhere; }
+.activity-fact-usage { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin-block: .75rem; }
+.activity-fact-usage dd { margin: .3rem 0 0; }
+.activity-details { margin-top: .75rem; font-size: 11px; line-height: 1.8; }
+.activity-details summary { cursor: pointer; }
+.activity-details code, .activity-filters code, .activity-fact code { overflow-wrap: anywhere; }
+.activity-task-detail { margin-top: 20px; }
+@media (max-width: 480px) { .activity-task { padding: .8rem; } .activity-actions .button { width: 100%; } .activity-filters { align-items: start; } }

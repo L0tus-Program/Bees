@@ -1,22 +1,26 @@
 import { ApiError, record, request } from './client'
+import { isObservation, timestamp } from './activity'
+import type { Observation } from './activity'
 
 export type SafetyKind = 'stop' | 'resume'
 export interface SafetyInFlight { model_calls: number; tool_actions: number; chat_reservations: number; provisioning_effects: number }
 export interface SafetyState {
+  snapshot: Observation
   status: 'running' | 'stopped'; generation: number; revision: number; changed_at: string
   reason: string | null; in_flight: SafetyInFlight
 }
 
-const KEYS = ['changed_at', 'generation', 'in_flight', 'reason', 'revision', 'status']
+const KEYS = ['changed_at', 'generation', 'in_flight', 'reason', 'revision', 'snapshot', 'status']
 const FLIGHT = ['chat_reservations', 'model_calls', 'provisioning_effects', 'tool_actions']
 const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0
 const exact = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).sort().join() === keys.join()
 
 export function isSafetyState(value: unknown): value is SafetyState {
   return record(value) && exact(value, KEYS)
+    && isObservation(value.snapshot)
     && (value.status === 'running' || value.status === 'stopped')
     && count(value.generation) && Number.isSafeInteger(value.revision) && (value.revision as number) > 0
-    && typeof value.changed_at === 'string' && !Number.isNaN(Date.parse(value.changed_at))
+    && timestamp(value.changed_at)
     && (value.reason === null || (typeof value.reason === 'string' && value.reason.length <= 500))
     && record(value.in_flight) && exact(value.in_flight, FLIGHT) && FLIGHT.every((key) => count((value.in_flight as Record<string, unknown>)[key]))
 }

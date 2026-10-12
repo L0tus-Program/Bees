@@ -3,7 +3,7 @@ import { getSafety, isSafetyState, sendSafetyCommand } from './safety'
 import { setCsrfToken } from './client'
 
 const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0 }
-const running = { status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
+const running = { snapshot: { event_seq: 1, observed_at: '2026-10-12T12:00:00Z' }, status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
 const stopped = { ...running, status: 'stopped', generation: 1, revision: 2, changed_at: '2026-10-10T12:00:00+00:00', reason: 'Teste', in_flight: { ...flight, model_calls: 1 } }
 const respond = (body: unknown, status = 200) => vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
 
@@ -18,6 +18,7 @@ describe('global stop contract', () => {
     expect(isSafetyState({ ...running, revision: 0 })).toBe(false)
     expect(isSafetyState({ ...running, generation: -1 })).toBe(false)
     expect(isSafetyState({ ...running, changed_at: 'ontem' })).toBe(false)
+    expect(isSafetyState({ ...running, changed_at: '2026-10-12T12:00:00' })).toBe(false)
     expect(isSafetyState({ ...running, reason: 'x'.repeat(501) })).toBe(false)
     expect(isSafetyState({ ...running, in_flight: { ...flight, model_calls: 1.5 } })).toBe(false)
     expect(isSafetyState({ ...running, in_flight: { ...flight, secret: 1 } })).toBe(false)
@@ -47,5 +48,14 @@ describe('global stop contract', () => {
     setCsrfToken('csrf')
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network'))
     await expect(sendSafetyCommand({ client_request_id: '7d1c2a4e-5b6f-4c8d-9e0f-1a2b3c4d5e6f', kind: 'stop', expected_revision: 1 })).rejects.toMatchObject({ code: 'mutation_network' })
+  })
+  it('resends exactly the same human command after a lost response, without inventing success', async () => {
+    setCsrfToken('csrf')
+    const body = { client_request_id: '7d1c2a4e-5b6f-4c8d-9e0f-1a2b3c4d5e6f', kind: 'stop' as const, expected_revision: 1, reason: 'Teste' }
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new TypeError('lost after server commit')).mockResolvedValueOnce(new Response(JSON.stringify(stopped), { headers: { 'Content-Type': 'application/json' } }))
+    await expect(sendSafetyCommand(body)).rejects.toMatchObject({ code: 'mutation_network' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await expect(sendSafetyCommand(body)).resolves.toEqual(stopped)
+    expect(fetcher.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([body, body])
   })
 })

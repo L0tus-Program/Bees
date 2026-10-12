@@ -187,6 +187,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-022.2 — Implementar parada global durável em todos os despachos](https://github.com/L0tus-Program/Bees/issues/74)
 - [BEES-022.3 — Persistir atenção e preferências de aviso sem duplicidade](https://github.com/L0tus-Program/Bees/issues/75)
 - [BEES-022.4 — Exibir orçamento, atividade e operações encerrando na interface](https://github.com/L0tus-Program/Bees/issues/76)
+- [BEES-022.5 — Validar vínculo do consumo com chamada, tarefa e abelha](https://github.com/L0tus-Program/Bees/issues/128) (P2; achado de revisão)
 
 ### BEES-023 — Exportar, restaurar e trocar provedor preservando trabalho
 
@@ -255,3 +256,17 @@ Os quatro recortes não encerram suas issues amplas: ferramentas/recursos e ambi
 Implementação terminada vai para **Review**, mantendo a issue aberta até a revisão e o aceite. Checkpoints entregues com escopo restante vão para **Entrega Parcial**, com evidências e pendências na issue. **Done** fica reservado ao aceite completo após revisão.
 
 Os 14 itens com entregas parciais publicadas foram movidos de In Progress para Entrega Parcial: #5, #10, #14, #18, #22, #26, #56, #58, #72, #73, #74, #75, #76 e #95. Os itens já concluídos em Done permanecem aceitos; essa reorganização não fecha nem reabre issues ou altera seus critérios.
+
+## Entrega de BEES-022.4 — 12/10/2026
+
+[BEES-022.4 #76](https://github.com/L0tus-Program/Bees/issues/76) reúne consumo e
+[atividade](activity.md) por tarefa, execução e ação, com certeza, fonte, intervalo,
+fuso e operações atuais. Snapshots fechados preservam estado e contexto ao recarregar,
+recusam regressão e confirmam limites/parada pelo estado canônico. A interface foi
+validada com API real em instalação própria; os modelos de QA usam transporte de teste.
+
+Essa entrega vai para **Review**, mantendo a issue aberta. A história BEES-022 e
+#73/#74/#75 permanecem em **Entrega Parcial**, com os aceites de recursos, ambientes e
+rotinas próprios. O achado lateral de vínculo do writer de consumo virou
+[BEES-022.5 #128](https://github.com/L0tus-Program/Bees/issues/128), P2/Todo, sem
+migração adicional nem atualização da instalação padrão.

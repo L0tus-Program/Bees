@@ -53,11 +53,19 @@ class SafetyService:
     def __init__(self, database: Database) -> None:
         self.store = StateStore(database)
 
-    def current(self) -> dict:
-        with self.store.transaction(write=False) as uow:
-            return view(uow.safety.state(), uow.safety.in_flight())
+    def current(self, *, include_snapshot=False) -> dict:
+        from bees_core.activity import observe
 
-    def command(self, value: SafetyCommand, *, actor: str = "user") -> dict:
+        with self.store.transaction(write=False) as uow:
+            snapshot = observe(uow.tasks._context.connection)
+            result = view(uow.safety.state(), uow.safety.in_flight())
+            if include_snapshot:
+                result["snapshot"] = snapshot.model_dump(mode="json")
+            return result
+
+    def command(self, value: SafetyCommand, *, actor: str = "user", include_snapshot=False) -> dict:
+        from bees_core.activity import observe
+
         value = SafetyCommand.model_validate(value.model_dump())
         with self.store.transaction(actor=actor, source="safety") as uow:
             state, _ = uow.safety.command(
@@ -67,4 +75,7 @@ class SafetyService:
                 reason=value.reason,
                 now=utc_now(),
             )
-            return view(state, uow.safety.in_flight())
+            result = view(state, uow.safety.in_flight())
+            if include_snapshot:
+                result["snapshot"] = observe(uow.tasks._context.connection).model_dump(mode="json")
+            return result

@@ -28,10 +28,12 @@ def _service(request: Request) -> SafetyService:
 
 @router.get("")
 def get_safety(request: Request, session: _SESSION) -> dict:
-    return _service(request).current()
+    return _service(request).current(include_snapshot=True)
 
 
 @router.post("/commands")
 def post_command(body: CommandInput, request: Request, session: _SESSION) -> dict:
     # Replay do mesmo UUID devolve o estado atual sem reaplicar; outro conteúdo é conflito.
-    return _service(request).command(SafetyCommand.model_validate(body.model_dump()))
+    return _service(request).command(
+        SafetyCommand.model_validate(body.model_dump()), include_snapshot=True
+    )

@@ -1,4 +1,5 @@
-import type { ApiError } from '../../api/client'
+import { ApiError } from '../../api/client'
+import { checkedObservation, instant } from '../../api/activity'
 import type { SafetyInFlight, SafetyKind, SafetyState } from '../../api/safety'
 
 export interface SafetyIntent { kind: SafetyKind; revision: number; requestId: string; reason: string; sent: boolean }
@@ -13,3 +14,11 @@ export function safetyFailure(error: ApiError): 'lost' | 'conflict' | 'error' {
 }
 
 export const inFlightTotal = (state: SafetyState) => FLIGHT.reduce((sum, key) => sum + state.in_flight[key], 0)
+
+export function checkedSafetySnapshot(incoming: SafetyState, previous: SafetyState | null) {
+  if (previous) checkedObservation(incoming.snapshot, previous.snapshot)
+  if (previous && (incoming.revision < previous.revision || incoming.generation < previous.generation || instant(incoming.changed_at) < instant(previous.changed_at)
+    || incoming.revision === previous.revision && (incoming.status !== previous.status || incoming.generation !== previous.generation || incoming.reason !== previous.reason || incoming.changed_at !== previous.changed_at))) throw new ApiError('invalid_response')
+  // in_flight is derived and may change without another human command.
+  return incoming
+}

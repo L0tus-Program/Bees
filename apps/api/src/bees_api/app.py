@@ -14,6 +14,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from bees_api import __version__
+from bees_api.activity import router as activity_router
 from bees_api.approvals import router as approvals_router
 from bees_api.artifacts import router as artifacts_router
 from bees_api.attention import router as attention_router
@@ -139,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(configuration_router)
     app.include_router(profiles_router)
     app.include_router(tasks_router)
+    app.include_router(activity_router)
     app.include_router(artifacts_router)
     app.include_router(attention_router)
     app.include_router(budgets_router)
