@@ -67,7 +67,7 @@ Ela explica que o incerto conta a reserva e pode ter sido cobrado. Quando o limi
 
 O formulário edita limite, janela, folga e ativação com CAS. Um conflito recarrega os valores sem sobrescrever. Um erro mantém o último estado com aviso de desatualizado, sem inventar orçamento livre.
 
-Timeline por tarefa/execução, parada global e atenção pendente continuam em BEES-022.2/022.3/022.4.
+A [parada global](safety.md) e a [atenção das tarefas textuais](attention.md) têm painéis próprios. A timeline agregada de consumo por tarefa/execução continua em BEES-022.4.
 
 ## Limites deste checkpoint
 
@@ -99,3 +99,10 @@ Testes com SQLite e HTTP de teste (`packages/core/tests/test_budgets.py` e `apps
 - morte real do worker após aceite, com recuperação para `unknown`;
 - upgrade 9→10;
 - API com sessão, CSRF, CAS, validação e 409 sem chegar ao provedor.
+
+Regressões em `packages/core/tests/test_task_control_consumption.py` usam banco SQLite e
+servidor HTTP loopback reais. Redirecionar durante uma resposta preserva seu consumo
+mesmo quando ela fica obsoleta, e a nova orientação gera somente a próxima chamada
+prevista. Replay antes/depois da resposta, após reinício do serviço e depois da conclusão
+preserva IDs, journal, contadores e liquidações. Pausar uma resposta em voo e retomar
+seu resultado pronto, inclusive com limite de uma chamada, não gera nem cobra novamente.

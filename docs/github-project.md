@@ -240,3 +240,12 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 | [FUT-012 — Apps móveis nativos e administração empresarial](https://github.com/L0tus-Program/Bees/issues/111) | P2 |
 
 Os IDs preservam rastreabilidade; fechar uma issue depende do comportamento comprovado, e não da data ou quantidade de checkpoints. O Project é a referência operacional para progresso posterior.
+
+## Checkpoint de 12/10/2026 — atenção, artefatos e regressões
+
+- [BEES-022.1 #73](https://github.com/L0tus-Program/Bees/issues/73): redirect/replay e pause/resume preservam journal, IDs e consumo; HTTP loopback real comprova ausência de geração duplicada.
+- [BEES-022.2 #74](https://github.com/L0tus-Program/Bees/issues/74): stop/resume global conserva tarefas pausadas, canceladas e unknown após reabrir serviços, sem novo efeito.
+- [BEES-018.2 #58](https://github.com/L0tus-Program/Bees/issues/58): cartões por versão e download autenticado nas tarefas, com validação de integridade, paginação e erros que preservam a lista. Upload, revisão e geração real continuam pendentes; veja [artefatos](artifacts.md).
+- [BEES-022.3 #75](https://github.com/L0tus-Program/Bees/issues/75): [atenção durável](attention.md) de conclusão, falha recuperável, decisão pendente e unknown das tarefas textuais; leitura/preferências humanas, deduplicação transacional e painel por abelha. Schema 12 somente em instalações de teste; a instalação padrão não foi migrada.
+
+Os quatro recortes não encerram suas issues amplas: ferramentas/recursos e ambientes reais, rotina/silêncio por mudança relevante e anexação/revisão ainda têm aceites próprios. Os itens permanecem **In Progress** no Project.

@@ -21,6 +21,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | artifacts | Metadados de resultado, referência de armazenamento, hash/tamanho, série e versão anterior (migração 0009); blobs ficam em `artifacts/` fora do SQLite. |
 | budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (migração 0010). |
 | safety_control / safety_commands | Parada global durável: estado único com geração/revisão e comandos humanos idempotentes (migração 0011). |
+| attention_items / attention_preferences / attention_commands | Avisos de tarefas ligados ao evento canônico, leitura/preferências humanas por abelha/tipo e UUIDs idempotentes (migração 0012). |
 | domain_events | Ledger de criação/edição/reconciliação com IDs, revisão e estado. |
 
 UUIDs, datas UTC com timezone, validação de tipos e revisões fazem parte dos contratos. SQLite também verifica FKs, vínculos entre agentes/tarefas, estados e JSON. `tzdata` acompanha as dependências para validar fusos no Windows.
@@ -87,6 +88,8 @@ A migração 0009 acrescenta a linhagem de versões dos artefatos: `series_id`, 
 A migração 0010 acrescenta `budget_limits` e `usage_entries`. Identidade e reserva do consumo são imutáveis, a liquidação é final e as linhas são append-only. Limites são desativados, não apagados. Nenhum dado anterior é alterado. Consulte [consumo e limites](budgets.md).
 
 A migração 0011 acrescenta `safety_control`, com uma única linha iniciada em execução, e `safety_commands`. Gatilhos aceitam apenas parar/retomar com revisão +1, aumentam a geração somente na parada, impedem apagar o estado e tornam os comandos imutáveis. `provisioning_claims` recebe `safety_generation` imutável; linhas anteriores ficam sem valor (geração 0). Índices parciais aceleram a contagem de chamadas e reservas em andamento. Nenhum outro dado é alterado. Consulte [parada global](safety.md).
+
+A migração 0012 acrescenta avisos de tarefa, preferências e comandos humanos. O writer de eventos projeta fatos no mesmo savepoint/transação; GET não materializa. Identidades/vínculos são imutáveis, fatos e comandos não podem ser apagados, leitura/preferências usam CAS e replay retorna estado atual. Índices atendem paginação por sequência e contagem de não lidos. Nenhum evento anterior é retroprojetado nem alterado. Consulte [atenção](attention.md).
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

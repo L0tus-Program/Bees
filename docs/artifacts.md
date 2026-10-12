@@ -1,6 +1,6 @@
 # Artefatos
 
-Implementação inicial de BEES-018.1 em `packages/core/src/bees_core/artifacts.py`. O `ArtifactStore` publica arquivos produzidos por código confiável do Bees, guarda versões imutáveis e serve download autenticado. Anexação pelo usuário, interface de cartões e revisão (BEES-018.2) e geração de relatório/tabela por tarefa real (BEES-018.3) ainda não existem.
+Implementação inicial de BEES-018.1 em `packages/core/src/bees_core/artifacts.py`. O `ArtifactStore` publica arquivos produzidos por código confiável do Bees, guarda versões imutáveis e serve download autenticado. BEES-018.2 mostra cartões e downloads das versões existentes na consulta da tarefa. Anexação pelo usuário e revisão pela interface (BEES-018.2) e geração de relatório/tabela por tarefa real (BEES-018.3) ainda não existem.
 
 ## Contrato
 
@@ -59,6 +59,18 @@ Rotas autenticadas por sessão. Não há rota de upload nem de alteração neste
   - Relê e confere o blob antes de enviar qualquer byte.
   - Responde sempre como anexo (`Content-Disposition: attachment` com `filename*` UTF-8), `nosniff`, `Cache-Control: no-store` e uma `Content-Security-Policy: sandbox` adicional à política global.
   - Rascunho, blob ausente ou alterado retornam `409` com código (`artifact_not_ready`, `artifact_blob_missing`, `artifact_integrity_failed`), sem caminho nem conteúdo. Armazenamento indisponível retorna `503` (`artifact_storage_unavailable`).
+
+## Interface — checkpoint BEES-018.2
+
+A consulta de uma tarefa mostra cartões dos artefatos já registrados, logo após sua resposta. Cada cartão corresponde a uma versão exata, inclusive versões anteriores, com nome, formato, tamanho, estado e data. A seção recolhível **Vínculos e integridade** mostra SHA-256, tarefa, execução quando presente, id, série e anterior quando registrados. Não infere origem nem ambiente a partir desses campos.
+
+A lista autenticada começa em carregamento explícito, distingue lista vazia de erro e oferece atualização manual e paginação de 100 registros. Falha ou resposta incoerente conserva os cartões anteriores com aviso de desatualização e bloqueia downloads até uma nova consulta válida. Trocar de tarefa/abelha ou fechar a consulta cancela transportes e descarta respostas tardias. Dados de vínculos estrangeiros, campos extras, duplicatas, paginação incoerente ou metadados regressivos são recusados antes de entrar no estado da interface.
+
+**Baixar versão** solicita somente o id daquele cartão, com sessão de mesma origem, sem cache, redirecionamento nem repetição automática. A interface confere anexo, nome, formato, tamanho e SHA-256 antes de entregar um blob inerte ao navegador. A leitura limita bytes ao tamanho declarado; arquivos acima de 25 MiB ficam fora do download pela interface neste checkpoint. Falha, expiração de sessão, arquivo ausente/alterado ou cancelamento não exibem sucesso. A confirmação diz que o download foi enviado ao navegador; não afirma que o usuário salvou o arquivo.
+
+Conteúdo não é visualizado nem interpretado como HTML, markdown ou código. Rascunhos, falhas e registros removidos não oferecem download. Textos estão disponíveis em português, inglês e espanhol; controles e detalhes usam elementos nativos de teclado e cartões adaptam nome/hash longos a telas estreitas. Upload, criação de revisão e geração real de arquivos por tarefas continuam pendentes em BEES-018.2/018.3.
+
+Testes da interface (`apps/web/src/features/artifacts`) cobrem contratos negativos, sessão expirada, download íntegro e adulterado, tamanho/nome/formato divergentes, estados dos cartões, três idiomas, versões separadas, paginação, falha de atualização e cancelamento/respostas tardias.
 
 ## Operação e limites
 

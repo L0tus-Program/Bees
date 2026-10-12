@@ -56,6 +56,8 @@ EntityType = Literal[
     "host_link",
     "budget_limit",
     "usage_entry",
+    "attention",
+    "attention_preference",
 ]
 
 

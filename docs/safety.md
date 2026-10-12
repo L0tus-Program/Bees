@@ -69,3 +69,13 @@ Retomar libera novas operações; nada que foi recusado é reenviado por isso:
 - Rotinas e ambientes reais ainda não existem; quando forem implementados, precisam da mesma verificação antes de cada efeito.
 - Pausar uma única abelha, tarefa ou ambiente específico continua nos controles próprios de cada recurso.
 - A parada é uma regra do serviço Bees. Não bloqueia processos externos que acessem o banco ou as credenciais diretamente, nem interrompe um efeito remoto já despachado.
+
+## Validação da retomada
+
+`packages/core/tests/test_task_control_consumption.py` cobre parada/retomada e replay
+com SQLite e HTTP loopback reais, reabrindo os serviços e o worker. Mantém uma tarefa
+pausada com resultado pago, uma pausada antes do despacho, uma cancelada e uma chamada
+com resposta HTTP 503 de resultado desconhecido. As linhas de tarefas, execuções,
+chamadas, comandos, mensagens, consumo e leases permanecem iguais; o worker não faz
+novas requisições. O consumo confirmado e a reserva incerta continuam contando, e a
+retomada individual do resultado desconhecido ainda exige reconhecimento humano.
