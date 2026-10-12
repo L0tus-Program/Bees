@@ -1,0 +1,15 @@
+.task-artifacts { margin-block: 1.5rem; border-top: 1px solid var(--line, #d9d6cc); padding-top: 1rem; }
+.artifact-panel-heading, .artifact-card-heading { display: flex; gap: .75rem; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.artifact-panel-heading h4, .artifact-card h5 { margin: 0; }
+.artifact-cards { display: grid; gap: .75rem; margin-block: 1rem; }
+.artifact-card { min-width: 0; padding: 1rem; border: 1px solid var(--line, #d9d6cc); border-radius: .75rem; }
+.artifact-card h5 { font-size: 1rem; overflow-wrap: anywhere; }
+.artifact-status { font-size: .8rem; font-weight: 600; }
+.artifact-summary { display: flex; flex-wrap: wrap; gap: .6rem 1.5rem; margin-block: .75rem; }
+.artifact-summary dt, .artifact-provenance dt { font-size: .8rem; opacity: .75; }
+.artifact-summary dd, .artifact-provenance dd { margin: .15rem 0 0; overflow-wrap: anywhere; }
+.artifact-provenance { margin-block: .75rem 1rem; }
+.artifact-provenance summary { cursor: pointer; }
+.artifact-provenance dl { display: grid; gap: .5rem; }
+.artifact-provenance code { font-size: .8rem; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .artifact-card { padding: .8rem; } .artifact-card .button { width: 100%; } .artifact-panel-heading .text-button { padding-inline: 0; } }

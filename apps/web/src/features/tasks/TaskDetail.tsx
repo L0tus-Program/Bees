@@ -13,6 +13,7 @@ import { useTaskPolling } from './useTaskPolling'
 import { ApprovalPanel } from '../approvals/ApprovalPanel'
 import { ActionHistory } from './ActionHistory'
 import { UnknownAcknowledgment } from './UnknownAcknowledgment'
+import { TaskArtifacts } from '../artifacts/TaskArtifacts'
 
 function mergeDetail(incoming: Detail, previous: Detail) { return previous.task.revision > incoming.task.revision ? previous : incoming }
 
@@ -67,6 +68,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}
+      <TaskArtifacts agentId={agentId} taskId={taskId} />
       {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
       {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}

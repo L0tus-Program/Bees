@@ -11,6 +11,8 @@ import { provisioningResources } from './locales/provisioning'
 import { provisionerResources } from './locales/provisioners'
 import { budgetResources } from './locales/budgets'
 import { safetyResources } from './locales/safety'
+import { attentionResources } from './locales/attention'
+import { artifactResources } from './locales/artifacts'
 
 const ptBR = {
   language: 'Idioma',
@@ -124,7 +126,7 @@ function getSavedLanguage() {
 }
 
 void i18n.use(initReactI18next).init({
-  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'], policies: policyResources['pt-BR'], approvals: approvalResources['pt-BR'], tools: toolResources['pt-BR'], environments: environmentResources['pt-BR'], provisioning: provisioningResources['pt-BR'], provisioners: provisionerResources['pt-BR'], budgets: budgetResources['pt-BR'], safety: safetyResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en, policies: policyResources.en, approvals: approvalResources.en, tools: toolResources.en, environments: environmentResources.en, provisioning: provisioningResources.en, provisioners: provisionerResources.en, budgets: budgetResources.en, safety: safetyResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es, policies: policyResources.es, approvals: approvalResources.es, tools: toolResources.es, environments: environmentResources.es, provisioning: provisioningResources.es, provisioners: provisionerResources.es, budgets: budgetResources.es, safety: safetyResources.es } },
+  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'], policies: policyResources['pt-BR'], approvals: approvalResources['pt-BR'], tools: toolResources['pt-BR'], environments: environmentResources['pt-BR'], provisioning: provisioningResources['pt-BR'], provisioners: provisionerResources['pt-BR'], budgets: budgetResources['pt-BR'], safety: safetyResources['pt-BR'], attention: attentionResources['pt-BR'], artifacts: artifactResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en, policies: policyResources.en, approvals: approvalResources.en, tools: toolResources.en, environments: environmentResources.en, provisioning: provisioningResources.en, provisioners: provisionerResources.en, budgets: budgetResources.en, safety: safetyResources.en, attention: attentionResources.en, artifacts: artifactResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es, policies: policyResources.es, approvals: approvalResources.es, tools: toolResources.es, environments: environmentResources.es, provisioning: provisioningResources.es, provisioners: provisionerResources.es, budgets: budgetResources.es, safety: safetyResources.es, attention: attentionResources.es, artifacts: artifactResources.es } },
   lng: getSavedLanguage(),
   fallbackLng: 'pt-BR',
   supportedLngs: ['pt-BR', 'en', 'es'],

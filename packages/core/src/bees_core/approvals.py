@@ -141,8 +141,8 @@ class ApprovalService:
                 or self._directive(run) != action.metadata["directive_revision"]
             ):
                 return "approval_stale"
-            runs = unit.runs.list(task_id=task.id, limit=1000)
-            if not runs or runs[-1].id != run.id:
+            latest_run = unit.runs.latest(task.id)
+            if latest_run is None or latest_run.id != run.id:
                 return "approval_stale"
             if any(
                 call.status in ("dispatch_started", "outcome_unknown")

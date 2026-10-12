@@ -268,11 +268,12 @@ class _Repository[T: Record]:
             payload["previous_enabled"] = previous.enabled
         if previous is not None and hasattr(previous, "status"):
             payload["previous_status"] = previous.status
+        event_id = uuid4()
         self._context.connection.execute(
             "INSERT INTO domain_events(id,created_at,entity_type,entity_id,event_type,"
             "payload_json,actor,source,correlation_id) VALUES(?,?,?,?,?,?,?,?,?)",
             (
-                str(uuid4()),
+                str(event_id),
                 _timestamp(utc_now()),
                 self._spec.entity,
                 str(record.id),
@@ -283,6 +284,10 @@ class _Repository[T: Record]:
                 self._context.correlation_id,
             ),
         )
+        if isinstance(record, (Task, Run, Approval, ModelCall, Action)):
+            from bees_core.attention import project_event
+
+            project_event(self._context.connection, record, previous, event_id)
 
     def _validate_links(self, record: T) -> None:
         connection = self._context.connection
