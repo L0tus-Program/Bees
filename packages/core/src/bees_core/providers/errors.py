@@ -31,6 +31,7 @@ ErrorCode = Literal[
     "policy_denied",
     "policy_approval_required",
     "budget_exhausted",
+    "global_stop",
 ]
 
 MESSAGES: dict[str, str] = {
@@ -69,6 +70,10 @@ MESSAGES: dict[str, str] = {
     "budget_exhausted": (
         "O limite de consumo desta abelha não comporta outra geração agora. Revise o limite "
         "ou aguarde a janela; nenhuma geração foi solicitada ao provedor."
+    ),
+    "global_stop": (
+        "O Bees está parado. Nenhuma nova geração foi solicitada ao provedor; retome a "
+        "execução antes de enviar novamente."
     ),
 }
 

@@ -577,6 +577,9 @@ class ToolService:
                     "tool_policy_ask" if decision.effect == "ask" else "tool_policy_denied",
                     "Política atual impede despacho sem revisão humana.",
                 )
+            if unit.safety.state().status != "running":
+                # Parada global: a ação continua pronta, sem efeito, até a retomada.
+                raise ToolError("global_stop", "Bees parado: nenhuma ação nova é despachada.")
             action = unit.actions.update(
                 action.model_copy(
                     update={

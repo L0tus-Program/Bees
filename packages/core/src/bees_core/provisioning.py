@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from bees_core.security.hosts import HostService
 from bees_core.storage.database import Database
-from bees_core.storage.store import NotFoundError, RevisionConflict
+from bees_core.storage.store import NotFoundError, RevisionConflict, read_safety
 
 OPERATIONS = ("create_vhd", "create_vm", "configure_vm", "remove_nic", "attach_iso", "verify")
 Operation = Literal["create_vhd", "create_vm", "configure_vm", "remove_nic", "attach_iso", "verify"]
@@ -195,7 +195,7 @@ _COLUMNS = {
     "provisioning_claims": "id,plan_id,provisioner_id,host_id,owner_id,generation,"
     "authorization_revision,"
     "revision,status,client_request_id,request_hash,created_at,lease_expires_at,recovery_evidence,"
-    "acknowledged_at",
+    "acknowledged_at,safety_generation",
     "provisioning_effects": "effect_request_id,claim_id,ordinal,operation,status,request_hash,"
     "created_at,confirmed_at,result_json,receipt_request_id,receipt_hash",
     "environments": "id,agent_id,revision,status,template_id,cpu_count,memory_mib,disk_gib",
@@ -762,6 +762,15 @@ class ProvisioningService:
             "plan": json.loads(plan["plan_json"]),
         }
 
+    @staticmethod
+    def _running(connection, claim):
+        # Parada global ou claim de geração anterior: nenhum efeito novo. Como no chat e no
+        # worker, o corte é o commit do intent: guarda, renovação, recibo e unknown da etapa
+        # já iniciada continuam aceitos. Retomar não neutraliza quarentena própria.
+        state = read_safety(connection)
+        if state.status != "running" or state.generation != (claim["safety_generation"] or 0):
+            raise ProvisioningError("provisioning_global_stop")
+
     def _bound(self, connection, token, value, *, capable=False):
         credential = self._authenticate(connection, token, online=True)
         claim = _row(connection, "provisioning_claims", value.claim_id)
@@ -819,6 +828,9 @@ class ProvisioningService:
                 return self._claim_view(
                     connection, _row(connection, "provisioning_claims", prior[0])
                 )
+            safety = read_safety(connection)
+            if safety.status != "running":
+                raise ProvisioningError("provisioning_global_stop")
             plan = _row(connection, "provisioning_plans", value.plan_id)
             if plan["plan_hash"] != value.plan_hash or plan["host_id"] != credential["host_id"]:
                 raise ProvisioningError("provisioning_plan_changed")
@@ -859,8 +871,8 @@ class ProvisioningService:
                 "INSERT INTO provisioning_claims(id,plan_id,provisioner_id,host_id,owner_"
                 "id,generation,"
                 "authorization_revision,status,client_request_id,request_hash,created_at,"
-                "lease_expires_at) "
-                "VALUES(?,?,?,?,?,?,?,'claimed',?,?,?,?)",
+                "lease_expires_at,safety_generation) "
+                "VALUES(?,?,?,?,?,?,?,'claimed',?,?,?,?,?)",
                 (
                     claim_id,
                     str(value.plan_id),
@@ -873,6 +885,7 @@ class ProvisioningService:
                     payload_hash,
                     now,
                     now + self.LEASE_SECONDS,
+                    safety.generation,
                 ),
             )
             self._event(
@@ -957,6 +970,8 @@ class ProvisioningService:
                     _row(connection, "provisioning_effects", prior[0]),
                     cached=True,
                 )
+            # Parada global bloqueia efeito novo; replay acima é só leitura.
+            self._running(connection, claim)
             claim, plan, auth = self._bound(connection, token, value, capable=True)
             previous = connection.execute(
                 "SELECT ordinal,status FROM provisioning_effects WHERE claim_id=? ORDER "

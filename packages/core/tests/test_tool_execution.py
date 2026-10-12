@@ -541,6 +541,33 @@ def test_upgrade_six_to_seven_preserves_legacy_unknown_fail_closed(tmp_path, mon
     assert db.schema_version() == 7 and len(list(tmp_path.glob("*.backup-*.sqlite3"))) == 1
     detail = TaskService(db).detail(agent.id, task.id)
     assert detail.unknown_tool_actions == 1
+    # O worker só reivindica no schema atual: aplicar o restante preserva a falha fechada.
+    for file in original.iterdir():
+        if file.name.endswith(".sql") and int(file.name[:4]) > 7:
+            (migrations / file.name).write_bytes(file.read_bytes())
+    db.initialize()
     with StateStore(db).transaction() as unit:
         assert unit.execution.claim_next(uuid4(), now=utc_now(), ttl_seconds=5) is None
         assert unit.actions.get(action_id).execution_binding is None
+
+
+def test_global_stop_keeps_ready_action_without_effect_until_resume(state):
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    safety = SafetyService(state.db)
+    action = prepare(state)
+    stopped = safety.command(
+        SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1)
+    )
+    with pytest.raises(ToolError) as caught:
+        execute(state, action)
+    assert caught.value.code == "global_stop"
+    with state.store.transaction(write=False) as unit:
+        unchanged = unit.actions.get(action.id)
+    assert unchanged.status == "ready" and unchanged.revision == action.revision
+    safety.command(
+        SafetyCommand(
+            client_request_id=uuid4(), kind="resume", expected_revision=stopped["revision"]
+        )
+    )
+    assert execute(state, unchanged).status == "confirmed"

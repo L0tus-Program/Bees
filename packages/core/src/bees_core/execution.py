@@ -14,6 +14,7 @@ from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.contracts import SecretResolver
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import PreparedChat, ProviderService
+from bees_core.safety import blocked, ensure_running
 from bees_core.storage.database import Database
 from bees_core.storage.store import RevisionConflict, StateStore
 
@@ -179,6 +180,24 @@ class TaskWorker:
         )
         uow.execution.release(claim)
 
+    def _settle_stopped(self, uow, claim, call):
+        """Parada global antes do efeito: tarefa volta à fila, sem pausa nem chamada."""
+        uow.execution.assert_claim(claim, now=utc_now())
+        task = uow.tasks.get(claim.task.id)
+        run = uow.runs.get(claim.run.id)
+        uow.execution.discard_prepared(claim, call.id, now=utc_now(), error_code="global_stop")
+        if task.desired_state != "running":
+            self._settle_local(uow, claim, code=None)
+            return
+        uow.tasks.update(task.model_copy(update={"status": "queued"}), task.revision)
+        uow.runs.update(
+            run.model_copy(
+                update={"status": "queued", "checkpoint": run.checkpoint | {"progress": "queued"}}
+            ),
+            run.revision,
+        )
+        uow.execution.release(claim)
+
     def _settle_conflict(self, uow, claim, call, elapsed_ms):
         uow.execution.assert_claim(claim, now=utc_now())
         uow.execution.charge_active(claim, elapsed_ms, now=utc_now())
@@ -197,7 +216,7 @@ class TaskWorker:
                 uow, claim, code=None if task.desired_state != "running" else "context_changed"
             )
 
-    async def _dispatch(self, claim, prepared, remaining_seconds, calls, started):
+    async def _dispatch(self, claim, prepared, remaining_seconds, calls, started, generation):
         """Monitore controle/lease sem manter uma UoW aberta durante o await."""
 
         def authorize_generation():
@@ -206,6 +225,8 @@ class TaskWorker:
             if calls[0].status != "prepared":
                 raise ProviderError("state_conflict")
             with self.store.transaction(actor="worker", source="task_dispatch") as uow:
+                # Parada ou nova geração desde o claim: nada é enviado ao provedor.
+                ensure_running(uow, generation)
                 decision = self.providers.model_policy(uow, prepared)
                 uow.execution.assert_claim(claim, now=utc_now())
                 task = uow.tasks.get(claim.task.id)
@@ -421,6 +442,7 @@ class TaskWorker:
             claim = uow.execution.claim_next(
                 self.owner_id, now=utc_now(), ttl_seconds=self.lease_seconds
             )
+            generation = uow.safety.state().generation
         if claim is None:
             return False
         start = time.monotonic()
@@ -436,6 +458,9 @@ class TaskWorker:
         call, prepared = result
         try:
             with self.store.transaction(actor="worker", source="task_dispatch") as uow:
+                if blocked(uow.safety.state(), generation):
+                    self._settle_stopped(uow, claim, call)
+                    return True
                 self.providers.validate_snapshot(uow, prepared)
                 if prepared.request.tools or any(
                     message.tool_calls or message.role == "tool"
@@ -490,7 +515,9 @@ class TaskWorker:
         released = False
         dispatched = [call]
         try:
-            response, claim = await self._dispatch(claim, prepared, remaining, dispatched, start)
+            response, claim = await self._dispatch(
+                claim, prepared, remaining, dispatched, start, generation
+            )
             # Uma resposta recusada pelo contrato ainda consumiu o que o provedor informou.
             usage = response.usage
             response = self.providers.normalized_response(prepared, response)
@@ -533,7 +560,9 @@ class TaskWorker:
                 uow.execution.charge_active(
                     claim, math.ceil((time.monotonic() - start) * 1000), now=utc_now()
                 )
-                if error_code == "policy_approval_required":
+                if error_code == "global_stop":
+                    self._settle_stopped(uow, claim, dispatched[0])
+                elif error_code == "policy_approval_required":
                     task = uow.tasks.get(claim.task.id)
                     if (
                         task.desired_state != "running"

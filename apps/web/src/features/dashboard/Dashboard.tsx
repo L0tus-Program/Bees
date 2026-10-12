@@ -12,6 +12,7 @@ import { TaskPanel } from '../tasks/TaskPanel'
 import { PolicyPanel } from '../policies/PolicyPanel'
 import { BudgetPanel } from '../budgets/BudgetPanel'
 import { EnvironmentSummary } from '../environments/EnvironmentSummary'
+import { SafetyControl } from '../safety/SafetyControl'
 
 const EnvironmentPanel = lazy(async () => {
   const module = await import('../environments/EnvironmentPanel')
@@ -43,6 +44,7 @@ export function Dashboard({ userName }: { userName: string }) {
   return (
     <>
       <div className="page-heading"><div><p className="eyebrow">{t('yourHive')}</p><h1>{t('greeting', { name: userName })}</h1><p>{t('dashboardDescription')}</p></div><button type="button" className="button secondary" onClick={() => setCreating(true)}>{t('newBee')}</button></div>
+      <SafetyControl />
       <div className="workspace-grid">
         <aside className="bee-sidebar" aria-label={t('yourBees')}>
           <h2 className="section-label">{t('yourBees')}</h2>
