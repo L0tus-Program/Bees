@@ -1,4 +1,6 @@
 import { ApiError, record, request, setCsrfToken } from './client'
+import { uuid } from '../features/artifacts/api'
+import type { ArtifactRecord } from '../features/artifacts/api'
 
 export interface AuthStatus {
   configured: boolean
@@ -42,7 +44,9 @@ export interface Onboarding {
 
 export interface Diagnostic { status: 'ok'; code: string; capabilities: ModelConfig['capabilities']; validation_token: string }
 export interface DelegationOutcome { tool_call_id: string; status: 'created' | 'rejected'; code: string | null; task_id: string | null }
-export interface Message { id: string; role: string; content: string | null; created_at: string; delegation_results?: DelegationOutcome[] }
+export interface MessageAttachment { artifact_id: string; revision: number; sha256: string; name: string; media_type: string; size_bytes: number; source: ArtifactRecord['source'] }
+export interface AttachmentUse { attachments: { artifact_id: string; revision: number; sha256: string }[]; attachment_consent: { expected_agent_revision: number } }
+export interface Message { id: string; role: string; content: string | null; created_at: string; delegation_results?: DelegationOutcome[]; attachments?: MessageAttachment[] }
 export interface Conversation { conversation_id: string; messages: Message[]; has_more?: boolean }
 
 export function isModelConfig(value: unknown): value is ModelConfig {
@@ -113,6 +117,7 @@ export async function messages(id: string, conversationId: string, signal?: Abor
   if (!record(value) || value.conversation_id !== conversationId || !Array.isArray(value.messages)
     || !value.messages.every((item) => record(item) && ['id', 'role', 'created_at'].every((key) => typeof item[key] === 'string')
       && (item.content === null || typeof item.content === 'string')
+      && (item.attachments === undefined || checkedMessageAttachments(item.attachments))
       && (item.delegation_results === undefined || Array.isArray(item.delegation_results) && item.delegation_results.every((result) => record(result)
         && typeof result.tool_call_id === 'string' && result.tool_call_id.length > 0 && ['created', 'rejected'].includes(String(result.status))
         && (result.code === null || typeof result.code === 'string') && (result.task_id === null || typeof result.task_id === 'string')
@@ -120,9 +125,21 @@ export async function messages(id: string, conversationId: string, signal?: Abor
   return value as unknown as Conversation
 }
 
-export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID()) {
+export function checkedMessageAttachments(value: unknown): value is MessageAttachment[] {
+  return Array.isArray(value) && value.length <= 4 && value.every((item) => record(item) && Object.keys(item).length === 7
+    && uuid(item.artifact_id) && Number.isSafeInteger(item.revision) && (item.revision as number) >= 1 && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.sha256)
+    && typeof item.name === 'string' && !!item.name.trim() && item.name.trim() === item.name && Array.from(item.name).length <= 200 && !/[/\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(item.name)
+    && ['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(String(item.media_type)) && Number.isSafeInteger(item.size_bytes) && (item.size_bytes as number) >= 0 && (item.size_bytes as number) <= 65536
+    && ['legacy_unknown', 'system_generated', 'user_upload', 'user_revision'].includes(String(item.source)))
+    && new Set(value.map((item) => item.artifact_id)).size === value.length && value.reduce((sum, item) => sum + item.size_bytes, 0) <= 65536
+}
+export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID(), attachmentUse?: AttachmentUse) {
+  if (attachmentUse && (!Array.isArray(attachmentUse.attachments) || attachmentUse.attachments.length < 1 || attachmentUse.attachments.length > 4
+    || new Set(attachmentUse.attachments.map((item) => item.artifact_id)).size !== attachmentUse.attachments.length
+    || !attachmentUse.attachments.every((item) => uuid(item.artifact_id) && Number.isSafeInteger(item.revision) && item.revision >= 1 && /^[a-f0-9]{64}$/.test(item.sha256))
+    || !Number.isSafeInteger(attachmentUse.attachment_consent?.expected_agent_revision) || attachmentUse.attachment_consent.expected_agent_revision < 1)) throw new ApiError('invalid_request')
   await request(`/agents/${encodeURIComponent(id)}/chat`, {
-    body: { conversation_id: conversationId, content, allow_delegation: allowDelegation, client_request_id: clientRequestId }, signal, authenticated: true, timeoutMs: 75000,
+    body: { conversation_id: conversationId, content, allow_delegation: allowDelegation, client_request_id: clientRequestId, ...(attachmentUse ? { attachments: attachmentUse.attachments.map(({ artifact_id, revision, sha256 }) => ({ artifact_id, revision, sha256 })), attachment_consent: { expected_agent_revision: attachmentUse.attachment_consent.expected_agent_revision } } : {}) }, signal, authenticated: true, timeoutMs: 75000,
   })
 }
 

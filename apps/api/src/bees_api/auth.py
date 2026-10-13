@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from bees_api.artifact_transport import artifact_upload
 from bees_core.security.identity import AuthError, IdentityService, IssuedSession, Session
 
 COOKIE_NAME = "bees_session"
@@ -102,9 +103,13 @@ class AuthBoundaryMiddleware:
                 return
             if unsafe:
                 content_types = request.headers.getlist("content-type")
-                if len(content_types) != 1 or content_types[0].split(";", 1)[0].strip().lower() != (
-                    "application/json"
-                ):
+                expected_type = (
+                    "application/octet-stream" if artifact_upload(scope) else "application/json"
+                )
+                actual_type = content_types[0].strip().lower() if len(content_types) == 1 else ""
+                if not artifact_upload(scope):
+                    actual_type = actual_type.split(";", 1)[0].strip()
+                if actual_type != expected_type:
                     await _error("json_required", "Envie conteúdo JSON.", 415)(scope, receive, send)
                     return
             if self.secure_cookie and not health_read and scope["scheme"] != "https":

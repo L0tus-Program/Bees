@@ -18,7 +18,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
-| artifacts | Metadados de resultado, referência de armazenamento, hash/tamanho, série e versão anterior (migração 0009); blobs ficam em `artifacts/` fora do SQLite. |
+| artifacts / artifact_commands | Blobs fora do SQLite, hash/tamanho, versões imutáveis (0009), vínculo de conversa/tarefa e origem; intenções humanas append-only com UUID e hash do pedido (0013). |
 | budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (migração 0010). |
 | safety_control / safety_commands | Parada global durável: estado único com geração/revisão e comandos humanos idempotentes (migração 0011). |
 | attention_items / attention_preferences / attention_commands | Avisos de tarefas ligados ao evento canônico, leitura/preferências humanas por abelha/tipo e UUIDs idempotentes (migração 0012). |
@@ -90,6 +90,16 @@ A migração 0010 acrescenta `budget_limits` e `usage_entries`. Identidade e res
 A migração 0011 acrescenta `safety_control`, com uma única linha iniciada em execução, e `safety_commands`. Gatilhos aceitam apenas parar/retomar com revisão +1, aumentam a geração somente na parada, impedem apagar o estado e tornam os comandos imutáveis. `provisioning_claims` recebe `safety_generation` imutável; linhas anteriores ficam sem valor (geração 0). Índices parciais aceleram a contagem de chamadas e reservas em andamento. Nenhum outro dado é alterado. Consulte [parada global](safety.md).
 
 A migração 0012 acrescenta avisos de tarefa, preferências e comandos humanos. O writer de eventos projeta fatos no mesmo savepoint/transação; GET não materializa. Identidades/vínculos são imutáveis, fatos e comandos não podem ser apagados, leitura/preferências usam CAS e replay retorna estado atual. Índices atendem paginação por sequência e contagem de não lidos. Nenhum evento anterior é retroprojetado nem alterado. Consulte [atenção](attention.md).
+
+A migração 0013 permite artefato de conversa sem tarefa fictícia. Reconstrói
+`artifacts` numa transação, mantendo foreign keys ativas e preservando IDs,
+metadados, revisões, hashes e linhagem. Abelha/conversa dos registros anteriores
+vêm da tarefa canônica; a origem fica `legacy_unknown`. Blobs e eventos anteriores
+não são reescritos. Vínculos compostos e gatilhos verificam abelha/conversa/tarefa/
+execução e a linhagem das novas versões. Nome com hash declarado, origem e
+identidade são imutáveis. `artifact_commands` confirma a intenção humana junto
+do rascunho e fecha o replay pelo hash do pedido. Falha de upgrade reverte a
+transação e conserva backup e versão anterior. Consulte [artefatos](artifacts.md).
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 

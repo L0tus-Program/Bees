@@ -312,12 +312,24 @@ class _Repository[T: Record]:
                     ).fetchone()
                     if row is None or row[0] != str(record.agent_id):
                         raise IntegrityError("Tarefa e vínculo precisam pertencer ao mesmo agente.")
-        elif isinstance(record, Artifact) and record.run_id is not None:
-            row = connection.execute(
-                "SELECT task_id FROM runs WHERE id=?", (str(record.run_id),)
-            ).fetchone()
-            if row is None or row[0] != str(record.task_id):
-                raise IntegrityError("Artefato e execução precisam pertencer à mesma tarefa.")
+        elif isinstance(record, Artifact):
+            if record.agent_id is None:
+                raise IntegrityError("Artefato exige abelha canônica.")
+            if record.task_id is not None:
+                row = connection.execute(
+                    "SELECT agent_id,conversation_id FROM tasks WHERE id=?", (str(record.task_id),)
+                ).fetchone()
+                if row is None or row != (
+                    str(record.agent_id),
+                    str(record.conversation_id) if record.conversation_id else None,
+                ):
+                    raise IntegrityError("Artefato e tarefa precisam ter o mesmo escopo.")
+            if record.run_id is not None:
+                row = connection.execute(
+                    "SELECT task_id FROM runs WHERE id=?", (str(record.run_id),)
+                ).fetchone()
+                if row is None or row[0] != str(record.task_id):
+                    raise IntegrityError("Artefato e execução precisam pertencer à mesma tarefa.")
         elif isinstance(record, ModelCall) and record.output_message_id is not None:
             row = connection.execute(
                 "SELECT t.conversation_id,m.conversation_id,m.role FROM runs r "
@@ -346,7 +358,19 @@ class _Repository[T: Record]:
     def _validated(self, record: T) -> T:
         if not isinstance(record, self._spec.model):
             raise TypeError(f"Repositório exige {self._spec.model.__name__}.")
-        return self._spec.model.model_validate(record.model_dump())
+        validated = self._spec.model.model_validate(record.model_dump())
+        if isinstance(validated, Artifact) and validated.agent_id is None:
+            row = self._context.connection.execute(
+                "SELECT agent_id,conversation_id FROM tasks WHERE id=?", (str(validated.task_id),)
+            ).fetchone()
+            if row is None:
+                raise IntegrityError("Tarefa do artefato não encontrada.")
+            if validated.conversation_id is not None and str(validated.conversation_id) != row[1]:
+                raise IntegrityError("Artefato e tarefa precisam ter a mesma conversa.")
+            validated = Artifact.model_validate(
+                validated.model_dump() | {"agent_id": row[0], "conversation_id": row[1]}
+            )
+        return validated
 
     def create(self, record: T) -> T:
         validated = self._validated(record)
@@ -1449,11 +1473,48 @@ class Artifacts(_Repository[Artifact]):
         self,
         *,
         task_id: UUID | None = None,
+        conversation_id: UUID | None = None,
         series_id: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Artifact]:
-        return self._list({"task_id": task_id, "series_id": series_id}, limit, offset)
+        return self._list(
+            {"task_id": task_id, "conversation_id": conversation_id, "series_id": series_id},
+            limit,
+            offset,
+        )
+
+    def occupied_version(self, series_id: UUID, version: int) -> Artifact | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM artifacts "
+            "WHERE series_id=? AND version=? AND status<>'failed'",
+            (str(series_id), version),
+        ).fetchone()
+        return self._decode(row) if row else None
+
+    def command(self, client_request_id: UUID):
+        self._context.check()
+        return self._context.connection.execute(
+            "SELECT agent_id,artifact_id,kind,request_hash FROM artifact_commands "
+            "WHERE client_request_id=?",
+            (str(client_request_id),),
+        ).fetchone()
+
+    def record_command(self, client_request_id, agent_id, artifact_id, kind, request_hash):
+        self._context.check(write=True)
+        self._context.connection.execute(
+            "INSERT INTO artifact_commands VALUES(?,?,?,?,?,?,?)",
+            (
+                str(client_request_id),
+                str(agent_id),
+                str(artifact_id),
+                kind,
+                request_hash,
+                _timestamp(utc_now()),
+                "user",
+            ),
+        )
 
 
 class BudgetLimits(_Repository[BudgetLimit]):
@@ -1801,7 +1862,16 @@ class UnitOfWork:
                 "artifacts",
                 "artifact",
                 Artifact,
-                ("task_id", "run_id", "version", "series_id", "previous_id"),
+                (
+                    "agent_id",
+                    "conversation_id",
+                    "task_id",
+                    "source",
+                    "run_id",
+                    "version",
+                    "series_id",
+                    "previous_id",
+                ),
             ),
         )
         self.budget_limits = BudgetLimits(

@@ -1,6 +1,6 @@
 # Artefatos
 
-Implementação inicial de BEES-018.1 em `packages/core/src/bees_core/artifacts.py`. O `ArtifactStore` publica arquivos produzidos por código confiável do Bees, guarda versões imutáveis e serve download autenticado. BEES-018.2 mostra cartões e downloads das versões existentes na consulta da tarefa. Anexação pelo usuário e revisão pela interface (BEES-018.2) e geração de relatório/tabela por tarefa real (BEES-018.3) ainda não existem.
+BEES-018.1/018.2 reutilizam o `ArtifactStore` em `packages/core/src/bees_core/artifacts.py`: blobs verificados, versões imutáveis e download autenticado. A conversa permite armazenar arquivos, consultar texto inerte e criar uma revisão humana. Incluir um arquivo no próximo pedido ao modelo é uma escolha separada do upload. Geração de relatório/tabela por tarefa real permanece em BEES-018.3.
 
 ## Contrato
 
@@ -13,10 +13,11 @@ Implementação inicial de BEES-018.1 em `packages/core/src/bees_core/artifacts.
   - `deleted`: reservado; não há exclusão neste recorte.
 - **Versões:** cada versão é um registro imutável com `series_id`, `version` e `previous_id`. Uma revisão cria nova versão a partir de uma versão `ready` e preserva a anterior. O banco exige coerência dessa linhagem: v1 inicia a própria série; a anterior precisa estar `ready`, ser da mesma tarefa e da versão imediatamente anterior.
   - `(series_id, version)` é único entre registros não `failed`. Entre duas versões concorrentes a partir da mesma base, uma é criada e a outra recebe `artifact_version_conflict`.
-  - Um rascunho interrompido ocupa a posição e outro conteúdo recebe `artifact_version_pending`. O id padrão da nova versão é derivado de anterior, conteúdo, tipo, nome e execução, então repetir o mesmo pedido readota o rascunho e conclui a publicação.
+  - Um rascunho interrompido ocupa a posição e outro conteúdo recebe `artifact_version_pending`. Publicações internas podem derivar o id de anterior, conteúdo, tipo, nome e execução; uploads humanos usam o UUID4 confirmado. Repetir explicitamente a mesma intenção readota o rascunho e conclui a publicação.
   - `abandon()` encerra um rascunho como `failed`, sem tocar em arquivos, e libera a posição.
   - Registros anteriores à migração 0009 não têm série; a primeira nova versão inicia a série pelo id do legado.
-- **Vínculo:** todo artefato pertence a uma tarefa e, opcionalmente, a uma execução da mesma tarefa. O acesso confere que a tarefa pertence à abelha do caminho. IDs de outra abelha resultam em "não encontrado", sem bytes.
+- **Vínculo:** todo artefato pertence à abelha e a uma conversa ou tarefa canônica. Tarefa e execução são opcionais para anexos da conversa principal; execução exige tarefa. Quando conversa e tarefa estão presentes, a conversa precisa ser a dessa tarefa. Versões preservam a abelha, conversa, tarefa e série. IDs de outro contexto resultam em "não encontrado", sem bytes.
+- **Origem:** `user_upload` e `user_revision` identificam intenção humana; `system_generated`, publicação pelo código confiável do Bees; `legacy_unknown`, origem não demonstrada dos registros migrados. A origem é imutável e definida pelo servidor. Ela não comprova geração por modelo, VM nem isolamento de execução.
 
 ## Publicação
 
@@ -50,25 +51,90 @@ Lê os diretórios antes do banco, numa única transação de leitura, para não
 
 ## API
 
-Rotas autenticadas por sessão. Não há rota de upload nem de alteração neste recorte.
+Rotas autenticadas por sessão. Mutações exigem a origem e o token CSRF da sessão atual.
 
 - `GET /api/v1/agents/{agent_id}/tasks/{task_id}/artifacts?offset=0&limit=100`
-  - Pagina metadados seguros: id, tarefa, execução, nome, tipo, tamanho, hash, versão, série, anterior, estado, revisão e datas.
+  - Pagina metadados seguros: id, abelha, conversa, tarefa, execução, origem, nome, tipo, tamanho, hash, versão, série, anterior, estado, revisão e datas.
   - Nunca expõe chave de armazenamento, caminho ou `metadata`.
 - `GET /api/v1/agents/{agent_id}/artifacts/{artifact_id}/download`
   - Relê e confere o blob antes de enviar qualquer byte.
   - Responde sempre como anexo (`Content-Disposition: attachment` com `filename*` UTF-8), `nosniff`, `Cache-Control: no-store` e uma `Content-Security-Policy: sandbox` adicional à política global.
   - Rascunho, blob ausente ou alterado retornam `409` com código (`artifact_not_ready`, `artifact_blob_missing`, `artifact_integrity_failed`), sem caminho nem conteúdo. Armazenamento indisponível retorna `503` (`artifact_storage_unavailable`).
 
+- `GET /api/v1/agents/{agent_id}/conversations/{conversation_id}/artifacts?offset=0&limit=100`
+  - Lista os arquivos desse contexto com o mesmo contrato fechado de paginação.
+- `GET /api/v1/agents/{agent_id}/conversations/{conversation_id}/artifacts/{artifact_id}`
+  - Consulta a versão exata, inclusive o estado de uma publicação com resposta perdida.
+- `GET .../artifacts/{artifact_id}/preview?limit=65536`
+  - Confere o blob antes de devolver `artifact`, `text`, `truncated` e `total_bytes`.
+    A prévia é UTF-8 inerte; o limite é de bytes. Prévia truncada não pode alimentar
+    uma revisão no editor nem ser enviada silenciosamente ao modelo.
+    Legado de formato não suportado ou sem UTF-8 válido recebe
+    `422 artifact_preview_unavailable`, sem omitir bytes inválidos silenciosamente.
+- `PUT .../artifacts/{client_request_id}/content`
+  - UUID4 humano estável identifica a intenção e o novo artefato. Corpo binário
+    `application/octet-stream`, `Content-Length` exato e máximo de 25 MiB.
+    `X-Bees-Artifact` contém JSON fechado em base64url; o header codificado tem limite de 2 KiB:
+    `name`, `media_type`, `size_bytes`, `sha256`; revisão inclui juntos
+    `previous_id` e `expected_revision`.
+  - A exceção binária vale apenas nessa rota e método. Sessão, CSRF, contexto e
+    metadados são conferidos antes de consumir o corpo volumoso. Demais mutações
+    conservam JSON e limite de 64 KiB. Corpo/headers incoerentes são recusados.
+    Há dois uploads simultâneos por processo e prazo de dez segundos para ler o corpo.
+    Saturação retorna `429 artifact_upload_busy`; desconexão e excesso são recusados
+    sem reservar um rascunho. A sessão é conferida novamente antes de publicar.
+  - A intenção humana e o rascunho são registrados juntos. Replay fecha conteúdo,
+    contexto e operação pelo hash do pedido; intenção divergente é conflito.
+    Uma revisão nova confere CAS antes de reservar a posição da série. Replay
+    de intenção existente consulta seu estado, sem reaplicar uma edição antiga.
+
+## Arquivo no próximo pedido ao modelo
+
+Upload armazena na instalação Bees aberta e não chama um provedor. O usuário escolhe
+separadamente versões prontas para o próximo envio, vendo o destino/modelo atual.
+O contrato de chat recebe até quatro `attachments` com `artifact_id`, `revision` e
+`sha256`, e `attachment_consent.expected_agent_revision`. Com anexos, o UUID4 do
+turno é obrigatório. Mudança da configuração invalida a confirmação antes da rede.
+
+O backend confere contexto, estado, versão, hash e bytes de cada arquivo. O limite
+agregado é 64 KiB de conteúdo completo: excesso é recusado, sem cortar o arquivo.
+O conteúdo entra após o recorte do histórico como dado não confiável, sem conceder
+permissões ou editar políticas. A inclusão vale para esse turno; armazenar ou
+consultar arquivos não os inclui automaticamente em pedidos futuros.
+
+Referências seguras e a confirmação humana ficam no registro append-only da
+mensagem. Texto do pedido, versões e confirmação fazem parte da identidade do
+turno: replay com seleção diferente é recusado. Resultado desconhecido conserva
+a entrada e exige reconciliação; não há repetição automática de geração.
+
 ## Interface — checkpoint BEES-018.2
 
 A consulta de uma tarefa mostra cartões dos artefatos já registrados, logo após sua resposta. Cada cartão corresponde a uma versão exata, inclusive versões anteriores, com nome, formato, tamanho, estado e data. A seção recolhível **Vínculos e integridade** mostra SHA-256, tarefa, execução quando presente, id, série e anterior quando registrados. Não infere origem nem ambiente a partir desses campos.
+
+Arquivos de saída vinculados à conversa canônica da tarefa também oferecem prévia
+e revisão humana. A nova versão conserva a tarefa/conversa e tem origem
+`user_revision`, sem atribuir ao run anterior uma edição posterior. A revisão
+não muda a resposta textual da tarefa nem cria outra execução.
 
 A lista autenticada começa em carregamento explícito, distingue lista vazia de erro e oferece atualização manual e paginação de 100 registros. Falha ou resposta incoerente conserva os cartões anteriores com aviso de desatualização e bloqueia downloads até uma nova consulta válida. Trocar de tarefa/abelha ou fechar a consulta cancela transportes e descarta respostas tardias. Dados de vínculos estrangeiros, campos extras, duplicatas, paginação incoerente ou metadados regressivos são recusados antes de entrar no estado da interface.
 
 **Baixar versão** solicita somente o id daquele cartão, com sessão de mesma origem, sem cache, redirecionamento nem repetição automática. A interface confere anexo, nome, formato, tamanho e SHA-256 antes de entregar um blob inerte ao navegador. A leitura limita bytes ao tamanho declarado; arquivos acima de 25 MiB ficam fora do download pela interface neste checkpoint. Falha, expiração de sessão, arquivo ausente/alterado ou cancelamento não exibem sucesso. A confirmação diz que o download foi enviado ao navegador; não afirma que o usuário salvou o arquivo.
 
-Conteúdo não é visualizado nem interpretado como HTML, markdown ou código. Rascunhos, falhas e registros removidos não oferecem download. Textos estão disponíveis em português, inglês e espanhol; controles e detalhes usam elementos nativos de teclado e cartões adaptam nome/hash longos a telas estreitas. Upload, criação de revisão e geração real de arquivos por tarefas continuam pendentes em BEES-018.2/018.3.
+Na conversa, a seleção nativa informa tipo, tamanho e destino antes da confirmação
+de armazenamento. A prévia mostra texto escapado, sem interpretar HTML, Markdown,
+macros ou fórmulas de CSV. A revisão usa um novo arquivo ou o editor quando a prévia
+está completa. Conflito preserva o candidato e exige atualização e nova decisão;
+não há rebase automático sobre uma versão concorrente.
+
+Interromper o transporte não desfaz uma publicação. Resposta perdida conserva UUID
+e snapshot para consultar a versão exata; não anuncia cancelamento ou sucesso
+antes do estado canônico. Seleção e bytes locais ficam em RAM. Trocar contexto
+aborta transportes e descarta respostas tardias, conservando registros do servidor.
+
+Rascunhos, falhas e registros removidos não oferecem download. Textos estão
+disponíveis em português, inglês e espanhol; controles e detalhes usam elementos
+nativos de teclado e cartões adaptam nome/hash longos a telas estreitas. Geração
+real de arquivos por tarefas continua pendente em BEES-018.3.
 
 Testes da interface (`apps/web/src/features/artifacts`) cobrem contratos negativos, sessão expirada, download íntegro e adulterado, tamanho/nome/formato divergentes, estados dos cartões, três idiomas, versões separadas, paginação, falha de atualização e cancelamento/respostas tardias.
 
@@ -77,6 +143,12 @@ Testes da interface (`apps/web/src/features/artifacts`) cobrem contratos negativ
 Os blobs ficam em `BEES_DATA_DIR/artifacts`, no mesmo volume `bees-data` da distribuição Docker. Backup da base SQLite não inclui blobs nem o cofre. Copie a pasta de dados inteira com API e worker parados, como descrito em [persistência](persistence.md) e [containers](containers.md).
 
 Não há exclusão, retenção, cota por abelha ou exportação de artefatos. Essas políticas pertencem a BEES-023/024.
+
+O schema13 migra vínculos legados a partir das tarefas e preserva UUIDs, revisões,
+bytes e linhagem. A migração reconstrói a tabela numa transação sem desligar FKs;
+`artifact_commands` guarda intenções humanas append-only. Execute a atualização
+com serviço quiescido e backup. Este checkpoint valida somente bases próprias de
+QA; não atualiza a instalação pessoal automaticamente.
 
 No Windows, a privacidade depende das ACLs da pasta de dados; a biblioteca não altera ACLs. A verificação de links cobre os ancestrais da raiz e os arquivos publicados, mas não é isolamento contra outro processo da mesma conta ou de administrador.
 
@@ -100,3 +172,15 @@ Testes com SQLite e arquivos reais em diretórios próprios (`packages/core/test
 - reconciliação sem mutação;
 - upgrade 8→9 preservando registro legado;
 - headers e respostas da API.
+
+BEES-018.2 acrescenta `test_artifact_uploads.py`, `test_artifact_upload.py` e
+`test_artifact_chat.py`: migração 12→13 com FKs ativas e rollback, vínculo humano
+sem tarefa, intenção append-only/CAS/UUID, concorrência e publicação interrompida;
+autenticação antes do corpo, limites e HTTP loopback real; arquivo completo fora
+da janela do histórico, mudança de destino, replay/unknown e ausência de reenvio
+no turno seguinte. Testes interativos de React cobrem confirmação, erro,
+conflito, reconciliação, troca de contexto e conteúdo escapado. O ambiente DOM é
+dependência somente de desenvolvimento; não representa uma fronteira de isolamento.
+
+A GUI de QA usa identidade/dados descartáveis, API e arquivos reais e provedor HTTP
+controlado local. Não demonstra geração paga ou qualidade de um modelo real.

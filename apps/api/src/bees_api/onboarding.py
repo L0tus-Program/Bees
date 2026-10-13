@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from bees_api.auth import COOKIE_NAME, require_session
+from bees_core.attachments import AttachmentConsent, AttachmentRef, public_attachments
 from bees_core.models import Agent, Conversation
 from bees_core.profiles import memory_enabled
 from bees_core.providers.base import create_adapter, validate_bearer_secret
@@ -77,6 +78,8 @@ class ChatInput(Input):
     content: str = Field(min_length=1, max_length=32768)
     allow_delegation: bool = Field(default=False, strict=True)
     client_request_id: UUID | None = None
+    attachments: list[AttachmentRef] = Field(default_factory=list, max_length=4)
+    attachment_consent: AttachmentConsent | None = None
 
 
 class Receipts:
@@ -415,6 +418,7 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
                 "role": record.role,
                 "content": record.content,
                 "created_at": record.created_at.isoformat(),
+                "attachments": public_attachments(record.metadata) if record.role == "user" else [],
                 "delegation_results": record.metadata.get("delegation_results", [])
                 if record.role == "assistant"
                 else [],
@@ -432,7 +436,7 @@ async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESS
     with request.app.state.receipts.operation(body.conversation_id):
         provider: ProviderService = request.app.state.providers
         if body.task_id is not None:
-            if body.allow_delegation:
+            if body.allow_delegation or body.attachments or body.attachment_consent is not None:
                 raise ProviderError("invalid_request")
             response = await provider.chat(
                 agent_id, body.conversation_id, body.content, task_id=body.task_id
@@ -442,12 +446,16 @@ async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESS
                 "delegations": [],
                 "delegation_results": [],
             }
-        response, tasks, outcomes = await ConversationDelegationService(provider).chat(
+        response, tasks, outcomes = await ConversationDelegationService(
+            provider, request.app.state.artifacts
+        ).chat(
             agent_id,
             body.conversation_id,
             body.content,
             allow_delegation=body.allow_delegation,
             client_request_id=body.client_request_id,
+            attachments=body.attachments,
+            attachment_consent=body.attachment_consent,
         )
     require_session(request)
     return response.model_dump(mode="json") | {

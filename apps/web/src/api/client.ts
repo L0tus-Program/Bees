@@ -15,6 +15,8 @@ export function record(value: unknown): value is Record<string, unknown> {
 
 type RequestOptions = {
   body?: unknown
+  binaryBody?: Blob
+  binaryMetadata?: string
   method?: 'PATCH' | 'PUT'
   signal?: AbortSignal
   timeoutMs?: number
@@ -22,7 +24,7 @@ type RequestOptions = {
 }
 
 export async function request(path: string, options: RequestOptions = {}): Promise<unknown> {
-  const mutation = options.body !== undefined
+  const mutation = options.body !== undefined || options.binaryBody !== undefined
   if (mutation && options.authenticated && !csrfToken) throw new ApiError('csrf_missing')
   const controller = new AbortController()
   let timedOut = false
@@ -31,13 +33,14 @@ export async function request(path: string, options: RequestOptions = {}): Promi
   options.signal?.addEventListener('abort', abort, { once: true })
   const timeout = setTimeout(() => { timedOut = true; controller.abort() }, options.timeoutMs ?? 10000)
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (mutation) headers['Content-Type'] = 'application/json'
+  if (mutation) headers['Content-Type'] = options.binaryBody ? 'application/octet-stream' : 'application/json'
+  if (options.binaryMetadata) headers['X-Bees-Artifact'] = options.binaryMetadata
   if (mutation && options.authenticated && csrfToken) headers['X-Bees-CSRF'] = csrfToken
 
   try {
     const response = await fetch(`/api/v1${path}`, {
       method: mutation ? (options.method ?? 'POST') : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
-      ...(mutation ? { body: JSON.stringify(options.body) } : {}), signal: controller.signal,
+      ...(mutation ? { body: options.binaryBody ?? JSON.stringify(options.body) } : {}), signal: controller.signal, redirect: 'error',
     })
     let body: unknown
     if (response.status !== 204) {
@@ -65,6 +68,13 @@ export async function request(path: string, options: RequestOptions = {}): Promi
     clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
   }
+}
+
+// Fetch supplies Content-Length from the complete Blob; scripts cannot set that header.
+// Authentication and CSRF follow the same path as JSON mutations.
+export function requestBinary(path: string, bytes: Uint8Array, metadata: string, signal?: AbortSignal) {
+  if (bytes.byteLength > 25 * 1024 * 1024 || !/^[A-Za-z0-9_-]{1,2048}$/.test(metadata)) throw new ApiError('invalid_request')
+  return request(path, { binaryBody: new Blob([bytes.slice().buffer]), binaryMetadata: metadata, method: 'PUT', authenticated: true, signal, timeoutMs: 60000 })
 }
 
 export function asApiError(error: unknown) {

@@ -493,6 +493,12 @@ def test_upgrade_eight_to_nine_preserves_legacy_artifact_and_starts_lineage(tmp_
         after = connection.execute("SELECT * FROM artifacts").fetchall()
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
     assert [row[: len(before[0])] for row in after] == before
+    # O serviço atual exige schema atual; o checkpoint estrutural 8→9 acima
+    # continua separado da extensão posterior de conversa.
+    for file in original.iterdir():
+        if file.name.endswith(".sql") and int(file.name[:4]) > 9:
+            (migrations / file.name).write_bytes(file.read_bytes())
+    database.initialize()
     with StateStore(database).transaction(write=False) as uow:
         legacy = uow.artifacts.get(legacy_id)
     assert legacy.series_id is None and legacy.previous_id is None

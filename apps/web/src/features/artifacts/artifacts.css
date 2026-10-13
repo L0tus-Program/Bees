@@ -12,4 +12,15 @@
 .artifact-provenance summary { cursor: pointer; }
 .artifact-provenance dl { display: grid; gap: .5rem; }
 .artifact-provenance code { font-size: .8rem; overflow-wrap: anywhere; }
+.conversation-artifacts { margin-block: 1.5rem; padding-block: 1rem; border-block: 1px solid var(--line, #d9d6cc); }
+.artifact-card-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: center; }
+.artifact-draft, .artifact-preview, .artifact-publication, .artifact-selected { margin-block: 1rem; padding: 1rem; border: 1px solid var(--line, #d9d6cc); border-radius: .75rem; min-width: 0; }
+.artifact-draft h4, .artifact-preview h4 { margin: 0; overflow-wrap: anywhere; }
+.artifact-file-label, .artifact-text-editor label { display: grid; gap: .5rem; margin-block: 1rem; }
+.artifact-file-label input { width: 100%; max-width: 100%; }
+.artifact-text-editor textarea { width: 100%; resize: vertical; min-height: 12rem; font-family: monospace; }
+.artifact-plain-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; padding: .75rem; border: 1px solid var(--line, #d9d6cc); }
+.artifact-candidate strong, .artifact-publication strong, .artifact-publication code, .artifact-selected li, .chat-attachment-receipt { overflow-wrap: anywhere; }
+.artifact-candidate .button { margin-right: .5rem; }
+.chat-attachment-receipt { padding: .75rem; border: 1px solid var(--line, #d9d6cc); border-radius: .75rem; }
 @media (max-width: 480px) { .artifact-card { padding: .8rem; } .artifact-card .button { width: 100%; } .artifact-panel-heading .text-button { padding-inline: 0; } }
