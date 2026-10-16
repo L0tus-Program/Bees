@@ -17,6 +17,11 @@ import { EnvironmentSummary } from '../environments/EnvironmentSummary'
 import { SafetyControl } from '../safety/SafetyControl'
 import { AttentionPanel } from '../attention/AttentionPanel'
 
+const SkillsPanel = lazy(async () => {
+  const module = await import('../skills/SkillsPanel')
+  return { default: module.SkillsPanel }
+})
+
 const EnvironmentPanel = lazy(async () => {
   const module = await import('../environments/EnvironmentPanel')
   return { default: module.EnvironmentPanel }
@@ -34,6 +39,7 @@ export function Dashboard({ userName }: { userName: string }) {
   const { t: environments } = useTranslation('environments')
   const { t: activity } = useTranslation('activity')
   const { t: attention } = useTranslation('attention')
+  const { t: skills } = useTranslation('skills')
   const { resource, reload } = useResource(onboarding)
   const [creating, setCreating] = useState(false)
   const [workspace] = useState(restoreWorkspace)
@@ -60,11 +66,12 @@ export function Dashboard({ userName }: { userName: string }) {
           <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><EnvironmentSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /><div className="environment-card"><h3>{t('personalComputer')}</h3><span>{t('preparing')}</span><p>{t('personalComputerDescription')}</p></div><p className="quiet-note">{t('environmentScope')}</p></section>
         </aside>
         <div className="conversation-column">
-          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
+          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'skills', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'skills' ? skills('navigation') : item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
+          {view === 'skills' && <Suspense fallback={<LoadingNotice />}><SkillsPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
           {view === 'usage' && <ActivityPanel key={selected.id} agent={selected} onPreferences={() => setView('attention')} />}
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}

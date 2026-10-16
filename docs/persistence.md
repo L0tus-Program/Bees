@@ -18,6 +18,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
 | routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
+| skills / skill_revisions / skill_commands / skill_events | Procedimentos por abelha, revisões imutáveis com origem/hash, habilitação de versão exata e intenções humanas com UUID/CAS (migração 0014); veja [skills](skills.md). |
 | artifacts / artifact_commands | Blobs fora do SQLite, hash/tamanho, versões imutáveis (0009), vínculo de conversa/tarefa e origem; intenções humanas append-only com UUID e hash do pedido (0013). |
 | budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (migração 0010). |
 | safety_control / safety_commands | Parada global durável: estado único com geração/revisão e comandos humanos idempotentes (migração 0011). |
