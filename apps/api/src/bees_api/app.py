@@ -37,6 +37,7 @@ from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
+from bees_api.skills import router as skills_router
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
 from bees_core.approvals import ApprovalError
@@ -146,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(activity_router)
     app.include_router(artifacts_router)
     app.include_router(attention_router)
+    app.include_router(skills_router)
     app.include_router(budgets_router)
     app.include_router(global_stop_router)
     app.include_router(delegation_router)
