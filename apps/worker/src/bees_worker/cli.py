@@ -8,6 +8,7 @@ from bees_api.config import Settings
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.worker_status import HEARTBEAT_KEY, HEARTBEAT_TTL, worker_status
+from bees_core.artifacts import ArtifactStore
 from bees_core.execution import TaskWorker
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.vault import FernetBackend, FileSecretVault
@@ -35,7 +36,11 @@ def create_worker(settings: Settings, database: Database) -> TaskWorker:
         vault = FileSecretVault(settings.data_dir / "vault", backend=FernetBackend(key))
     else:
         vault = FileSecretVault(settings.data_dir / "vault", key=settings.vault_key)
-    return TaskWorker(database, build_secret_resolver(vault))
+    return TaskWorker(
+        database,
+        build_secret_resolver(vault),
+        artifacts=ArtifactStore(database, settings.data_dir / "artifacts", actor="worker"),
+    )
 
 
 async def serve(settings: Settings) -> None:

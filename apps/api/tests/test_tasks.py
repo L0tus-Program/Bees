@@ -198,3 +198,71 @@ def test_worker_result_projection_does_not_pollute_chat(state):
     assert final["available_controls"] == []
     with client.app.state.store.transaction(write=False) as unit:
         assert unit.messages.list(conversation_id=conversation.id) == []
+
+
+def test_deliverables_choice_projection_and_download(state):
+    client, first, _, _, _ = state
+    path = f"/api/v1/agents/{first.id}/tasks"
+    for invalid in (["docx"], ["report", "report"], "report"):
+        refused = client.post(
+            path, json=body() | {"deliverables": invalid}, headers=headers(client)
+        )
+        assert refused.status_code == 422
+    value = body() | {"deliverables": ["table", "report"]}
+    task = client.post(path, json=value, headers=headers(client)).json()
+    assert task["deliverables"] == ["report", "table"]
+    assert task["deliverable_results"] is None and task["publication_pending"] is False
+    changed = value | {"deliverables": ["report"]}
+    assert client.post(path, json=changed, headers=headers(client)).status_code == 409
+    content = (
+        "Resumo.\n<<<BEES:REPORT>>>\n# Plano\n<<<BEES:END>>>\n"
+        "<<<BEES:TABLE>>>\npasso,prazo\nRevisar,=1+1\n<<<BEES:END>>>\n"
+        "<<<BEES:MISSING>>>\n- Orçamento\n<<<BEES:END>>>"
+    )
+
+    def response(_):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+                ],
+            },
+        )
+
+    worker = TaskWorker(
+        client.app.state.database,
+        transport=httpx.MockTransport(response),
+        artifacts=client.app.state.artifacts,
+    )
+    assert asyncio.run(worker.run_once()) is True
+    final = client.get(path + "/" + task["id"]).json()["task"]
+    assert final["status"] == "completed" and final["publication_pending"] is False
+    results = final["deliverable_results"]
+    assert results["partial"] is True and results["missing_data"] == ["Orçamento"]
+    table = next(item for item in results["items"] if item["kind"] == "table")
+    assert set(table) == {
+        "kind",
+        "status",
+        "error_code",
+        "artifact_id",
+        "sha256",
+        "size_bytes",
+        "version",
+        "rows",
+        "columns",
+        "formula_like_cells",
+    }
+    assert (table["status"], table["rows"], table["columns"], table["formula_like_cells"]) == (
+        "ready",
+        1,
+        2,
+        1,
+    )
+    listed = client.get(path + "/" + task["id"] + "/artifacts").json()
+    sources = {item["id"]: item["source"] for item in listed["artifacts"]}
+    assert sources[table["artifact_id"]] == "system_generated"
+    download = client.get(f"/api/v1/agents/{first.id}/artifacts/{table['artifact_id']}/download")
+    assert download.status_code == 200
+    assert download.content == b"passo,prazo\r\nRevisar,=1+1\r\n"
+    assert "attachment" in download.headers["content-disposition"]

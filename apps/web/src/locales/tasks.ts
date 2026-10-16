@@ -34,9 +34,27 @@ const pt = {
   status: { queued: 'Na fila', running: 'Em execução', waiting_approval: 'Aguardando decisão', waiting_resource: 'Aguardando recurso', paused: 'Pausada', completed: 'Resposta pronta', failed: 'Falhou', cancelled: 'Cancelada' },
   controls: { pause: 'Pausar', cancel: 'Cancelar', resume: 'Retomar', redirect: 'Redirecionar' },
   requested: { pause: 'Pausa solicitada', cancel: 'Cancelamento solicitado' },
-  progress: { queued: 'Tarefa na fila', running: 'Executando a tarefa', generating: 'Aguardando resposta do modelo', completed: 'Resposta preservada', paused: 'Tarefa pausada', cancelled: 'Tarefa cancelada', failed: 'Execução falhou', attention: 'A tarefa precisa de atenção', waiting_resource: 'Aguardando recurso', waiting_approval: 'Aguardando decisão', redirected: 'Orientação atualizada', resumed: 'Tarefa retomada', pause: 'Pausa solicitada', resume: 'Retomada solicitada', cancel: 'Cancelamento solicitado', redirect: 'Nova orientação registrada', prepared: 'Chamada ao modelo preparada', dispatch_started: 'Chamada ao modelo iniciada', confirmed: 'Resposta da chamada confirmada', failed_no_effect: 'Chamada não concluída', outcome_unknown: 'Resultado da chamada desconhecido' },
+  deliverables: {
+    choose: 'Arquivos da entrega (opcional)', chooseHelp: 'Além da resposta, a abelha devolve os arquivos escolhidos. O Bees valida cada arquivo antes de publicá-lo; arquivo inválido não é corrigido em silêncio.',
+    kind: { report: 'Relatório editável (.md)', table: 'Tabela (.csv)' },
+    heading: 'Arquivos da entrega', awaiting: 'aguardando a resposta da tarefa', publicationPending: 'A resposta está salva e os arquivos ainda não foram publicados. Retomar publica estes mesmos arquivos, sem nova chamada ao modelo.',
+    resumePublishes: 'Retomar conclui a publicação dos arquivos desta resposta já salva. Não há nova chamada ao modelo nem cobrança adicional.',
+    status: { ready: 'publicado e verificado', pending: 'publicação pendente', failed: 'publicação recusada', invalid: 'formato inválido', missing: 'não entregue' },
+    tableShape: '{{rows}} linhas de dados · {{columns}} colunas', formulas: 'Células que começam como fórmula: {{total}}. Os valores foram preservados; revise antes de abrir numa planilha.',
+    partial: 'Entrega parcial: a abelha informou dados ausentes.',
+    scope: 'Arquivos gerados a partir da resposta do modelo, no armazenamento do Bees. Ainda não são produzidos nem abertos no computador próprio da abelha.',
+    errors: {
+      fallback: 'O arquivo não passou na validação.', deliverable_missing: 'A resposta não trouxe esta seção.', deliverable_empty: 'A seção veio vazia.',
+      deliverable_duplicated: 'A resposta repetiu uma seção de arquivo.', deliverable_unterminated: 'Uma seção de arquivo não foi encerrada.', deliverable_unexpected_end: 'A resposta encerrou uma seção que não foi aberta.',
+      table_parse_failed: 'O CSV não pôde ser lido.', table_header_invalid: 'A primeira linha precisa ter nomes de colunas únicos e preenchidos.', table_columns_inconsistent: 'Há linhas com número de colunas diferente do cabeçalho.', table_too_large: 'A tabela excede o limite de linhas.',
+      artifact_content_invalid: 'O conteúdo não é texto UTF-8 válido.', artifact_too_large: 'O arquivo excede o tamanho permitido.', artifact_storage_unavailable: 'O armazenamento de arquivos não estava disponível.',
+      artifact_publication_interrupted: 'A publicação foi interrompida antes da confirmação.', artifact_integrity_failed: 'O arquivo gravado não confere com o conteúdo validado.', artifact_conflict: 'Já existe outro arquivo com este identificador.',
+    },
+  },
+  progress: { publishing: 'Publicando arquivos da entrega', queued: 'Tarefa na fila', running: 'Executando a tarefa', generating: 'Aguardando resposta do modelo', completed: 'Resposta preservada', paused: 'Tarefa pausada', cancelled: 'Tarefa cancelada', failed: 'Execução falhou', attention: 'A tarefa precisa de atenção', waiting_resource: 'Aguardando recurso', waiting_approval: 'Aguardando decisão', redirected: 'Orientação atualizada', resumed: 'Tarefa retomada', pause: 'Pausa solicitada', resume: 'Retomada solicitada', cancel: 'Cancelamento solicitado', redirect: 'Nova orientação registrada', prepared: 'Chamada ao modelo preparada', dispatch_started: 'Chamada ao modelo iniciada', confirmed: 'Resposta da chamada confirmada', failed_no_effect: 'Chamada não concluída', outcome_unknown: 'Resultado da chamada desconhecido' },
 }
-type Translations = { [K in keyof typeof pt]: typeof pt[K] extends string ? string : { [S in keyof typeof pt[K]]: string } }
+type Deep<T> = { [K in keyof T]: T[K] extends string ? string : Deep<T[K]> }
+type Translations = Deep<typeof pt>
 const en: Translations = {
   workerUnavailable: 'The task service has not responded recently. Your tasks remain recorded and may wait in the queue. Open the launcher or check the execution service.',
   heading: 'Tasks', background: 'Background work', delegate: 'Delegate a task',
@@ -67,7 +85,24 @@ const en: Translations = {
   policyHelp: 'Review the decision card below when available. Allowing once or saving permission queues the task. Blocks must be reviewed in Autonomy. Resuming alone does not authorize the call.',
   status: { queued: 'Queued', running: 'Running', waiting_approval: 'Waiting for a decision', waiting_resource: 'Waiting for a resource', paused: 'Paused', completed: 'Response ready', failed: 'Failed', cancelled: 'Cancelled' },
   controls: { pause: 'Pause', cancel: 'Cancel', resume: 'Resume', redirect: 'Redirect' }, requested: { pause: 'Pause requested', cancel: 'Cancellation requested' },
-  progress: { queued: 'Task queued', running: 'Executing task', generating: 'Waiting for model response', completed: 'Response preserved', paused: 'Task paused', cancelled: 'Task cancelled', failed: 'Execution failed', attention: 'Task needs attention', waiting_resource: 'Waiting for a resource', waiting_approval: 'Waiting for a decision', redirected: 'Instruction updated', resumed: 'Task resumed', pause: 'Pause requested', resume: 'Resume requested', cancel: 'Cancellation requested', redirect: 'New instruction recorded', prepared: 'Model call prepared', dispatch_started: 'Model call started', confirmed: 'Call response confirmed', failed_no_effect: 'Call did not complete', outcome_unknown: 'Call outcome unknown' },
+  deliverables: {
+    choose: 'Delivery files (optional)', chooseHelp: 'Besides the response, the bee returns the chosen files. Bees validates each file before publishing it; an invalid file is never silently fixed.',
+    kind: { report: 'Editable report (.md)', table: 'Table (.csv)' },
+    heading: 'Delivery files', awaiting: 'waiting for the task response', publicationPending: 'The response is saved and the files are not published yet. Resuming publishes these same files without a new model call.',
+    resumePublishes: 'Resuming completes publishing the files of this saved response. There is no new model call or additional charge.',
+    status: { ready: 'published and verified', pending: 'publication pending', failed: 'publication refused', invalid: 'invalid format', missing: 'not delivered' },
+    tableShape: '{{rows}} data rows · {{columns}} columns', formulas: 'Cells starting like a formula: {{total}}. Values were preserved; review them before opening in a spreadsheet.',
+    partial: 'Partial delivery: the bee reported missing data.',
+    scope: 'Files generated from the model response, in Bees storage. They are not yet produced or opened on the bee’s own computer.',
+    errors: {
+      fallback: 'The file did not pass validation.', deliverable_missing: 'The response did not include this section.', deliverable_empty: 'The section was empty.',
+      deliverable_duplicated: 'The response repeated a file section.', deliverable_unterminated: 'A file section was not closed.', deliverable_unexpected_end: 'The response closed a section that was not opened.',
+      table_parse_failed: 'The CSV could not be read.', table_header_invalid: 'The first row needs unique, non-empty column names.', table_columns_inconsistent: 'Some rows have a different number of columns than the header.', table_too_large: 'The table exceeds the row limit.',
+      artifact_content_invalid: 'The content is not valid UTF-8 text.', artifact_too_large: 'The file exceeds the allowed size.', artifact_storage_unavailable: 'File storage was not available.',
+      artifact_publication_interrupted: 'Publishing was interrupted before confirmation.', artifact_integrity_failed: 'The stored file does not match the validated content.', artifact_conflict: 'Another file already uses this identifier.',
+    },
+  },
+  progress: { publishing: 'Publishing delivery files', queued: 'Task queued', running: 'Executing task', generating: 'Waiting for model response', completed: 'Response preserved', paused: 'Task paused', cancelled: 'Task cancelled', failed: 'Execution failed', attention: 'Task needs attention', waiting_resource: 'Waiting for a resource', waiting_approval: 'Waiting for a decision', redirected: 'Instruction updated', resumed: 'Task resumed', pause: 'Pause requested', resume: 'Resume requested', cancel: 'Cancellation requested', redirect: 'New instruction recorded', prepared: 'Model call prepared', dispatch_started: 'Model call started', confirmed: 'Call response confirmed', failed_no_effect: 'Call did not complete', outcome_unknown: 'Call outcome unknown' },
 }
 const es: Translations = {
   workerUnavailable: 'El servicio de tareas no respondió recientemente. Las tareas siguen registradas y pueden esperar en la cola. Abre el launcher o comprueba el servicio de ejecución.',
@@ -99,6 +134,23 @@ const es: Translations = {
   policyHelp: 'Revisa la tarjeta de decisión abajo cuando esté disponible. Permitir una vez o guardar un permiso pone la tarea en cola. Los bloqueos se revisan en Autonomía. Retomar por sí solo no autoriza la llamada.',
   status: { queued: 'En cola', running: 'En ejecución', waiting_approval: 'Esperando decisión', waiting_resource: 'Esperando recurso', paused: 'Pausada', completed: 'Respuesta lista', failed: 'Falló', cancelled: 'Cancelada' },
   controls: { pause: 'Pausar', cancel: 'Cancelar', resume: 'Retomar', redirect: 'Redirigir' }, requested: { pause: 'Pausa solicitada', cancel: 'Cancelación solicitada' },
-  progress: { queued: 'Tarea en cola', running: 'Ejecutando la tarea', generating: 'Esperando respuesta del modelo', completed: 'Respuesta conservada', paused: 'Tarea pausada', cancelled: 'Tarea cancelada', failed: 'La ejecución falló', attention: 'La tarea necesita atención', waiting_resource: 'Esperando recurso', waiting_approval: 'Esperando decisión', redirected: 'Orientación actualizada', resumed: 'Tarea retomada', pause: 'Pausa solicitada', resume: 'Retomada solicitada', cancel: 'Cancelación solicitada', redirect: 'Nueva orientación registrada', prepared: 'Llamada al modelo preparada', dispatch_started: 'Llamada al modelo iniciada', confirmed: 'Respuesta de la llamada confirmada', failed_no_effect: 'La llamada no se completó', outcome_unknown: 'Resultado desconocido de la llamada' },
+  deliverables: {
+    choose: 'Archivos de la entrega (opcional)', chooseHelp: 'Además de la respuesta, la abeja devuelve los archivos elegidos. Bees valida cada archivo antes de publicarlo; un archivo inválido nunca se corrige en silencio.',
+    kind: { report: 'Informe editable (.md)', table: 'Tabla (.csv)' },
+    heading: 'Archivos de la entrega', awaiting: 'esperando la respuesta de la tarea', publicationPending: 'La respuesta está guardada y los archivos aún no se publicaron. Retomar publica estos mismos archivos, sin una nueva llamada al modelo.',
+    resumePublishes: 'Retomar completa la publicación de los archivos de esta respuesta guardada. No hay una nueva llamada al modelo ni un cobro adicional.',
+    status: { ready: 'publicado y verificado', pending: 'publicación pendiente', failed: 'publicación rechazada', invalid: 'formato inválido', missing: 'no entregado' },
+    tableShape: '{{rows}} filas de datos · {{columns}} columnas', formulas: 'Celdas que empiezan como fórmula: {{total}}. Los valores se conservaron; revísalos antes de abrirlos en una hoja de cálculo.',
+    partial: 'Entrega parcial: la abeja informó datos faltantes.',
+    scope: 'Archivos generados a partir de la respuesta del modelo, en el almacenamiento de Bees. Todavía no se producen ni se abren en la computadora propia de la abeja.',
+    errors: {
+      fallback: 'El archivo no pasó la validación.', deliverable_missing: 'La respuesta no incluyó esta sección.', deliverable_empty: 'La sección llegó vacía.',
+      deliverable_duplicated: 'La respuesta repitió una sección de archivo.', deliverable_unterminated: 'Una sección de archivo no se cerró.', deliverable_unexpected_end: 'La respuesta cerró una sección que no se abrió.',
+      table_parse_failed: 'No se pudo leer el CSV.', table_header_invalid: 'La primera fila necesita nombres de columnas únicos y completos.', table_columns_inconsistent: 'Hay filas con un número de columnas distinto del encabezado.', table_too_large: 'La tabla supera el límite de filas.',
+      artifact_content_invalid: 'El contenido no es texto UTF-8 válido.', artifact_too_large: 'El archivo supera el tamaño permitido.', artifact_storage_unavailable: 'El almacenamiento de archivos no estaba disponible.',
+      artifact_publication_interrupted: 'La publicación se interrumpió antes de la confirmación.', artifact_integrity_failed: 'El archivo guardado no coincide con el contenido validado.', artifact_conflict: 'Ya existe otro archivo con este identificador.',
+    },
+  },
+  progress: { publishing: 'Publicando archivos de la entrega', queued: 'Tarea en cola', running: 'Ejecutando la tarea', generating: 'Esperando respuesta del modelo', completed: 'Respuesta conservada', paused: 'Tarea pausada', cancelled: 'Tarea cancelada', failed: 'La ejecución falló', attention: 'La tarea necesita atención', waiting_resource: 'Esperando recurso', waiting_approval: 'Esperando decisión', redirected: 'Orientación actualizada', resumed: 'Tarea retomada', pause: 'Pausa solicitada', resume: 'Retomada solicitada', cancel: 'Cancelación solicitada', redirect: 'Nueva orientación registrada', prepared: 'Llamada al modelo preparada', dispatch_started: 'Llamada al modelo iniciada', confirmed: 'Respuesta de la llamada confirmada', failed_no_effect: 'La llamada no se completó', outcome_unknown: 'Resultado desconocido de la llamada' },
 }
 export const taskResources = { 'pt-BR': pt, en, es }

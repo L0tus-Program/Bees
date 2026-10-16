@@ -429,6 +429,16 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .task-result { background: #f0f3e8; border: 1px solid #dbe0ce; border-radius: 10px; padding: 18px; margin-top: 20px; }
 .task-result h4 { font-size: 13px; margin-bottom: 12px; }
 .task-result small { font-size: 10px; line-height: 1.6; color: var(--muted); display: block; margin-top: 14px; }
+.task-deliverables-choice { margin: 4px 0 12px; }
+.task-deliverables-choice legend { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.task-deliverables-choice .checkbox-field { margin: 6px 0; }
+.task-deliverables-choice small { display: block; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.task-deliverables { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-top: 16px; }
+.task-deliverables h4 { font-size: 13px; margin-bottom: 10px; }
+.task-deliverables ul { display: grid; gap: 8px; list-style: none; padding: 0; margin: 0; }
+.task-deliverables li, .task-deliverables p { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.task-deliverables li strong { display: block; }
+.task-deliverables small { display: block; font-size: 11px; color: var(--muted); }
 .task-events { margin-top: 20px; font-size: 12px; }
 .task-events summary { cursor: pointer; min-height: 44px; padding: 14px 0; }
 .task-events ol { list-style: none; padding: 0; display: grid; gap: 12px; max-height: 300px; overflow: auto; }
