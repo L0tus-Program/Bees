@@ -19,6 +19,7 @@ function mergeDelegations(incoming: DelegationCollection, previous: DelegationCo
 
 export function ChatHistory({ agent, messages, refreshVersion }: { agent: AgentSummary & { conversation_id: string }; messages: Message[]; refreshVersion: number }) {
   const { t, i18n } = useTranslation('product')
+  const { t: artifacts } = useTranslation('artifacts')
   const load = useCallback((signal: AbortSignal) => getDelegations(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const monitor = useTaskPolling(load, mergeDelegations)
   const refreshDelegations = monitor.refresh
@@ -50,6 +51,7 @@ export function ChatHistory({ agent, messages, refreshVersion }: { agent: AgentS
           </article>}
           {rejected.map((item) => <p key={item.tool_call_id} className="transfer-notice" role="status">{t(item.code === 'one_task_per_turn' ? 'chatDelegationRejectedTurn' : item.code === 'pending_task_limit' ? 'chatDelegationRejectedLimit' : item.code === 'invalid_task_arguments' ? 'chatDelegationRejectedArguments' : ['delegation_policy_denied', 'delegation_approval_required'].includes(item.code ?? '') ? 'chatDelegationRejectedPolicy' : 'chatDelegationRejected')}</p>)}
           {linked.map(card)}
+          {!!message.attachments?.length && <div className="chat-attachment-receipt"><strong>{artifacts('sentAttachments')}</strong><ul>{message.attachments.map((item) => <li key={item.artifact_id}><span>{artifacts('historicalAttachment', { name: item.name, bytes: item.size_bytes })}</span><details><summary>{artifacts('provenance')}</summary><p>{item.media_type} · {artifacts(`source_${item.source}`)}</p><code>{item.artifact_id}</code><br /><code>{item.sha256}</code></details></li>)}</ul></div>}
         </div>
       })}
       {recovered.length > 0 && <div><p className="quiet-note">{t('chatDelegationRecovered')}</p>{recovered.map(card)}</div>}

@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -115,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.providers = ProviderService(database, application.state.resolver)
         application.state.receipts = Receipts()
         application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
+        application.state.artifact_upload_slots = BoundedSemaphore(2)
         try:
             yield
         finally:
@@ -126,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             del application.state.providers
             del application.state.receipts
             del application.state.artifacts
+            del application.state.artifact_upload_slots
 
     app = FastAPI(title="Bees API", version=__version__, lifespan=lifespan)
     install_auth(

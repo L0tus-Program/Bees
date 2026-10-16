@@ -386,6 +386,16 @@ class ProviderService:
         config = self._validated_config(agent.provider_config)
         conversation = self._conversation(uow, agent, conversation_id)
         self._task_context(uow, agent, conversation, task_id)
+        attachment_views = (input_metadata or {}).get("attachments", [])
+        if attachment_views:
+            from bees_core.attachments import AttachmentConsent, validate_snapshot
+
+            consent = AttachmentConsent.model_validate(
+                (input_metadata or {}).get("attachment_consent")
+            )
+            if consent.expected_agent_revision != agent.revision:
+                raise ProviderError("state_conflict")
+            validate_snapshot(uow, agent.id, conversation.id, attachment_views)
         records = self._records(uow, conversation.id)
         if input_metadata and "chat_request" in input_metadata:
             request_id = UUID(input_metadata["chat_request"]["id"])
@@ -461,6 +471,8 @@ class ProviderService:
             else [],
             "memory_omitted": memory_context.omitted if memory_context is not None else 0,
         } | ({"task_id": str(UUID(str(task_id)))} if task_id is not None else {})
+        if attachment_views:
+            context["attachments"] = attachment_views
         return PreparedChat(
             agent_id=agent.id,
             agent_revision=agent.revision,
@@ -487,6 +499,10 @@ class ProviderService:
         conversation = self._conversation(uow, agent, prepared.conversation_id)
         records = self._records(uow, conversation.id)
         self._task_context(uow, agent, conversation, prepared.task_id)
+        if prepared.context.get("attachments"):
+            from bees_core.attachments import validate_snapshot
+
+            validate_snapshot(uow, agent.id, conversation.id, prepared.context["attachments"])
         current_memory = (
             MemoryService(self.store.database).select_context(
                 agent.id,

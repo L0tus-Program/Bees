@@ -33,7 +33,18 @@ _CHUNK = 1024 * 1024
 _RENAME_ATTEMPTS = 5
 _VERSION_NAMESPACE = UUID("2d6c1f1e-5a0b-4c55-9d0e-5f0f7a0e1801")
 _CSV_LOCK = threading.Lock()
-_IDENTITY = ("task_id", "run_id", "name", "media_type", "storage_key", "sha256", "size_bytes")
+_IDENTITY = (
+    "agent_id",
+    "conversation_id",
+    "task_id",
+    "source",
+    "run_id",
+    "name",
+    "media_type",
+    "storage_key",
+    "sha256",
+    "size_bytes",
+)
 _LINEAGE = ("version", "series_id", "previous_id")
 
 
@@ -133,8 +144,9 @@ class ArtifactStore:
         self.max_bytes = max_bytes
         self.actor = actor
 
-    def _write(self):
-        return self.store.transaction(actor=self.actor, source="artifacts")
+    def _write(self, artifact=None):
+        actor = "user" if artifact and artifact.source.startswith("user_") else self.actor
+        return self.store.transaction(actor=actor, source="artifacts")
 
     # Sistema de arquivos -------------------------------------------------------------
 
@@ -322,8 +334,7 @@ class ArtifactStore:
     @staticmethod
     def _owned(uow, agent_id: UUID | str, artifact_id: UUID | str) -> Artifact:
         artifact = uow.artifacts.get(artifact_id)
-        task = uow.tasks.get(artifact.task_id) if artifact is not None else None
-        if artifact is None or task is None or task.agent_id != UUID(str(agent_id)):
+        if artifact is None or artifact.agent_id != UUID(str(agent_id)):
             raise NotFoundError("Artefato não encontrado.")
         return artifact
 
@@ -351,14 +362,7 @@ class ArtifactStore:
             if expected.previous_id is None:
                 raise ArtifactError("artifact_link_invalid") from None
         # O savepoint foi revertido; a transação segue utilizável para o diagnóstico.
-        sibling = next(
-            (
-                item
-                for item in uow.artifacts.list(series_id=expected.series_id, limit=1000)
-                if item.version == expected.version and item.status != "failed"
-            ),
-            None,
-        )
+        sibling = uow.artifacts.occupied_version(expected.series_id, expected.version)
         if sibling is None:
             raise ArtifactError("artifact_link_invalid")
         # Rascunho na mesma posição exige repetição idêntica ou abandono explícito.
@@ -379,9 +383,14 @@ class ArtifactStore:
     ) -> Artifact:
         digest, size = validate_content(media_type, content, self.max_bytes)
         artifact_id = artifact_id or uuid4()
+        with self.store.transaction(write=False) as uow:
+            task = self._task(uow, agent_id, task_id)
         expected = Artifact(
             id=artifact_id,
+            agent_id=UUID(str(agent_id)),
+            conversation_id=task.conversation_id,
             task_id=UUID(str(task_id)),
+            source="system_generated",
             run_id=run_id,
             name=display_name(name),
             media_type=media_type,
@@ -424,7 +433,10 @@ class ArtifactStore:
                 raise ArtifactError("artifact_version_conflict")
             expected = Artifact(
                 id=artifact_id,
+                agent_id=previous.agent_id,
+                conversation_id=previous.conversation_id,
                 task_id=previous.task_id,
+                source="system_generated",
                 run_id=run_id,
                 name=name,
                 media_type=media_type,
@@ -440,24 +452,296 @@ class ArtifactStore:
             draft = self._draft(uow, expected)
         return self._publish(draft, content)
 
+    @staticmethod
+    def _fingerprint(kind, **values):
+        payload = json.dumps({"kind": kind, **values}, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode()).hexdigest()
+
+    @staticmethod
+    def _replay(uow, client_request_id, agent_id, kind, fingerprint):
+        command = uow.artifacts.command(UUID(str(client_request_id)))
+        if command is None:
+            return None
+        if command[0] != str(UUID(str(agent_id))):
+            raise NotFoundError("Artefato não encontrado.")
+        if command[2:] != (kind, fingerprint):
+            raise ArtifactError("artifact_conflict")
+        return ArtifactStore._owned(uow, agent_id, command[1])
+
+    @staticmethod
+    def _conversation(uow, agent_id, conversation_id, task_id=None):
+        agent_id, conversation_id = UUID(str(agent_id)), UUID(str(conversation_id))
+        conversation = uow.conversations.get(conversation_id)
+        if conversation is None or conversation.agent_id != agent_id:
+            raise NotFoundError("Conversa não encontrada.")
+        if conversation.status != "active":
+            raise ArtifactError("artifact_conversation_archived")
+        if task_id is not None:
+            task = ArtifactStore._task(uow, agent_id, task_id)
+            if task.conversation_id != conversation_id:
+                raise NotFoundError("Tarefa não encontrada nesta conversa.")
+            return task.id
+        # Uma conversa exclusiva de tarefa mantém o vínculo canônico também quando
+        # chamada pela rota de conversa; não cria um segundo escopo para o mesmo arquivo.
+        rows = uow.artifacts._context.connection.execute(
+            "SELECT id FROM tasks WHERE conversation_id=? AND agent_id=? LIMIT 2",
+            (str(conversation_id), str(agent_id)),
+        ).fetchall()
+        if len(rows) > 1:
+            raise ArtifactError("artifact_link_invalid")
+        return UUID(rows[0][0]) if rows else None
+
+    @staticmethod
+    def _scope(artifact, conversation_id, task_id):
+        if artifact.conversation_id != UUID(str(conversation_id)) or artifact.task_id != task_id:
+            raise NotFoundError("Artefato não encontrado nesta conversa.")
+
+    @staticmethod
+    def _metadata_guard(artifact, name, media_type):
+        if (name is not None and display_name(name) != artifact.name) or (
+            media_type is not None and media_type != artifact.media_type
+        ):
+            raise ArtifactError("artifact_conflict")
+
+    def guard_upload(
+        self,
+        agent_id,
+        conversation_id,
+        *,
+        task_id=None,
+        client_request_id=None,
+        name=None,
+        media_type=None,
+    ) -> None:
+        """Confere destino/metadados antes de receber bytes; nunca grava ou lê blob."""
+        with self.store.transaction(write=False) as uow:
+            task_id = self._conversation(uow, agent_id, conversation_id, task_id)
+            if client_request_id is not None:
+                command = uow.artifacts.command(UUID(str(client_request_id)))
+                if command is not None:
+                    artifact = self._owned(uow, agent_id, command[1])
+                    self._scope(artifact, conversation_id, task_id)
+                    if command[2] != "upload":
+                        raise ArtifactError("artifact_conflict")
+                    self._metadata_guard(artifact, name, media_type)
+
+    def guard_version(
+        self,
+        agent_id,
+        conversation_id,
+        previous_id,
+        *,
+        expected_revision,
+        task_id=None,
+        client_request_id=None,
+        name=None,
+        media_type=None,
+    ) -> Artifact:
+        with self.store.transaction(write=False) as uow:
+            task_id = self._conversation(uow, agent_id, conversation_id, task_id)
+            previous = self._owned(uow, agent_id, previous_id)
+            self._scope(previous, conversation_id, task_id)
+            command = (
+                uow.artifacts.command(UUID(str(client_request_id))) if client_request_id else None
+            )
+            if command is not None:
+                artifact = self._owned(uow, agent_id, command[1])
+                self._scope(artifact, conversation_id, task_id)
+                if command[2] != "revise" or artifact.previous_id != previous.id:
+                    raise ArtifactError("artifact_conflict")
+                self._metadata_guard(artifact, name, media_type)
+                fingerprint = self._fingerprint(
+                    "revise",
+                    agent_id=str(UUID(str(agent_id))),
+                    conversation_id=str(UUID(str(conversation_id))),
+                    task_id=str(task_id) if task_id else None,
+                    previous_id=str(previous.id),
+                    expected_revision=expected_revision,
+                    name=artifact.name,
+                    media_type=artifact.media_type,
+                    sha256=artifact.sha256,
+                    size_bytes=artifact.size_bytes,
+                )
+                if command[3] != fingerprint:
+                    raise ArtifactError("artifact_conflict")
+                return previous
+            if previous.status != "ready":
+                raise ArtifactError("artifact_not_ready")
+            if type(expected_revision) is not int or expected_revision != previous.revision:
+                raise ArtifactError("artifact_version_conflict")
+            successor = uow.artifacts.occupied_version(
+                previous.series_id or previous.id, previous.version + 1
+            )
+            if successor is not None:
+                raise ArtifactError(
+                    "artifact_version_pending"
+                    if successor.status == "draft"
+                    else "artifact_version_conflict"
+                )
+            return previous
+
+    def upload(
+        self,
+        agent_id,
+        conversation_id,
+        *,
+        client_request_id,
+        name,
+        media_type,
+        content,
+        task_id=None,
+    ) -> Artifact:
+        return self._human_publish(
+            agent_id,
+            conversation_id,
+            client_request_id=client_request_id,
+            name=name,
+            media_type=media_type,
+            content=content,
+            task_id=task_id,
+        )
+
+    def revise(
+        self,
+        agent_id,
+        conversation_id,
+        previous_id,
+        *,
+        client_request_id,
+        expected_revision,
+        name,
+        media_type,
+        content,
+        task_id=None,
+    ) -> Artifact:
+        return self._human_publish(
+            agent_id,
+            conversation_id,
+            client_request_id=client_request_id,
+            name=name,
+            media_type=media_type,
+            content=content,
+            task_id=task_id,
+            previous_id=UUID(str(previous_id)),
+            expected_revision=expected_revision,
+        )
+
+    def _human_publish(
+        self,
+        agent_id,
+        conversation_id,
+        *,
+        client_request_id,
+        name,
+        media_type,
+        content,
+        task_id,
+        previous_id=None,
+        expected_revision=None,
+    ) -> Artifact:
+        agent_id, conversation_id = UUID(str(agent_id)), UUID(str(conversation_id))
+        client_request_id = UUID(str(client_request_id))
+        name = display_name(name)
+        digest, size = validate_content(media_type, content, self.max_bytes)
+        kind = "revise" if previous_id is not None else "upload"
+        with self.store.transaction(actor="user", source="artifacts") as uow:
+            task_id = self._conversation(uow, agent_id, conversation_id, task_id)
+            previous = None
+            if previous_id is not None:
+                previous = self._owned(uow, agent_id, previous_id)
+                self._scope(previous, conversation_id, task_id)
+            fingerprint = self._fingerprint(
+                kind,
+                agent_id=str(agent_id),
+                conversation_id=str(conversation_id),
+                task_id=str(task_id) if task_id else None,
+                previous_id=str(previous_id) if previous_id else None,
+                expected_revision=expected_revision,
+                name=name,
+                media_type=media_type,
+                sha256=digest,
+                size_bytes=size,
+            )
+            replay = self._replay(uow, client_request_id, agent_id, kind, fingerprint)
+            if replay is not None:
+                self._scope(replay, conversation_id, task_id)
+                draft = replay
+            else:
+                if previous is not None:
+                    if previous.status != "ready":
+                        raise ArtifactError("artifact_not_ready")
+                    if type(expected_revision) is not int or expected_revision != previous.revision:
+                        raise ArtifactError("artifact_version_conflict")
+                expected = Artifact(
+                    id=client_request_id,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    task_id=task_id,
+                    source="user_revision" if previous else "user_upload",
+                    name=name,
+                    media_type=media_type,
+                    storage_key=KEY_PREFIX + str(client_request_id),
+                    sha256=digest,
+                    size_bytes=size,
+                    version=previous.version + 1 if previous else 1,
+                    series_id=(previous.series_id or previous.id)
+                    if previous
+                    else client_request_id,
+                    previous_id=previous.id if previous else None,
+                )
+                # Não readotar um id antigo sem a intenção humana vinculada.
+                if uow.artifacts.get(client_request_id) is not None:
+                    raise ArtifactError("artifact_conflict")
+                draft = self._draft(uow, expected)
+                uow.artifacts.record_command(
+                    client_request_id, agent_id, draft.id, kind, fingerprint
+                )
+        return self._publish(draft, content)
+
     def abandon(
-        self, agent_id: UUID | str, artifact_id: UUID | str, *, expected_revision: int
+        self,
+        agent_id: UUID | str,
+        artifact_id: UUID | str,
+        *,
+        expected_revision: int,
+        client_request_id: UUID | None = None,
     ) -> Artifact:
         """Decisão explícita: encerra um rascunho sem tocar em arquivos ou evidência."""
-        with self._write() as uow:
+        if type(expected_revision) is not int or expected_revision < 1:
+            raise ArtifactError("artifact_version_conflict")
+        agent_id, artifact_id = UUID(str(agent_id)), UUID(str(artifact_id))
+        client_request_id = UUID(str(client_request_id)) if client_request_id else None
+        fingerprint = self._fingerprint(
+            "abandon",
+            agent_id=str(agent_id),
+            artifact_id=str(artifact_id),
+            expected_revision=expected_revision,
+        )
+        with self.store.transaction(
+            actor="user" if client_request_id else self.actor, source="artifacts"
+        ) as uow:
             draft = self._owned(uow, agent_id, artifact_id)
+            if client_request_id is not None:
+                replay = self._replay(uow, client_request_id, agent_id, "abandon", fingerprint)
+                if replay is not None:
+                    return replay
             if draft.status != "draft":
                 raise ArtifactError("artifact_terminal")
-            return uow.artifacts.update(
+            result = uow.artifacts.update(
                 draft.model_copy(
                     update={"status": "failed", "metadata": {"error_code": "artifact_abandoned"}}
                 ),
                 expected_revision,
             )
+            if client_request_id is not None:
+                uow.artifacts.record_command(
+                    client_request_id, result.agent_id, result.id, "abandon", fingerprint
+                )
+            return result
 
     def _fail(self, artifact: Artifact) -> None:
         try:
-            with self._write() as uow:
+            with self._write(artifact) as uow:
                 current = uow.artifacts.get(artifact.id)
                 if current is not None and current.status == "draft":
                     uow.artifacts.update(
@@ -504,7 +788,7 @@ class ArtifactStore:
                     staging.unlink(missing_ok=True)
                 except OSError:
                     pass
-        with self._write() as uow:
+        with self._write(draft) as uow:
             current = uow.artifacts.get(draft.id)
             # A confirmação exige exatamente o conteúdo e a linhagem que foram verificados.
             if current is None or not self._same(current, draft):
@@ -533,6 +817,15 @@ class ArtifactStore:
             return artifact, self._read_verified(artifact)
         except _ContentMismatch:
             raise ArtifactError("artifact_integrity_failed") from None
+
+    def list_conversation(self, agent_id, conversation_id, *, limit=100, offset=0):
+        with self.store.transaction(write=False) as uow:
+            conversation = uow.conversations.get(conversation_id)
+            if conversation is None or conversation.agent_id != UUID(str(agent_id)):
+                raise NotFoundError("Conversa não encontrada.")
+            return uow.artifacts.list(
+                conversation_id=UUID(str(conversation_id)), limit=limit, offset=offset
+            )
 
     def reconcile(self, *, page: int = 500) -> ReconcileReport:
         report = ReconcileReport()

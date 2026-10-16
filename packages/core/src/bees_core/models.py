@@ -475,7 +475,13 @@ class UsageEntry(Record):
 
 
 class Artifact(Record):
-    task_id: UUID
+    # Registros internos antigos podem omitir a abelha; o repositório resolve pela tarefa.
+    agent_id: UUID | None = None
+    conversation_id: UUID | None = None
+    task_id: UUID | None = None
+    source: Literal["legacy_unknown", "system_generated", "user_upload", "user_revision"] = (
+        "legacy_unknown"
+    )
     run_id: UUID | None = None
     name: str = Field(min_length=1, max_length=200)
     media_type: str = "application/octet-stream"
@@ -490,6 +496,10 @@ class Artifact(Record):
 
     @model_validator(mode="after")
     def ready_metadata(self) -> Self:
+        if self.task_id is None and self.conversation_id is None:
+            raise ValueError("Artefato exige conversa ou tarefa.")
+        if self.run_id is not None and self.task_id is None:
+            raise ValueError("Execução exige tarefa.")
         if self.status == "ready" and (not self.storage_key or self.sha256 is None):
             raise ValueError(
                 "Artefato ready exige storage_key e sha256; blob não é verificado aqui."

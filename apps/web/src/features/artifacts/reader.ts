@@ -1,9 +1,9 @@
 import { asApiError, ApiError } from '../../api/client'
-import { getArtifacts } from './api'
+import { getArtifacts, getConversationArtifacts } from './api'
 import type { ArtifactPage, ArtifactRecord } from './api'
 
 export interface ArtifactView { page: ArtifactPage | null; loading: boolean; error: ApiError | null }
-const immutable = ['id', 'task_id', 'run_id', 'name', 'media_type', 'size_bytes', 'sha256', 'version', 'series_id', 'previous_id', 'created_at'] as const
+const immutable = ['id', 'agent_id', 'conversation_id', 'task_id', 'source', 'run_id', 'name', 'media_type', 'size_bytes', 'sha256', 'version', 'series_id', 'previous_id', 'created_at'] as const
 function checkSnapshots(items: ArtifactRecord[], known: Map<string, ArtifactRecord>) {
   for (const item of items) {
     const previous = known.get(item.id)
@@ -19,7 +19,7 @@ export class ArtifactReader {
   private controller: AbortController | null = null
   private known = new Map<string, ArtifactRecord>()
   private stopped = false
-  constructor(private agentId: string, private taskId: string, private publish: (state: ArtifactView) => void) {}
+  constructor(private agentId: string, private taskId: string, private publish: (state: ArtifactView) => void, private conversation = false) {}
   private update(state: ArtifactView) { this.state = state; this.publish(state) }
   async load(offset = 0) {
     if (this.stopped) return
@@ -27,7 +27,7 @@ export class ArtifactReader {
     const operation = new AbortController(); this.controller = operation
     this.update({ ...this.state, loading: true, error: null })
     try {
-      const incoming = await getArtifacts(this.agentId, this.taskId, offset, operation.signal)
+      const incoming = await (this.conversation ? getConversationArtifacts(this.agentId, this.taskId, offset, operation.signal) : getArtifacts(this.agentId, this.taskId, offset, operation.signal))
       if (operation.signal.aborted || this.stopped) return
       checkSnapshots(incoming.items, this.known)
       incoming.items.forEach((item) => this.known.set(item.id, item))
