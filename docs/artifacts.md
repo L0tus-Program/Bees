@@ -1,6 +1,6 @@
 # Artefatos
 
-BEES-018.1/018.2 reutilizam o `ArtifactStore` em `packages/core/src/bees_core/artifacts.py`: blobs verificados, versões imutáveis e download autenticado. A conversa permite armazenar arquivos, consultar texto inerte e criar uma revisão humana. Incluir um arquivo no próximo pedido ao modelo é uma escolha separada do upload. Geração de relatório/tabela por tarefa real permanece em BEES-018.3.
+BEES-018.1/018.2 reutilizam o `ArtifactStore` em `packages/core/src/bees_core/artifacts.py`: blobs verificados, versões imutáveis e download autenticado. A conversa permite armazenar arquivos, consultar texto inerte e criar uma revisão humana. Incluir um arquivo no próximo pedido ao modelo é uma escolha separada do upload. O primeiro recorte de BEES-018.3 gera relatório Markdown e tabela CSV a partir da resposta de uma tarefa textual (ver [Entregáveis de tarefas](#entregáveis-de-tarefas--checkpoint-bees-0183)); produção e abertura no computador próprio continuam pendentes.
 
 ## Contrato
 
@@ -133,8 +133,63 @@ aborta transportes e descarta respostas tardias, conservando registros do servid
 
 Rascunhos, falhas e registros removidos não oferecem download. Textos estão
 disponíveis em português, inglês e espanhol; controles e detalhes usam elementos
-nativos de teclado e cartões adaptam nome/hash longos a telas estreitas. Geração
-real de arquivos por tarefas continua pendente em BEES-018.3.
+nativos de teclado e cartões adaptam nome/hash longos a telas estreitas.
+
+## Entregáveis de tarefas — checkpoint BEES-018.3
+
+Ao delegar uma tarefa, o usuário pode marcar **Relatório editável (.md)** e/ou
+**Tabela (.csv)**. Sem marcação, o pedido, o hash de idempotência e o prompt são
+os mesmos de antes. A escolha é campo fechado `deliverables` de `TaskInput`
+(`report`, `table`, sem repetição), guardado nos metadados da tarefa e parte da
+identidade da submissão: repetir o UUID com outra escolha é conflito. O modelo
+não escolhe nem amplia formatos.
+
+**Contrato com o modelo.** O worker acrescenta ao pedido seções delimitadas por
+linhas exatas `<<<BEES:REPORT>>>`, `<<<BEES:TABLE>>>`, `<<<BEES:MISSING>>>` e
+`<<<BEES:END>>>`. A resposta continua salva inteira como mensagem da tarefa.
+O relatório deve citar entradas/fontes do pedido; a seção de dados faltantes
+lista o que não pôde ser preenchido, sem inventar valores.
+
+**Validação independente** (`packages/core/src/bees_core/deliverables.py`, pura,
+sem rede ou arquivos):
+
+- Seções ausentes, vazias, repetidas, sem fim ou com fim inesperado recebem
+  código explícito. Um bloco cercado inteiro (```` ```csv ````) é desembrulhado;
+  cercas internas do relatório são preservadas.
+- Relatório: UTF-8 estrito, sem NUL, até 25 MiB.
+- Tabela: leitura `csv` estrita; cabeçalho com nomes únicos e não vazios (até 200
+  colunas), todas as linhas com o mesmo número de colunas e até 100.000 linhas de
+  dados. O arquivo publicado é a reescrita RFC 4180 (CRLF, aspas quando
+  necessário) dos **mesmos valores** lidos; nada é corrigido em silêncio.
+  Células que começam como fórmula (`=`, `+`, `-`, `@`) são preservadas e
+  contadas; a interface avisa antes do uso em planilha.
+
+**Publicação.** A tarefa não conclui ao receber a resposta. Com a chamada
+confirmada, a execução fica em `publishing` sob a mesma lease e o worker publica
+cada formato válido pelo `ArtifactStore` com origem `system_generated`, vínculo
+de abelha/conversa/tarefa/execução e id `uuid5(chamada, formato)`. Metadados
+privados registram chamada, mensagem de origem, parcialidade e dados faltantes.
+O resumo público da execução traz estado, código, id, SHA-256, tamanho e versão
+de cada arquivo, além de linhas/colunas da tabela.
+
+| Situação | Resultado |
+| --- | --- |
+| Todos publicados | `completed`; resposta pronta. Dados faltantes declarados marcam a entrega como **parcial**. |
+| Algum ausente/inválido | Os válidos são publicados; tarefa `paused` com `deliverable_invalid` e atenção. Retomar ou redirecionar gera nova chamada, com aviso de custo. |
+| Integridade recusada | `deliverable_publication_failed`; nenhum arquivo é sobrescrito. |
+| Armazenamento indisponível | `artifact_storage_unavailable`; publicação continua **pendente**. Retomar publica a mesma resposta sem nova chamada, mesmo com o limite de chamadas atingido. |
+| Processo interrompido durante a gravação | A recuperação de leases pausa com `artifact_publication_interrupted`; não há repetição automática. Retomar repete a mesma intenção com os mesmos ids, readotando rascunhos sem cartão duplicado. |
+| Pausa, cancelamento, redirecionamento ou parada global | Pausa conserva a publicação pendente; cancelamento a encerra; redirecionamento a marca `superseded` e a nova orientação gera outra resposta; parada global devolve à fila sem gravar. |
+
+A interface mostra **Arquivos da entrega** no detalhe da tarefa, com estado de
+cada formato, motivo de recusa, forma da tabela, aviso de fórmulas e lista de
+dados faltantes (texto escapado). Downloads continuam nos cartões verificados.
+
+**Limites deste recorte.** Os arquivos são gerados a partir da resposta do modelo,
+no armazenamento do Bees. Não há produção, abertura ou edição no guest/app do
+computador próprio (BEES-012), nem DOCX/ODT/XLSX. O critério de leitor independente
+foi comprovado por leitura direta do blob e `csv` do Python nos testes; a abertura
+num editor/planilha real e o aceite com modelo real continuam pendentes.
 
 Testes da interface (`apps/web/src/features/artifacts`) cobrem contratos negativos, sessão expirada, download íntegro e adulterado, tamanho/nome/formato divergentes, estados dos cartões, três idiomas, versões separadas, paginação, falha de atualização e cancelamento/respostas tardias.
 
@@ -155,6 +210,15 @@ No Windows, a privacidade depende das ACLs da pasta de dados; a biblioteca não 
 A raiz recusa qualquer ancestral symlink ou junction. Uma pasta de dados atrás de link (por exemplo, redirecionada por sincronização de nuvem) mantém o banco funcionando, mas deixa os artefatos indisponíveis (`artifact_storage_unavailable`). Use um caminho local direto. Gravações pelo repositório ou SQL direto podem criar `ready` sem blob; somente o `ArtifactStore` dá essa prova, e o download sempre relê e confere.
 
 ## Validação
+
+BEES-018.3 acrescenta `packages/core/tests/test_task_deliverables.py`: extração
+com pt/en/es, aspas, cercas, dados vazios, tabela de 5.000 linhas, limites,
+fórmulas e erros de estrutura; publicação pelo worker com leitura direta do blob;
+formato inválido, seção ausente, dados faltantes, armazenamento indisponível,
+crash entre gravações com retomada e readoção dos mesmos ids, pausa, redirecionamento
+e parada global. `apps/api/tests/test_tasks.py` cobre contrato, projeção fechada e
+download; `apps/web/src/features/tasks/deliverables.test.tsx`, escolha no formulário,
+contrato recusado e apresentação em três idiomas.
 
 Testes com SQLite e arquivos reais em diretórios próprios (`packages/core/tests/test_artifacts.py` e `apps/api/tests/test_artifacts_api.py`) cobrem:
 - publicação e leitura independente dos bytes no disco após reinício;

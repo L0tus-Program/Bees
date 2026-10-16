@@ -380,7 +380,9 @@ class ArtifactStore:
         content: bytes,
         run_id: UUID | None = None,
         artifact_id: UUID | None = None,
+        metadata: dict | None = None,
     ) -> Artifact:
+        # Metadados descrevem proveniência interna; não entram na identidade do replay.
         digest, size = validate_content(media_type, content, self.max_bytes)
         artifact_id = artifact_id or uuid4()
         with self.store.transaction(write=False) as uow:
@@ -398,6 +400,7 @@ class ArtifactStore:
             sha256=digest,
             size_bytes=size,
             series_id=artifact_id,
+            metadata=metadata or {},
         )
         with self._write() as uow:
             self._task(uow, agent_id, task_id)

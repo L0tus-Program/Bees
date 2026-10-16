@@ -8,7 +8,16 @@ from uuid import UUID, uuid4
 import httpx
 
 from bees_core.approvals import ApprovalService
+from bees_core.artifacts import ArtifactError, ArtifactStore
 from bees_core.budgets import fits, releases, reserve, settle_safely
+from bees_core.deliverables import (
+    MEDIA_TYPES,
+    artifact_id,
+    artifact_name,
+    extract,
+    requested,
+)
+from bees_core.deliverables import instruction as deliverable_instruction
 from bees_core.models import ExecutionClaim, ModelCall, utc_now
 from bees_core.providers.base import create_adapter, validate_bearer_secret
 from bees_core.providers.contracts import SecretResolver
@@ -39,6 +48,7 @@ class TaskWorker:
         owner_id: UUID | None = None,
         poll_seconds: float = 0.5,
         lease_seconds: int = 30,
+        artifacts: ArtifactStore | None = None,
     ) -> None:
         if not 0.01 <= poll_seconds <= 5 or not 5 <= lease_seconds <= 300:
             raise ValueError("Cadência ou lease de worker inválida.")
@@ -46,6 +56,8 @@ class TaskWorker:
         self.providers = ProviderService(database, resolver, transport=transport)
         self.approvals = ApprovalService(database, resolver=resolver)
         self.owner_id = owner_id or uuid4()
+        # Sem armazenamento configurado, entregáveis ficam pendentes; nunca são descartados.
+        self.artifacts = artifacts
         self.poll_seconds = poll_seconds
         self.lease_seconds = lease_seconds
 
@@ -67,6 +79,9 @@ class TaskWorker:
             parts.append(
                 f"Redirecionamento atual do usuário: {run.checkpoint['latest_instruction']}"
             )
+        kinds = requested(task.metadata)
+        if kinds:
+            parts.append(deliverable_instruction(kinds))
         return "\n\n".join(parts)
 
     @staticmethod
@@ -419,7 +434,27 @@ class TaskWorker:
                 checkpoint["result_ready"] = response.finish_reason == "stop" and bool(
                     response.message.content and response.message.content.strip()
                 )
-            checkpoint["progress"] = status
+            publish = False
+            if (
+                output is not None
+                and checkpoint["result_ready"]
+                and status in ("completed", "paused")
+                and requested(task.metadata)
+            ):
+                # A tarefa só conclui depois da validação/publicação independente dos arquivos.
+                checkpoint["result_ready"] = False
+                checkpoint.pop("deliverables", None)
+                checkpoint["publication"] = {
+                    "status": "pending",
+                    "call_id": str(call.id),
+                    "message_id": str(output.id),
+                    "directive_revision": call.snapshot["directive_revision"],
+                    "attempts": 0,
+                }
+                if status == "completed":
+                    status = "running"
+                    publish = True
+            checkpoint["progress"] = "publishing" if publish else status
             uow.tasks.update(
                 task.model_copy(update={"status": status, "desired_state": desired}),
                 expected_revision=task.revision,
@@ -435,7 +470,228 @@ class TaskWorker:
                 ),
                 expected_revision=run.revision,
             )
-            uow.execution.release(claim)
+            if not publish:
+                uow.execution.release(claim)
+            return publish
+
+    @staticmethod
+    def _publication(run) -> dict:
+        value = run.checkpoint.get("publication")
+        return value if isinstance(value, dict) else {}
+
+    def _requeue_stopped(self, uow, claim) -> None:
+        """Parada global antes de gravar: publicação continua pendente, sem efeito."""
+        task = uow.tasks.get(claim.task.id)
+        run = uow.runs.get(claim.run.id)
+        uow.tasks.update(task.model_copy(update={"status": "queued"}), task.revision)
+        uow.runs.update(
+            run.model_copy(
+                update={"status": "queued", "checkpoint": run.checkpoint | {"progress": "queued"}}
+            ),
+            run.revision,
+        )
+        uow.execution.release(claim)
+
+    def _publish(self, claim, generation) -> None:
+        """Valida e publica os entregáveis da resposta confirmada, sem nova geração.
+
+        Ids derivam da chamada e do formato: repetir a mesma intenção readota o
+        rascunho em vez de criar outro cartão. Uma publicação iniciada e interrompida
+        exige retomada humana (``recover_expired``); falha de armazenamento pausa a
+        tarefa com a publicação pendente para repetição explícita.
+        """
+        try:
+            with self.store.transaction(actor="worker", source="task_publication") as uow:
+                now = utc_now()
+                uow.execution.assert_claim(claim, now=now)
+                claim = uow.execution.renew(claim, now=now, ttl_seconds=self.lease_seconds)
+                if blocked(uow.safety.state(), generation):
+                    self._requeue_stopped(uow, claim)
+                    return
+                task = uow.tasks.get(claim.task.id)
+                run = uow.runs.get(claim.run.id)
+                if task.desired_state != "running":
+                    # Pausa conserva a publicação pendente; cancelamento a encerra.
+                    self._settle_local(uow, claim, code=None)
+                    return
+                publication = self._publication(run)
+                call = (
+                    uow.model_calls.get(publication["call_id"])
+                    if isinstance(publication.get("call_id"), str)
+                    else None
+                )
+                message = (
+                    uow.messages.get(call.output_message_id)
+                    if call is not None and call.output_message_id is not None
+                    else None
+                )
+                if (
+                    call is None
+                    or call.run_id != run.id
+                    or call.status != "confirmed"
+                    or call.metadata.get("obsolete") is True
+                    or message is None
+                    or str(message.id) != publication.get("message_id")
+                    or message.conversation_id != task.conversation_id
+                ):
+                    self._settle_publication(
+                        uow,
+                        claim,
+                        publication | {"status": "done"},
+                        None,
+                        "deliverable_source_unavailable",
+                    )
+                    return
+                publication = publication | {
+                    "status": "started",
+                    "attempts": int(publication.get("attempts", 0)) + 1,
+                }
+                uow.runs.update(
+                    run.model_copy(
+                        update={
+                            "checkpoint": run.checkpoint
+                            | {"publication": publication, "progress": "publishing"}
+                        }
+                    ),
+                    run.revision,
+                )
+                kinds = requested(task.metadata)
+                text = message.content
+                agent_id, task_id, title, run_id = task.agent_id, task.id, task.title, run.id
+        except RevisionConflict:
+            # Lease perdida: outro dono/recuperação decide; nada foi gravado aqui.
+            return
+        extraction = extract(text, kinds)
+        items = []
+        storage_pending = False
+        for kind in kinds:
+            item = extraction.deliverables[kind]
+            entry = {"kind": kind, "status": item.status, "error_code": item.error_code}
+            if item.status == "valid":
+                metadata = {
+                    "deliverable": kind,
+                    "model_call_id": str(call.id),
+                    "result_message_id": str(message.id),
+                    "partial": extraction.partial,
+                    "missing_data": extraction.missing_data,
+                }
+                try:
+                    if self.artifacts is None:
+                        raise ArtifactError("artifact_storage_unavailable")
+                    artifact = self.artifacts.create(
+                        agent_id,
+                        task_id,
+                        name=artifact_name(title, kind),
+                        media_type=MEDIA_TYPES[kind],
+                        content=item.content,
+                        run_id=run_id,
+                        artifact_id=artifact_id(call.id, kind),
+                        metadata=metadata,
+                    )
+                except ArtifactError as error:
+                    retryable = error.code == "artifact_storage_unavailable"
+                    storage_pending = storage_pending or retryable
+                    entry |= {
+                        "status": "pending" if retryable else "failed",
+                        "error_code": error.code,
+                    }
+                except Exception:
+                    # Sem confirmação o rascunho pode existir; repetir exige decisão humana.
+                    storage_pending = True
+                    entry |= {"status": "pending", "error_code": "artifact_publication_interrupted"}
+                else:
+                    entry |= {
+                        "status": "ready",
+                        "error_code": None,
+                        "artifact_id": str(artifact.id),
+                        "sha256": artifact.sha256,
+                        "size_bytes": artifact.size_bytes,
+                        "version": artifact.version,
+                    }
+            if kind == "table" and item.status == "valid":
+                entry |= {
+                    "rows": item.rows,
+                    "columns": item.columns,
+                    "formula_like_cells": item.formula_like_cells,
+                }
+            items.append(entry)
+        summary = {
+            "call_id": str(call.id),
+            "message_id": str(message.id),
+            "items": items,
+            "partial": extraction.partial,
+            "missing_data": extraction.missing_data,
+        }
+        if storage_pending:
+            publication |= {"status": "pending"}
+            error = next(entry["error_code"] for entry in items if entry["status"] == "pending")
+        else:
+            publication |= {"status": "done"}
+            error = (
+                None
+                if all(entry["status"] == "ready" for entry in items)
+                else "deliverable_publication_failed"
+                if any(entry["status"] == "failed" for entry in items)
+                else "deliverable_invalid"
+            )
+        try:
+            with self.store.transaction(actor="worker", source="task_publication_result") as uow:
+                uow.execution.assert_claim(claim, now=utc_now())
+                self._settle_publication(uow, claim, publication, summary, error)
+        except RevisionConflict:
+            return
+
+    def _settle_publication(self, uow, claim, publication, summary, error) -> None:
+        task = uow.tasks.get(claim.task.id)
+        run = uow.runs.get(claim.run.id)
+        now = utc_now()
+        checkpoint = run.checkpoint | {"publication": publication, "attention_required": False}
+        if summary is not None:
+            checkpoint["deliverables"] = summary
+        desired = task.desired_state
+        ready = error is None
+        if desired == "cancelled":
+            status = "cancelled"
+            ready = False
+        elif self._directive(run) != publication.get("directive_revision"):
+            # Redirecionamento durante a publicação: resposta antiga não conclui o novo objetivo.
+            ready = False
+            checkpoint["publication"] = publication | {"status": "superseded"}
+            if desired == "paused":
+                status = "paused"
+            elif (
+                task.calls_started >= task.max_calls
+                or task.active_milliseconds >= task.max_active_seconds * 1000
+            ):
+                status = desired = "paused"
+                checkpoint["attention_required"] = True
+                error = "task_limit_reached"
+            else:
+                status = "queued"
+                error = None
+        elif error is not None:
+            status = desired = "paused"
+            checkpoint["attention_required"] = True
+        else:
+            status = "paused" if desired == "paused" else "completed"
+        checkpoint["result_ready"] = ready
+        checkpoint["progress"] = status
+        uow.tasks.update(
+            task.model_copy(update={"status": status, "desired_state": desired}),
+            expected_revision=task.revision,
+        )
+        uow.runs.update(
+            run.model_copy(
+                update={
+                    "status": status,
+                    "error": error,
+                    "checkpoint": checkpoint,
+                    "finished_at": now if status in ("completed", "cancelled") else None,
+                }
+            ),
+            expected_revision=run.revision,
+        )
+        uow.execution.release(claim)
 
     async def run_once(self) -> bool:
         with self.store.transaction(actor="worker", source="task_claim") as uow:
@@ -445,6 +701,10 @@ class TaskWorker:
             generation = uow.safety.state().generation
         if claim is None:
             return False
+        if self._publication(claim.run).get("status") in ("pending", "started"):
+            # Resposta já confirmada: concluir a publicação sem nova chamada ao modelo.
+            self._publish(claim, generation)
+            return True
         start = time.monotonic()
         try:
             result = self._prepare(claim)
@@ -583,7 +843,7 @@ class TaskWorker:
                 else:
                     self._settle_local(uow, claim, code=error_code or "internal_error")
             return True
-        self._finish(
+        if self._finish(
             claim,
             dispatched[0],
             prepared,
@@ -592,7 +852,8 @@ class TaskWorker:
             error_code=error_code,
             usage=usage,
             released=released,
-        )
+        ):
+            self._publish(claim, generation)
         return True
 
     async def run_forever(self, stop_event: asyncio.Event | None = None) -> None:

@@ -12,6 +12,8 @@ A correção de 07/10/2026 inclui o título nas novas preparações do worker; a
 
 Validação da correção: 1.313 testes Python Windows (27 skips), 630 testes Linux de core/API/worker afetados (quatro skips), 413 testes web, lint, tipos, build e Ruff aprovados. Regressões verificam tema presente somente no título, perfil permanente distinto, isolamento entre tarefas/abelhas, redirecionamento e reuso de snapshots. A interface foi conferida em instalação descartável com provedor falso explícito, incluindo resposta antes das decisões e viewport de 390 px sem overflow. A atualização local conservou o hash da resposta anterior e o contador de chamadas; nenhuma chamada real adicional validou a qualidade da nova redação.
 
+Opcionalmente, marque **Relatório editável (.md)** e/ou **Tabela (.csv)** ao delegar. A tarefa só conclui depois que o Bees valida e publica esses arquivos a partir da resposta; arquivo ausente ou inválido pausa a tarefa com o motivo, e falha de armazenamento permite retomar a publicação sem nova chamada ao modelo. Detalhes em [artefatos](artifacts.md#entregáveis-de-tarefas--checkpoint-bees-0183).
+
 O painel consulta estado por GET a cada cinco segundos enquanto está visível. Consultas, reload e novas sessões não disparam gerações. Se o executor estiver indisponível, a fila permanece no banco; reiniciar o executor permite consumir tarefas ainda não despachadas.
 
 ## Delegação pela conversa

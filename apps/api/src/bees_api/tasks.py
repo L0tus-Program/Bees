@@ -33,6 +33,43 @@ def _service(request: Request) -> TaskService:
     return TaskService(request.app.state.database)
 
 
+_ITEM_FIELDS = (
+    "kind",
+    "status",
+    "error_code",
+    "artifact_id",
+    "sha256",
+    "size_bytes",
+    "version",
+    "rows",
+    "columns",
+    "formula_like_cells",
+)
+
+
+def _deliverables(run) -> dict | None:
+    """Projeção fechada do resumo do worker; conteúdo e metadados privados ficam fora."""
+    summary = run.checkpoint.get("deliverables") if run is not None else None
+    if not isinstance(summary, dict) or not isinstance(summary.get("items"), list):
+        return None
+    return {
+        "items": [
+            {key: item.get(key) for key in _ITEM_FIELDS}
+            for item in summary["items"]
+            if isinstance(item, dict)
+        ],
+        "partial": summary.get("partial") is True,
+        "missing_data": [
+            value for value in summary.get("missing_data") or [] if isinstance(value, str)
+        ],
+    }
+
+
+def _publication_pending(run) -> bool:
+    publication = run.checkpoint.get("publication") if run is not None else None
+    return isinstance(publication, dict) and publication.get("status") in ("pending", "started")
+
+
 def _view(detail) -> dict:
     task = detail.task
     run = detail.runs[-1] if detail.runs else None
@@ -81,6 +118,9 @@ def _view(detail) -> dict:
         "max_active_seconds": task.max_active_seconds,
         "calls_started": task.calls_started,
         "active_milliseconds": task.active_milliseconds,
+        "deliverables": list(task.metadata.get("deliverables") or []),
+        "deliverable_results": _deliverables(run),
+        "publication_pending": _publication_pending(run),
         "latest_run": (
             {
                 "id": str(run.id),

@@ -14,6 +14,7 @@ import { ApprovalPanel } from '../approvals/ApprovalPanel'
 import { ActionHistory } from './ActionHistory'
 import { UnknownAcknowledgment } from './UnknownAcknowledgment'
 import { TaskArtifacts } from '../artifacts/TaskArtifacts'
+import { TaskDeliverables } from './TaskDeliverables'
 
 function mergeDetail(incoming: Detail, previous: Detail) { return previous.task.revision > incoming.task.revision ? previous : incoming }
 
@@ -68,6 +69,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}
+      <TaskDeliverables task={task} />
       <TaskArtifacts agentId={agentId} taskId={taskId} />
       {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
@@ -79,7 +81,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {intent && task.available_controls.includes(intent) && <form className="task-command" onSubmit={confirm}>
         <fieldset disabled={busy}>
           {intent === 'cancel' && <p className="transfer-notice">{t('cancelImpact')}</p>}
-          {intent === 'resume' && <p className="transfer-notice">{t('resumeTarget', { model: agent.provider_config?.model ?? '—' })}<br /><small>{agent.provider_config?.endpoint}</small></p>}
+          {intent === 'resume' && (task.publication_pending ? <p className="transfer-notice">{t('deliverables.resumePublishes')}</p> : <p className="transfer-notice">{t('resumeTarget', { model: agent.provider_config?.model ?? '—' })}<br /><small>{agent.provider_config?.endpoint}</small></p>)}
           {intent === 'redirect' && <label className="field" htmlFor="task-redirect"><span>{t('redirectInstruction')}</span><textarea id="task-redirect" rows={3} value={instruction} onChange={(event) => setInstruction(event.target.value)} required maxLength={12000} /><small>{t('redirectHelp')}</small></label>}
           {intent === 'resume' && unknown && <UnknownAcknowledgment kind={unknownKind!} checked={acknowledged} onChange={(checked) => setAcknowledgment({ snapshot: acknowledgmentKey!, checked })} />}
           <div className="task-actions"><button type="button" className="text-button" onClick={() => setIntent(null)}>{t('back')}</button><button type="submit" className={`button ${intent === 'cancel' ? 'danger' : 'primary'}`} disabled={taskControlBlocked(task, intent) || (intent === 'redirect' && !instruction.trim()) || (intent === 'resume' && unknown && !acknowledged)}>{t(busy ? 'sending' : 'confirm')}</button></div>

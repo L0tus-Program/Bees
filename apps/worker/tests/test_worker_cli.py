@@ -45,15 +45,18 @@ def test_worker_reuses_existing_vault_without_secret_in_configuration(tmp_path, 
     reference = vault.put(SecretStr("credencial-descartavel"))
     captured = {}
 
-    def fake_worker(db, resolver):
+    def fake_worker(db, resolver, *, artifacts):
         captured["database"] = db
         captured["secret"] = resolver.resolve(reference).get_secret_value()
+        captured["artifacts"] = artifacts
         return object()
 
     monkeypatch.setattr("bees_worker.cli.TaskWorker", fake_worker)
     create_worker(config, database)
     assert captured["database"] is database
     assert captured["secret"] == "credencial-descartavel"
+    # Mesmo volume de dados da API: entregáveis publicados aparecem nos cartões.
+    assert captured["artifacts"].root == (config.data_dir / "artifacts").absolute()
     assert "credencial-descartavel" not in repr(config)
 
 

@@ -86,7 +86,11 @@ describe('task response presentation', () => {
     expect(html).toContain(taskResources[language].objectiveHelp)
     expect(html).toContain('aria-describedby="task-title-help"')
     expect(html).toContain('aria-describedby="task-objective-help"')
-    expect(html.match(/<input /g)).toHaveLength(1)
+    // Título mais as duas escolhas opcionais de arquivos, desmarcadas por padrão.
+    expect(html.match(/<input /g)).toHaveLength(3)
+    expect(html.match(/type="checkbox"/g)).toHaveLength(2)
+    expect(html).not.toContain('checked=""')
+    expect(html).toContain(taskResources[language].deliverables.choose)
     expect(html.match(/<textarea /g)).toHaveLength(2)
   })
 })

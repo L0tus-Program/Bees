@@ -856,8 +856,12 @@ class Execution:
             f"SELECT {','.join('t.' + column for column in self.tasks._spec.columns)} FROM tasks t "
             "JOIN agents a ON a.id=t.agent_id WHERE t.status='queued' "
             "AND t.desired_state='running' "
-            "AND a.status='active' AND t.calls_started<t.max_calls "
-            "AND t.active_milliseconds<t.max_active_seconds*1000 "
+            "AND a.status='active' AND ((t.calls_started<t.max_calls "
+            "AND t.active_milliseconds<t.max_active_seconds*1000) "
+            # Publicar entregáveis de resposta já confirmada não consome chamada nova.
+            "OR EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
+            "AND json_extract(p.checkpoint_json,'$.publication.status') "
+            "IN ('pending','started'))) "
             "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
             "WHERE r.task_id=t.id AND c.status='outcome_unknown' "
             "AND c.unknown_acknowledged_at IS NULL) "
@@ -1182,17 +1186,25 @@ class Execution:
                         ),
                         task.revision,
                     )
+            publication = run.checkpoint.get("publication")
+            # Gravação de entregável iniciada sem confirmação: repetir exige decisão humana.
+            interrupted = (
+                not unknown
+                and isinstance(publication, dict)
+                and publication.get("status") == "started"
+                and task.status == "running"
+            )
             if task.status not in ("completed", "failed", "cancelled"):
                 status = (
                     "cancelled"
                     if task.desired_state == "cancelled"
                     else "paused"
-                    if unknown or task.desired_state == "paused"
+                    if unknown or interrupted or task.desired_state == "paused"
                     else "queued"
                 )
                 desired = (
                     "paused"
-                    if unknown and task.desired_state != "cancelled"
+                    if (unknown or interrupted) and task.desired_state != "cancelled"
                     else task.desired_state
                 )
                 task = self.tasks.update(
@@ -1203,9 +1215,17 @@ class Execution:
                     run.model_copy(
                         update={
                             "status": status,
-                            "error": "outcome_unknown" if unknown else run.error,
+                            "error": "outcome_unknown"
+                            if unknown
+                            else "artifact_publication_interrupted"
+                            if interrupted and status == "paused"
+                            else run.error,
                             "checkpoint": run.checkpoint
-                            | {"progress": status, "attention_required": unknown},
+                            | {
+                                "progress": status,
+                                "attention_required": unknown
+                                or (interrupted and status == "paused"),
+                            },
                         }
                     ),
                     run.revision,
