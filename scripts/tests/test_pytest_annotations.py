@@ -1,5 +1,6 @@
 """O canal de diagnóstico conserva falha real sem exportar conteúdo/parametrização."""
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -8,7 +9,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import pytest_annotations as annotations_plugin
+SPEC = importlib.util.spec_from_file_location(
+    "bees_pytest_annotations", Path(__file__).parents[1] / "pytest_annotations.py"
+)
+annotations_plugin = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(annotations_plugin)
 
 
 @pytest.mark.parametrize("active", [True, False])
