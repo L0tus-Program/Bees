@@ -4,8 +4,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+from scripts import pytest_annotations as annotations_plugin
 
 
 @pytest.mark.parametrize("active", [True, False])
@@ -33,3 +36,33 @@ def test_real_failure_preserves_exit_status_and_annotations_are_metadata_only(tm
         assert annotations[0].startswith("::error ")
         assert "PRIVATE_PARAMETER" not in annotations[0]
         assert "PRIVATE_FAILURE_CONTENT" not in annotations[0]
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        r"C:\Users\PRIVATE_PERSON\AppData\Local\Temp\test_fixture.py",
+        "/tmp/PRIVATE_PERSON/test_fixture.py",
+        "../../private/test_fixture.py",
+    ],
+)
+def test_external_paths_keep_only_public_test_filename(filename):
+    value = annotations_plugin._identifier(filename + "::test_failure[PRIVATE_PARAMETER]")
+    assert value == "test_fixture.py::test_failure"
+
+
+def test_case_ordinal_never_prints_parameter_or_upstream_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(annotations_plugin, "_CASES", {})
+    nodeid = "packages/core/tests/test_fixture.py::test_failure[PRIVATE_PARAMETER]"
+    report = SimpleNamespace(
+        nodeid=nodeid,
+        failed=True,
+        location=("unused", 20, "test_failure"),
+        longrepr=SimpleNamespace(reprcrash=SimpleNamespace(path="private/library.py", lineno=715)),
+    )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    annotations_plugin.pytest_collection_modifyitems([SimpleNamespace(nodeid=nodeid)])
+    annotations_plugin.pytest_runtest_logreport(report)
+    output = capsys.readouterr().out
+    assert ",line=21::" in output and "(case 1)" in output
+    assert "PRIVATE_PARAMETER" not in output and "private/library.py" not in output

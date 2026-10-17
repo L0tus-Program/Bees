@@ -34,6 +34,14 @@ jobs:
       - name: Validar corpus de pesquisa no Windows
         if: runner.os == 'Windows'
         run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations packages/core/tests/test_research.py
+      - name: Validar contratos portáveis no Windows
+        if: runner.os == 'Windows'
+        run: |
+          $targets = @('scripts/tests/test_pytest_annotations.py', 'scripts/tests/test_ci_report.py')
+          if (Test-Path packages/core/tests/test_executor_transport.py) {
+            $targets += 'packages/core/tests/test_executor_transport.py'
+          }
+          uv run --locked python scripts/run-ci-tests.py -p pytest_annotations @targets
       - name: Testar no Windows com dono padrão da conta
         if: runner.os == 'Windows'
         run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations
