@@ -12,6 +12,9 @@ export interface SkillDocument { format: 'bees.skill/v1'; scope: 'agent'; defini
 export interface SkillRevision { skill_id: string; version: number; definition: SkillDefinition; content_hash: string; origin: 'human' | 'import'; created_at: string }
 export interface Skill { id: string; agent_id: string; revision: number; current_version: number; enabled_version: number | null; created_at: string; updated_at: string; current: SkillRevision }
 export interface SkillIntent { agentId: string; path: string; method?: 'PUT'; body: Record<string, unknown>; skillId?: string }
+export interface ProcessReview { sources: string[]; review_note: string; pending: string; confirmed: boolean }
+export interface ProcessReference { task_id: string; run_id: string; message_id: string; result_sha256: string }
+export interface SkillProcessOrigin extends ProcessReference { skill_id: string; version: number; agent_id: string; review: ProcessReview; created_at: string; actor: 'user' }
 
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
 const text = (value: unknown, max = 2048): value is string => typeof value === 'string' && value.trim().length > 0 && Array.from(value).length <= max && !Array.from(value).some((char) => char.charCodeAt(0) < 32 && !['\n', '\r', '\t'].includes(char))
@@ -75,4 +78,34 @@ export function importIntent(agentId: string, document: unknown): SkillIntent {
 export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Promise<Skill> {
   if (!record(intent.body) || !uuid(intent.body.client_request_id)) throw new ApiError('invalid_request')
   return checkedSkill(await request(intent.path, { body: intent.body, method: intent.method, authenticated: true, signal }), intent.agentId, intent.skillId)
+}
+
+function isProcessReview(value: unknown): value is ProcessReview {
+  if (!exact(value, ['sources', 'review_note', 'pending', 'confirmed']) || value.confirmed !== true || !text(value.review_note) || !text(value.pending)
+    || !Array.isArray(value.sources) || value.sources.length < 1 || value.sources.length > 10 || new Set(value.sources).size !== value.sources.length) return false
+  return value.sources.every((source) => {
+    if (!text(source) || /[\s\\]/.test(source)) return false
+    try { const url = new URL(source); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password } catch { return false }
+  })
+}
+function isProcessReference(value: Record<string, unknown>): boolean {
+  return uuid(value.task_id) && uuid(value.run_id) && uuid(value.message_id) && typeof value.result_sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.result_sha256)
+}
+export function checkedProcessIntent(value: unknown, agentId: string): SkillIntent {
+  if (!exact(value, ['agentId', 'path', 'body']) || value.agentId !== agentId || value.path !== `${base(agentId)}/from-process`
+    || !exact(value.body, ['client_request_id', 'definition', 'task_id', 'run_id', 'message_id', 'result_sha256', 'review'])
+    || !uuid(value.body.client_request_id) || !isDefinition(value.body.definition) || !isProcessReference(value.body) || !isProcessReview(value.body.review)) throw new ApiError('invalid_request')
+  return value as unknown as SkillIntent
+}
+export function processSkillIntent(agentId: string, definition: SkillDefinition, source: ProcessReference, review: ProcessReview): SkillIntent {
+  return checkedProcessIntent({ agentId, path: `${base(agentId)}/from-process`, body: { client_request_id: crypto.randomUUID(), definition, ...source, review } }, agentId)
+}
+export async function getProcessOrigin(agentId: string, skillId: string, version: number, signal?: AbortSignal): Promise<SkillProcessOrigin | null> {
+  if (!uuid(skillId) || !positive(version)) throw new ApiError('invalid_request')
+  const value = await request(`${base(agentId)}/${skillId}/revisions/${version}/process`, { authenticated: true, signal })
+  if (value === null) return null
+  if (!exact(value, ['skill_id', 'version', 'agent_id', 'task_id', 'run_id', 'message_id', 'result_sha256', 'review', 'created_at', 'actor'])
+    || value.agent_id !== agentId || value.skill_id !== skillId || value.version !== version || !isProcessReference(value) || !isProcessReview(value.review)
+    || !timestamp(value.created_at) || value.actor !== 'user') throw new ApiError('invalid_response')
+  return value as unknown as SkillProcessOrigin
 }

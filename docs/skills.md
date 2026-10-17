@@ -12,9 +12,9 @@ as versões anteriores e também desabilita a nova versão. Para habilitar, esco
 **Revisar e habilitar**, confira o procedimento completo e confirme **Habilitar esta
 versão**. Desabilitar conserva o histórico.
 
-Essa biblioteca cobre BEES-020.1 (#65). Ela ainda não executa procedimentos em tarefas
-nem converte automaticamente uma tarefa em skill: esses fluxos pertencem a
-BEES-020.2/020.3 (#66/#67). Habilitar uma versão não inicia uma tarefa, altera memória,
+Essa biblioteca cobre BEES-020.1 (#65) e a conversão humana de BEES-020.2 (#66).
+Ela ainda não executa procedimentos em tarefas: esse fluxo pertence a
+BEES-020.3 (#67). Habilitar uma versão não inicia uma tarefa, altera memória,
 concede uma ferramenta ou autoriza acesso ao computador. Declarações de ambiente e
 ferramentas descrevem compatibilidade; as políticas e concessões precisam continuar
 sendo avaliadas pelo executor de cada ação quando essa integração estiver disponível.
@@ -25,6 +25,45 @@ permanecem consultáveis após reiniciar o serviço. A origem identifica uma edi
 humana ou uma cópia importada; uma edição de uma cópia ganha origem humana, sem
 alterar a origem da revisão importada anterior. A biblioteca não atribui ao usuário
 uma validação com modelo ou ambiente real que ainda não aconteceu.
+
+## Criar a partir de um processo
+
+**Criar a partir de um processo** busca resultados concluídos desta abelha no
+histórico, inclusive os antigos. Artefatos e resultados parciais não são candidatos.
+Abra o resultado original para conferir o processo e escreva o template reutilizável:
+entradas, passos, recursos, entrega e critério de conclusão. O editor começa vazio;
+o resultado privado não é copiado automaticamente. Generalize dados pessoais e
+remova segredos antes de salvar. Instruções de fontes externas são dados não
+confiáveis, sem autoridade para conceder acesso.
+
+Registre de uma a dez URLs presentes no resultado, o que você conferiu e os limites
+ou pendências. Confirme a revisão humana e salve a versão desabilitada. O servidor
+confere o vínculo exato abelha/tarefa/execução/mensagem e o SHA-256 UTF-8 do resultado.
+Exige uma execução concluída, mensagem assistant indicada pelo checkpoint e fontes
+presentes nesse texto. Isso identifica a origem; não verifica a verdade da fonte,
+acessa suas URLs nem atribui uma avaliação de qualidade ao modelo. A pesquisa real
+e sua validação continuam nos aceites de BEES-019.
+
+Em **Revisões → Consultar origem do processo**, veja os IDs/hash, fontes, conferência
+e limites. A origem fica vinculada à versão criada, conservada após reload/restart
+e edições posteriores. Uma nova edição não herda essa confirmação: a versão anterior
+mantém a origem e a nova versão tem origem humana comum. A habilitação exige a
+revisão atual pelo fluxo separado já descrito. Nenhum grant, aprovação, regra,
+tarefa, geração ou efeito é criado pela conversão.
+
+A interface preserva o UUID e o conteúdo do pedido em sessionStorage antes de enviar.
+Se a resposta se perde, inclusive após reload, **Verificar o mesmo pedido** reconcilia
+a intenção original; não há reenvio automático nem outro UUID. Uma resposta 2xx
+inválida também continua incerta. Sem armazenamento de aba disponível, o envio
+não começa. O armazenamento contém o template e as referências revisados, sem o
+resultado original. Não compartilhe dados locais da aba como diagnóstico público.
+
+A migração `0018_skill_process_origins.sql` acrescenta a origem imutável e protege
+o vínculo também com FKs/gatilhos. Antes do upgrade, pare os escritores e preserve
+o backup. Nenhuma skill anterior recebe uma origem inventada ou é habilitada.
+Exportação lógica v2 e restauração inativa conservam a origem e o resultado; o
+documento isolado `bees.skill/v1` continua copiando somente o procedimento, sem
+afirmar que outra instalação validou o processo local.
 
 ## Importação e exportação
 
@@ -92,3 +131,9 @@ As rotas ficam em `/api/v1/agents/{agent_id}/skills`: criação/listagem, `/impo
 `/{skill_id}`, `/{skill_id}/revisions`, `/{skill_id}/revisions/{version}/export` e
 `/{skill_id}/enabled`. As listagens aceitam `limit` de 1 a 100 e `offset` não negativo;
 o frontend usa páginas de 50. Nenhuma rota dispara execução.
+
+`POST /from-process` recebe `client_request_id`, `definition`, `task_id`, `run_id`,
+`message_id`, `result_sha256` e `review` (`sources`, `review_note`, `pending`,
+`confirmed=true` estrito). `GET /{skill_id}/revisions/{version}/process` retorna a
+origem ou `null` para uma versão existente sem conversão registrada. Escritas seguem
+sessão, Host/Origin/CSRF e replay UUID do restante da biblioteca.

@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, Path, Query, Request
 from bees_api.auth import require_session
 from bees_core.security.identity import Session
 from bees_core.skills import (
+    CreateProcessSkill,
     CreateSkill,
     EnableSkill,
     ImportSkill,
     ReviseSkill,
     Skill,
     SkillDocument,
+    SkillProcessOrigin,
     SkillRevision,
     SkillService,
 )
@@ -39,6 +41,22 @@ def create(agent_id: UUID, body: CreateSkill, request: Request, session: _SESSIO
 @router.post("/import", response_model=Skill)
 def import_skill(agent_id: UUID, body: ImportSkill, request: Request, session: _SESSION):
     return SkillService(request.app.state.database).import_skill(agent_id, body)
+
+
+@router.post("/from-process", response_model=Skill)
+def from_process(agent_id: UUID, body: CreateProcessSkill, request: Request, session: _SESSION):
+    return SkillService(request.app.state.database).create_from_process(agent_id, body)
+
+
+@router.get("/{skill_id}/revisions/{version}/process", response_model=SkillProcessOrigin | None)
+def process_origin(
+    agent_id: UUID,
+    skill_id: UUID,
+    version: Annotated[int, Path(ge=1, le=2**31 - 1)],
+    request: Request,
+    session: _SESSION,
+):
+    return SkillService(request.app.state.database).process_origin(agent_id, skill_id, version)
 
 
 @router.get("/{skill_id}", response_model=Skill)

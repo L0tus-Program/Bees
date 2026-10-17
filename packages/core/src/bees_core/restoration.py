@@ -69,6 +69,7 @@ _ORDER = (
     "skill_revisions",
     "skill_commands",
     "skill_events",
+    "skill_process_origins",
     "routine_commands",
     "routine_occurrences",
     "attention_items",
@@ -527,7 +528,12 @@ class RestoreService:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:
                 original = {
                     table: [
-                        _load(line) for line in archive.read(f"data/{table}.jsonl").splitlines()
+                        _load(line)
+                        for line in (
+                            archive.read(f"data/{table}.jsonl").splitlines()
+                            if table in manifest["tables"]
+                            else []
+                        )
                     ]
                     for table in COLUMNS
                 }

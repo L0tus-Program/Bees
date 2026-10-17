@@ -19,6 +19,7 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | routines / routine_definitions / routine_cursors / routine_commands / routine_occurrences | Agenda diária/semanal, revisões humanas imutáveis, cursor separado e ocorrências limitadas (migração 0015); veja [rotinas](routines.md). |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
 | skills / skill_revisions / skill_commands / skill_events | Procedimentos por abelha, revisões imutáveis com origem/hash, habilitação de versão exata e intenções humanas com UUID/CAS (migração 0014); veja [skills](skills.md). |
+| skill_process_origins | Conversão humana rastreável ao resultado exato, com fontes/revisão/limites e vínculos imutáveis de versão/abelha/tarefa/execução/mensagem (0018). |
 | artifacts / artifact_commands | Blobs fora do SQLite, hash/tamanho, versões imutáveis (0009), vínculo de conversa/tarefa e origem; intenções humanas append-only com UUID e hash do pedido (0013). |
 | budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (0010), com integridade da cadeia chamada/execução/tarefa/conversa/abelha (0016). |
 | provisioning_rejections | Recusas imutáveis de UUIDs que não aceitaram intent, inclusive após retomada ou rotação de credencial (0017); veja [recusas do provisionador](provision-rejection.md). |
@@ -110,6 +111,8 @@ um scheduler. A 0016 recusa upgrade com consumo incoerente sem modificar sua
 evidência e protege a cadeia também em SQL direto; consulte
 [integridade de consumo](usage-integrity.md). A 0017 grava recusas definitivas de
 provisionamento em um ledger imutável, sem reclassificar efeitos aceitos ou incertos.
+A 0018 acrescenta a origem da conversão humana de processo em skill; conserva
+conteúdo/revisões/habilitação anteriores e não cria permissões ou origens retroativas.
 
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 
