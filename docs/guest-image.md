@@ -2,6 +2,9 @@
 
 BEES-011 prepara `linux-desktop-v1` como um kit local: ISO oficial Debian intacto e payload separado de aplicações. O catálogo continua planejado, com `usable` e `provisionable` falsos. Esta etapa não entrega uma VM inicializável já configurada nem integra execução ao modelo.
 
+O [caso verificável do Writer](writer-case.md) define conteúdo, ODT/PDF e validação
+para o app/versão do kit. Seu laboratório e parsers não substituem o aceite na VM.
+
 O kit é uma ferramenta de desenvolvimento e operação. A instalação gráfica do computador pelo usuário final continua no escopo de [ambientes](environments.md) e BEES-028; executar scripts no terminal não será o onboarding final.
 
 ## Composição e confiança
