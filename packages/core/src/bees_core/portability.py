@@ -1199,7 +1199,8 @@ class ExportService:
                 archive.writestr("manifest.json", _json(manifest))
         if path.stat().st_size > self.limits.max_bytes:
             raise PortabilityError("portability_limit_exceeded")
-        with path.open("rb") as stream:
+        # O flush nativo do Windows exige handle gravável. Não reescreve bytes.
+        with path.open("r+b") as stream:
             os.fsync(stream.fileno())
 
     def _limits(self, size, rows, files):

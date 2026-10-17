@@ -452,3 +452,27 @@ def test_record_types_and_secret_keys_are_rejected_even_with_consistent_hash(
     repack(path, data)
     with pytest.raises(PortabilityError):
         service.verify(path)
+
+
+def test_export_flush_uses_writable_file_handle_for_native_windows_contract(state, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("Injeção de flags POSIX; exportações nativas são exercitadas no Windows.")
+    import fcntl
+    import stat
+
+    original = os.fsync
+    regular_flushes = []
+
+    def flush(descriptor):
+        if stat.S_ISREG(os.fstat(descriptor).st_mode):
+            writable = fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDONLY
+            regular_flushes.append(writable)
+            if not writable:
+                raise OSError("Native file flush requires a writable handle")
+        return original(descriptor)
+
+    monkeypatch.setattr(os, "fsync", flush)
+    service = state[-1]
+    exported = service.create()
+    assert exported.status == "ready" and service.download(exported.id)
+    assert regular_flushes and all(regular_flushes)
