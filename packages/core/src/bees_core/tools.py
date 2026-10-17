@@ -546,6 +546,11 @@ class ToolService:
             ):
                 # dispatch_started pode ter efeito em voo: consulta somente, nunca retry.
                 return action
+            if "executor_transport" in action.metadata:
+                raise ToolError(
+                    "executor_transport_required",
+                    "Intenção vinculada a recurso próprio exige seu transporte original.",
+                )
             if action.revision != expected_revision:
                 raise RevisionConflict("Invocação alterada; releia seu estado.")
             if action.status != "ready":

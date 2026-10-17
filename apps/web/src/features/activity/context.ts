@@ -16,7 +16,7 @@ export function restoreActivityContext(agentId: string): ActivityContext {
 export function rememberActivityContext(agentId: string, value: ActivityContext) {
   try { sessionStorage.setItem(`bees.ui.activity.${agentId}`, JSON.stringify(value)) } catch { /* Optional. */ }
 }
-export const workspaceViews = ['conversation', 'profile', 'model', 'memories', 'policies', 'usage', 'attention', 'tools', 'computer'] as const
+export const workspaceViews = ['conversation', 'profile', 'model', 'memories', 'deliveries', 'skills', 'routines', 'policies', 'usage', 'attention', 'tools', 'computer'] as const
 export type WorkspaceView = typeof workspaceViews[number]
 export function restoreWorkspace(): { selectedId: string | null; view: WorkspaceView } {
   try {

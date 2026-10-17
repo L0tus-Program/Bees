@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from bees_host.provisioning.contracts import Plan, ProvisionError
+from bees_host.provisioning.contracts import AuthorityRejectedBeforeEffect, Plan, ProvisionError
 from bees_host.provisioning.enrollment import EnrollmentStore
 from bees_host.provisioning.http_authority import HTTPAuthority
 from bees_host.provisioning.journal import Journal, private
@@ -60,7 +60,11 @@ class Acquisition:
         except ValidationError, ValueError, TypeError, AttributeError:
             raise ProvisionError("provision_plan_invalid") from None
         ticket, journal = None, None
+        rejected_claim = False
+        handed_off = False
         try:
+            if self.store.version != 3:
+                raise ProvisionError("provision_rejection_migration_required")
             self.store.assert_acquisition_ready()
             self._guard()
             state = self.enrollment.load()
@@ -97,9 +101,14 @@ class Acquisition:
                 host_id=state.host_id,
                 provisioner_id=state.provisioner_id,
             ) as authority:
-                claim = authority.claim(
-                    plan.plan_id, plan.digest(), ticket.owner_id, ticket.request_id
-                )
+                try:
+                    claim = authority.claim(
+                        plan.plan_id, plan.digest(), ticket.owner_id, ticket.request_id
+                    )
+                except AuthorityRejectedBeforeEffect:
+                    self.store.fail_acquisition(ticket, "stopped")
+                    rejected_claim = True
+                    raise
                 if claim.plan != plan:
                     raise ProvisionError("provision_plan_invalid")
                 self.store.accept_acquisition(ticket, claim)
@@ -111,8 +120,15 @@ class Acquisition:
                     self.store,
                     cancelled=self.cancelled,
                 )
+                handed_off = True
                 return supervisor._run_locked(acquisition=ticket)
         except BaseException as error:
+            if rejected_claim or (
+                handed_off
+                and isinstance(error, ProvisionError)
+                and str(error) == "provision_supervisor_stopped"
+            ):
+                raise
             if ticket is not None:
                 try:
                     self.store.fail_acquisition(ticket, "unknown")

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from bees_host.provisioning.backend import TIMEOUT, HyperVBackend
 from bees_host.provisioning.contracts import (
     OPERATIONS,
+    AuthorityRejectedBeforeEffect,
     Claim,
     Inventory,
     Operation,
@@ -100,6 +101,8 @@ class Runner:
 
     def _unresolved(self):
         for operation, row in self.journal.operations().items():
+            if row["status"] == "rejected":
+                raise ProvisionError("provision_authority_stopped")
             if row["status"] == "confirmed":
                 continue
             if row["pid"] is not None:
@@ -138,7 +141,11 @@ class Runner:
         command = None
         try:
             self.journal.transition(operation, "prepared", "authority_started")
-            permit = self.authority.begin_dispatch(current, operation, UUID(row["request_id"]))
+            try:
+                permit = self.authority.begin_dispatch(current, operation, UUID(row["request_id"]))
+            except AuthorityRejectedBeforeEffect:
+                self.journal.reject(operation)
+                raise
             check_claim(permit.claim, current, datetime.now(UTC), remaining=TIMEOUT + 5)
             if (
                 permit.cached
@@ -197,6 +204,8 @@ class Runner:
             self.journal.update_claim(published)
             self.journal.transition(operation, "result_observed", "confirmed")
             return result
+        except AuthorityRejectedBeforeEffect:
+            raise
         except BaseException:
             self.journal.unknown(operation)
             raise ProvisionError("provision_operation_unknown") from None
