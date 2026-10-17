@@ -29,5 +29,7 @@ def test_real_failure_preserves_exit_status_and_annotations_are_metadata_only(tm
     assert len(annotations) == int(active)
     if active:
         assert "test_annotation_fixture.py::test_failure" in annotations[0]
+        assert ",line=4::" in annotations[0]
+        assert annotations[0].startswith("::error ")
         assert "PRIVATE_PARAMETER" not in annotations[0]
         assert "PRIVATE_FAILURE_CONTENT" not in annotations[0]

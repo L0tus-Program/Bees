@@ -252,3 +252,22 @@ def test_invalid_arguments_never_start_remote_commands(monkeypatch, repository, 
     monkeypatch.setattr(reporter.subprocess, "run", unexpected)
     with pytest.raises(reporter.ReportError, match="ci_arguments_invalid"):
         reporter.collect(repository, run, sha)
+
+
+def test_optional_windows_corpus_probe_skip_is_only_valid_on_linux(monkeypatch):
+    value = metadata()
+    linux = next(job for job in value["jobs"] if job["name"] == "API / ubuntu-latest")
+    step = {
+        "name": "Validar corpus de pesquisa no Windows",
+        "number": 99,
+        "status": "completed",
+        "conclusion": "skipped",
+    }
+    linux["steps"].append(step)
+    responses(monkeypatch, value)
+    assert collect()["status"] == "verified"
+    windows = next(job for job in value["jobs"] if job["name"] == "API / windows-latest")
+    windows["steps"].append(step)
+    responses(monkeypatch, value)
+    with pytest.raises(reporter.ReportError, match="ci_step_not_successful"):
+        collect()
