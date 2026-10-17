@@ -22,8 +22,8 @@ A operação é síncrona e limitada. Não exporte continuamente; o snapshot lon
 mantém uma leitura SQLite aberta e pode atrasar checkpoints WAL. Cada solicitação
 cria um identificador independente, sem alterar revisões ou eventos de produto.
 A interface de download na aplicação é trabalho de integração; a API já permite
-a operação humana autenticada. O módulo de restauração **BEES-023.2 (#79)** continua
-planejado: este pacote ainda não pode ser publicado como uma instalação restaurada.
+a operação humana autenticada. A [restauração BEES-023.2 (#79)](restoration.md) publica somente uma instalação
+nova e inativa, com revisão humana de acesso e reconexão obrigatória.
 
 ## Formato `bees.logical`, versão 1
 
@@ -85,7 +85,7 @@ que uma pessoa tenha colocado em uma conversa; a exportação privada continua s
 conteúdo sensível e precisa de revisão humana antes de compartilhamento.
 
 Políticas, decisões e grants são memória/configuração histórica. Sua presença no
-pacote não concede consentimento no destino. A futura restauração precisa de staging,
+pacote não concede consentimento no destino. A restauração exige staging,
 rotinas pausadas, hosts/sessões desconectados e revisão humana de acesso; não pode
 resetar `unknown`, reutilizar aprovações consumidas ou publicar execução automática.
 

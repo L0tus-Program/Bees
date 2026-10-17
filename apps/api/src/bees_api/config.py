@@ -1,6 +1,7 @@
 """Configuração do plano de controle local e do estado persistente."""
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -30,11 +31,22 @@ class Settings(BaseModel):
     browser_port: int | None = Field(default=None, ge=1, le=65535)
     web_dist: Path = Field(default_factory=default_web_dist)
     data_dir: Path = Field(default_factory=default_data_dir)
+    restoration_destinations: dict[str, Path] = Field(default_factory=dict, max_length=10)
     cache_ttl_seconds: int = Field(default=86400, ge=1, le=31536000)
     cache_prune_limit: int = Field(default=1000, ge=1, le=1000)
     public_url: str | None = None
     vault_key: SecretStr | None = Field(default=None, repr=False)
     vault_key_file: Path | None = None
+
+    @field_validator("restoration_destinations")
+    @classmethod
+    def inactive_destinations(cls, value):
+        if any(
+            not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", alias) or not path.is_absolute()
+            for alias, path in value.items()
+        ):
+            raise ValueError("Destinos exigem alias fechado e caminho absoluto do operador.")
+        return value
 
     @model_validator(mode="after")
     def deployment_boundary(self) -> Settings:
