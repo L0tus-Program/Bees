@@ -33,7 +33,7 @@ jobs:
         run: uv run --locked python scripts/run-ci-tests.py -q -s --durations=5 apps/host/tests/test_provisioning_backend.py -k "readonly_native_hardware_guard or native_powershell_prepared_go"
       - name: Testar no Windows com dono padrão da conta
         if: runner.os == 'Windows'
-        run: uv run --locked python scripts/run-ci-tests.py
+        run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations
 
   web:
     name: Interface
