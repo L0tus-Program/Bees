@@ -364,6 +364,18 @@ def test_child_has_clean_environment_fixed_command_and_no_core_database(system, 
         b'{"x":1',
         b"{" + b" " * 32768 + b"}",
     ],
+    ids=[
+        "trailing",
+        "duplicates",
+        "nan",
+        "infinity",
+        "array",
+        "null",
+        "non_utf8",
+        "empty",
+        "truncated",
+        "oversized",
+    ],
 )
 def test_closed_utf8_json_rejects_duplicates_trailing_partial_and_large_frames(data):
     from bees_core.executor_transport.contracts import TransportError, decode
