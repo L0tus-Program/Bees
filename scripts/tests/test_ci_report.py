@@ -93,7 +93,7 @@ def test_complete_jobs_export_only_sanitized_separate_counts(monkeypatch, tmp_pa
     assert len(windows["log"]["summaries"]) == 2  # Native subset is not added to full suite.
     path = tmp_path / "report.json"
     reporter.export(result, path)
-    content = path.read_text()
+    content = path.read_text(encoding="utf-8")
     assert SECRET not in content
     assert "stdout" not in content and "stderr" not in content
     assert json.loads(content) == result
@@ -254,11 +254,14 @@ def test_invalid_arguments_never_start_remote_commands(monkeypatch, repository, 
         reporter.collect(repository, run, sha)
 
 
-def test_optional_windows_corpus_probe_skip_is_only_valid_on_linux(monkeypatch):
+@pytest.mark.parametrize(
+    "probe", ["Validar corpus de pesquisa no Windows", "Validar contratos portáveis no Windows"]
+)
+def test_optional_windows_corpus_probe_skip_is_only_valid_on_linux(monkeypatch, probe):
     value = metadata()
     linux = next(job for job in value["jobs"] if job["name"] == "API / ubuntu-latest")
     step = {
-        "name": "Validar corpus de pesquisa no Windows",
+        "name": probe,
         "number": 99,
         "status": "completed",
         "conclusion": "skipped",
