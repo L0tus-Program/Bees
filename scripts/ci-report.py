@@ -180,7 +180,8 @@ def _metadata(raw, repository, run_id, expected_sha):
             step_names.add(step["name"])
             skipped_platform = (
                 name == "API / ubuntu-latest"
-                and step["name"] in JOBS["API / windows-latest"]
+                and step["name"]
+                in (*JOBS["API / windows-latest"], "Validar corpus de pesquisa no Windows")
                 or name == "API / windows-latest"
                 and step["name"] == "Testar no Linux"
             )

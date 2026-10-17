@@ -11,4 +11,10 @@ def pytest_runtest_logreport(report):
     identifier = report.nodeid.split("[", 1)[0]
     if len(identifier) > 300 or not re.fullmatch(r"[A-Za-z0-9_./:-]+", identifier):
         identifier = "Python test failed (identifier unavailable)"
-    print(f"::error title=Python regression::{identifier}", flush=True)
+    metadata = "title=Python regression"
+    crash = getattr(report.longrepr, "reprcrash", None)
+    line = getattr(crash, "lineno", None)
+    filename = identifier.split("::", 1)[0]
+    if type(line) is int and line > 0 and filename.endswith(".py"):
+        metadata += f",file={filename},line={line}"
+    print(f"\n::error {metadata}::{identifier}", flush=True)
