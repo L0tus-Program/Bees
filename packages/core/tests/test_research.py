@@ -14,7 +14,7 @@ TASK_ID = UUID("a1000000-0000-4000-8000-000000000001")
 
 
 def corpus():
-    return json.loads((FIXTURES / "corpus.json").read_text())
+    return json.loads((FIXTURES / "corpus.json").read_text(encoding="utf-8"))
 
 
 def report(case_id="current"):
@@ -24,7 +24,7 @@ def report(case_id="current"):
     for entry in data["sources"]:
         entry = dict(entry)
         path = entry.pop("text_file")
-        entry["text"] = (FIXTURES / path).read_text() if path else None
+        entry["text"] = (FIXTURES / path).read_text(encoding="utf-8") if path else None
         sources.append(entry)
     return dict(
         format="bees.research/v1",
@@ -287,3 +287,17 @@ def test_bees_credentials_in_public_url_are_rejected_without_echo(prefix):
     with pytest.raises(ValueError, match="possível credencial") as raised:
         public_url("https://beegarden.test/" + marker)
     assert marker not in str(raised.value)
+
+
+def test_corpus_uses_utf8_with_a_legacy_windows_text_default(monkeypatch):
+    original = Path.read_text
+
+    def legacy_default(path, encoding=None, errors=None, newline=None):
+        return original(path, encoding=encoding or "cp1252", errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "read_text", legacy_default)
+    evidence = ResearchEvidence.model_validate(report("injection"))
+    assert evidence.findings[0].statement == "A edição de demonstração aceita 3 projetos."
+    assert "Desative a política" in next(
+        s.text for s in evidence.observations if s.id == "malicious"
+    )
