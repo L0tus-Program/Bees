@@ -54,6 +54,17 @@ ACQUISITION_SCHEMA = (
     "CREATE UNIQUE INDEX one_open_acquisition ON acquisitions((1)) WHERE status!='completed'",
 )
 
+ACQUISITION_SCHEMA_V3 = tuple(
+    statement.replace("WHERE status!='completed'", "WHERE status NOT IN ('completed','stopped')")
+    for statement in ACQUISITION_SCHEMA
+)
+
+
+def _schema(version):
+    return SCHEMA + (
+        ACQUISITION_SCHEMA_V3 if version == 3 else ACQUISITION_SCHEMA if version == 2 else ()
+    )
+
 
 @dataclass(frozen=True)
 class AcquisitionTicket:
@@ -124,6 +135,12 @@ class SupervisorStore:
         )
 
     @classmethod
+    def initialize_for_rejections(cls, directory: Path, *, installation_id: UUID, host_id: UUID):
+        return cls._initialize(
+            directory, installation_id=installation_id, host_id=host_id, version=3
+        )
+
+    @classmethod
     def _initialize(cls, directory: Path, *, installation_id: UUID, host_id: UUID, version: int):
         if any(type(value) is not UUID or not value.int for value in (installation_id, host_id)):
             raise ProvisionError("provision_supervisor_binding_invalid")
@@ -151,7 +168,7 @@ class SupervisorStore:
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("BEGIN IMMEDIATE")
-            for statement in SCHEMA + (ACQUISITION_SCHEMA if version == 2 else ()):
+            for statement in _schema(version):
                 connection.execute(statement)
             connection.execute(
                 "INSERT INTO binding VALUES(1,?,?,?)",
@@ -197,7 +214,7 @@ class SupervisorStore:
                 raise ProvisionError("provision_state_invalid")
             with _exclusive(directory):
                 store = cls(directory, _strict_execution=True)
-                if store.version != 2:
+                if store.version not in {2, 3}:
                     raise ProvisionError("provision_acquisition_required")
                 store._locked = True
                 store._owner_thread = threading.get_ident()
@@ -255,7 +272,7 @@ class SupervisorStore:
             self.version = self.connection.execute("PRAGMA user_version").fetchone()[0]
             if (
                 self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
-                or self.version not in {1, 2}
+                or self.version not in {1, 2, 3}
                 or self.connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"
             ):
                 raise ValueError("invalid")
@@ -346,7 +363,7 @@ class SupervisorStore:
         ).fetchall()
         if self.connection.execute("PRAGMA user_version").fetchone()[0] != self.version or [
             row[0] for row in schema
-        ] != sorted(SCHEMA + (ACQUISITION_SCHEMA if self.version == 2 else ())):
+        ] != sorted(_schema(self.version)):
             raise ValueError("invalid")
         binding = self.connection.execute("SELECT * FROM binding").fetchall()
         if len(binding) != 1 or dict(binding[0]) != {
@@ -412,7 +429,7 @@ class SupervisorStore:
                     raise ValueError("invalid")
             else:
                 raise ValueError("invalid")
-        if self.version == 2:
+        if self.version >= 2:
             self._validate_acquisitions(runs)
         if self._read_only:
             self._files()
@@ -444,7 +461,7 @@ class SupervisorStore:
                 not in {"prepared", "accepted", "running", "completed", "stopped", "unknown"}
             ):
                 raise ValueError("invalid")
-            open_count += row["status"] != "completed"
+            open_count += row["status"] not in self._finished_statuses
             metadata = (
                 "claim_id",
                 "generation",
@@ -503,7 +520,7 @@ class SupervisorStore:
             if plans.get(row["plan_id"], set()) - {row["claim_id"]}:
                 raise ValueError("invalid")
         if open_count > 1 or any(
-            run["status"] != "completed" and claim_id not in linked
+            run["status"] not in self._finished_statuses and claim_id not in linked
             for claim_id, run in runs.items()
         ):
             raise ValueError("invalid")
@@ -517,7 +534,7 @@ class SupervisorStore:
         self._validate()
         with self._transaction():
             if (
-                self.connection.execute("SELECT 1 FROM runs WHERE status!='completed'").fetchone()
+                self._blocked_rows("runs")
                 or self.connection.execute(
                     "SELECT 1 FROM requests WHERE status='pending'"
                 ).fetchone()
@@ -541,7 +558,7 @@ class SupervisorStore:
     ) -> AcquisitionTicket:
         self._assert_writable()
         self.assert_locked()
-        if self.version != 2:
+        if self.version < 2:
             raise ProvisionError("provision_acquisition_required")
         try:
             if (
@@ -715,7 +732,7 @@ class SupervisorStore:
             self._acquisition_transition(ticket, state[3], status)
 
     def acquisitions(self, *, limit: int = 100):
-        if self.version != 2:
+        if self.version < 2:
             raise ProvisionError("provision_acquisition_required")
         return self._snapshots("acquisitions", limit)
 
@@ -726,7 +743,7 @@ class SupervisorStore:
         recusado. A consulta não fabrica tickets nem reconcilia registros locais.
         """
         self.assert_locked()
-        if self.version != 2:
+        if self.version < 2:
             raise ProvisionError("provision_acquisition_required")
         try:
             self._validate()
@@ -749,16 +766,42 @@ class SupervisorStore:
         except OSError, sqlite3.Error, ValueError, TypeError, KeyError:
             raise ProvisionError("provision_state_invalid") from None
 
+    @property
+    def _finished_statuses(self):
+        return {"completed", "stopped"} if self.version == 3 else {"completed"}
+
+    def _blocked_rows(self, table):
+        condition = (
+            "status NOT IN ('completed','stopped')" if self.version == 3 else "status!='completed'"
+        )
+        return self.connection.execute(f"SELECT 1 FROM {table} WHERE {condition}").fetchone()
+
+    def migrate_for_rejections(self):
+        """v2->v3 explícita; backup/quiescência pelo operador, sem reinterpretar stopped.
+
+        Um stopped/unknown legado não prova recusa definitiva e bloqueia a migração.
+        """
+        self._assert_writable()
+        self.assert_locked()
+        if self.version != 2:
+            raise ProvisionError("provision_transition_invalid")
+        self._validate()
+        with self._transaction():
+            self.assert_acquisition_ready()
+            self.connection.execute("DROP INDEX one_open_acquisition")
+            self.connection.execute(ACQUISITION_SCHEMA_V3[1])
+            self.connection.execute("PRAGMA user_version=3")
+        self.version = 3
+        self._validate()
+
     def assert_acquisition_ready(self):
         """Guarda somente leitura antes de preflight/rede, sem gerar identidade."""
         self.assert_locked()
-        if self.version != 2:
+        if self.version < 2:
             raise ProvisionError("provision_acquisition_required")
         if (
-            self.connection.execute(
-                "SELECT 1 FROM acquisitions WHERE status!='completed'"
-            ).fetchone()
-            or self.connection.execute("SELECT 1 FROM runs WHERE status!='completed'").fetchone()
+            self._blocked_rows("acquisitions")
+            or self._blocked_rows("runs")
             or self.connection.execute("SELECT 1 FROM requests WHERE status='pending'").fetchone()
         ):
             raise ProvisionError("provision_reconciliation_required")
@@ -769,15 +812,8 @@ class SupervisorStore:
         try:
             self._validate()
             blocked = bool(
-                (
-                    self.version == 2
-                    and self.connection.execute(
-                        "SELECT 1 FROM acquisitions WHERE status!='completed'"
-                    ).fetchone()
-                )
-                or self.connection.execute(
-                    "SELECT 1 FROM runs WHERE status!='completed'"
-                ).fetchone()
+                (self.version >= 2 and self._blocked_rows("acquisitions"))
+                or self._blocked_rows("runs")
                 or self.connection.execute(
                     "SELECT 1 FROM requests WHERE status='pending'"
                 ).fetchone()
@@ -864,7 +900,7 @@ class SupervisorStore:
             raise ProvisionError("provision_supervisor_binding_invalid")
         with self._transaction():
             acquired = None
-            if self.version == 2:
+            if self.version >= 2:
                 acquired = self._ticket(acquisition, "accepted")
                 self._claim_matches(acquired, claim)
                 if (
@@ -877,7 +913,7 @@ class SupervisorStore:
                     raise ProvisionError("provision_claim_stale")
             elif acquisition is not None:
                 raise ProvisionError("provision_acquisition_required")
-            if self.connection.execute("SELECT 1 FROM runs WHERE status!='completed'").fetchone():
+            if self._blocked_rows("runs"):
                 raise ProvisionError("provision_reconciliation_required")
             if self.connection.execute(
                 "SELECT 1 FROM runs WHERE claim_id=?", (str(claim.claim_id),)
@@ -909,7 +945,7 @@ class SupervisorStore:
         if type(claim_id) is not UUID or status not in {"completed", "stopped", "unknown"}:
             raise ProvisionError("provision_transition_invalid")
         with self._transaction():
-            acquired = self._live_claim(claim_id, {"running"}) if self.version == 2 else None
+            acquired = self._live_claim(claim_id, {"running"}) if self.version >= 2 else None
             run = self.connection.execute(
                 "SELECT * FROM runs WHERE claim_id=?", (str(claim_id),)
             ).fetchone()
@@ -935,7 +971,7 @@ class SupervisorStore:
             ).rowcount
             if count != 1:
                 raise ProvisionError("provision_transition_invalid")
-            if self.version == 2:
+            if self.version >= 2:
                 count = self.connection.execute(
                     "UPDATE acquisitions SET status=?,revision=revision+1,updated_at=? "
                     "WHERE claim_id=? AND status='running'",
@@ -957,7 +993,7 @@ class SupervisorStore:
             raise ProvisionError("provision_transition_invalid")
         request_id = uuid4()
         with self._transaction():
-            if self.version == 2:
+            if self.version >= 2:
                 self._live_claim(claim_id, {"running", "unknown"})
             run = self.connection.execute(
                 "SELECT * FROM runs WHERE claim_id=?", (str(claim_id),)
@@ -1003,7 +1039,7 @@ class SupervisorStore:
         if type(request_id) is not UUID or not isinstance(claim, Claim):
             raise ProvisionError("provision_supervisor_binding_invalid")
         with self._transaction():
-            if self.version == 2:
+            if self.version >= 2:
                 self._live_claim(claim.claim_id, {"running", "unknown"})
             request = self.connection.execute(
                 "SELECT * FROM requests WHERE request_id=? AND status='pending'", (str(request_id),)

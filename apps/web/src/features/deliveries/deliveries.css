@@ -1,0 +1,12 @@
+.delivery-search { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); align-items: end; }
+.delivery-query { grid-column: 1 / -1; }
+.delivery-shortcuts { margin-block: 1.5rem; }
+.delivery-list { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.delivery-list > li, .delivery-selection { border: 1px solid var(--border, #a9a9a9); border-radius: .75rem; padding: 1rem; overflow-wrap: anywhere; }
+.delivery-selection { margin-block: 1rem; }
+.delivery-links { display: grid; grid-template-columns: minmax(6rem, auto) minmax(0, 1fr); gap: .5rem 1rem; }
+.delivery-links dd { margin: 0; }
+.delivery-summary, .delivery-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.delivery-content { max-height: 32rem; overflow: auto; padding: 1rem; border: 1px solid var(--border, #a9a9a9); }
+.delivery-history textarea { overflow-wrap: anywhere; }
+@media (max-width: 36rem) { .delivery-links { grid-template-columns: 1fr; gap: .25rem; } .delivery-links dd { margin-block-end: .75rem; } }

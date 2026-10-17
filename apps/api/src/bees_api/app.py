@@ -24,6 +24,7 @@ from bees_api.budgets import router as budgets_router
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
+from bees_api.delivery_history import router as delivery_history_router
 from bees_api.environments import router as environments_router
 from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
@@ -31,23 +32,29 @@ from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
+from bees_api.portability import router as portability_router
 from bees_api.profiles import router as profiles_router
 from bees_api.provisioner_runtime import router as provisioner_runtime_router
 from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
+from bees_api.restoration import router as restoration_router
+from bees_api.routines import router as routines_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
+from bees_api.skills import router as skills_router
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
 from bees_core.approvals import ApprovalError
 from bees_core.artifacts import ArtifactError, ArtifactStore
 from bees_core.environments import EnvironmentError
 from bees_core.policies import PolicyError
+from bees_core.portability import ExportService
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
 from bees_core.providers.vault import FernetBackend, FileSecretVault
-from bees_core.provisioning import ProvisioningError
+from bees_core.provisioning import ProvisioningError, ProvisioningRejected
+from bees_core.restoration import RestoreService
 from bees_core.security.hosts import HostLinkError
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
@@ -117,6 +124,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.receipts = Receipts()
         application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
         application.state.artifact_upload_slots = BoundedSemaphore(2)
+        application.state.restoration = (
+            RestoreService(
+                ExportService(database, application.state.artifacts, config.data_dir / "exports"),
+                config.restoration_destinations,
+            )
+            if config.restoration_destinations
+            else None
+        )
+        application.state.restoration_upload_slots = BoundedSemaphore(1)
         try:
             yield
         finally:
@@ -129,6 +145,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             del application.state.receipts
             del application.state.artifacts
             del application.state.artifact_upload_slots
+            del application.state.restoration
+            del application.state.restoration_upload_slots
 
     app = FastAPI(title="Bees API", version=__version__, lifespan=lifespan)
     install_auth(
@@ -146,6 +164,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(activity_router)
     app.include_router(artifacts_router)
     app.include_router(attention_router)
+    app.include_router(routines_router)
+    app.include_router(portability_router)
+    app.include_router(delivery_history_router)
+    app.include_router(skills_router)
+    app.include_router(restoration_router)
     app.include_router(budgets_router)
     app.include_router(global_stop_router)
     app.include_router(delegation_router)
@@ -301,6 +324,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(ProvisioningError)
     async def provisioning_error(request: Request, error: ProvisioningError) -> JSONResponse:
+        if isinstance(error, ProvisioningRejected):
+            return JSONResponse(
+                {"error": {"code": error.code, "dispatch_allowed": False, "cached": error.cached}},
+                status_code=409,
+            )
         return JSONResponse(
             {
                 "error": {
