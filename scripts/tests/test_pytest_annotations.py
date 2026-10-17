@@ -25,9 +25,14 @@ def test_real_failure_preserves_exit_status_and_annotations_are_metadata_only(tm
         encoding="utf-8",
     )
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "scripts.pytest_annotations", str(test)],
-        cwd=Path(__file__).parents[2],
-        env={**os.environ, "GITHUB_ACTIONS": "true" if active else "false"},
+        [sys.executable, "-m", "pytest", "-q", "-p", "pytest_annotations", str(test)],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GITHUB_ACTIONS": "true" if active else "false",
+            "PYTHONPATH": str(Path(__file__).parents[1]),
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        },
         capture_output=True,
         text=True,
         timeout=30,
