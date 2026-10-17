@@ -1,0 +1,3 @@
+BeeGarden — arquivo de 2023
+Publicado em 2023-10-01.
+A versão estável é 1.8. O suporte termina em 2024-10-01.

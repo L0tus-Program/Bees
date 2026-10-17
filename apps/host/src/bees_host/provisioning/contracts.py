@@ -24,6 +24,10 @@ class ProvisionError(RuntimeError):
     """Código público fixo, sem stdout, caminhos ou credenciais."""
 
 
+class AuthorityRejectedBeforeEffect(ProvisionError):
+    """Recusa online comprovada; nunca representa cache, timeout ou efeito incerto."""
+
+
 class Closed(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
 

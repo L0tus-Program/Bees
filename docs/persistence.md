@@ -16,10 +16,12 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | plugins / tool_grants | Manifestos locais imutáveis e concessões por ferramenta/abelha; revisão, habilitação e vínculo canônico (migração 0004). |
 | environments / host_jobs | Pedidos de computador e journal da operação no host, sem provisionador ativo (migração 0005). |
 | host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
-| routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
+| routines / routine_definitions / routine_cursors / routine_commands / routine_occurrences | Agenda diária/semanal, revisões humanas imutáveis, cursor separado e ocorrências limitadas (migração 0015); veja [rotinas](routines.md). |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
+| skills / skill_revisions / skill_commands / skill_events | Procedimentos por abelha, revisões imutáveis com origem/hash, habilitação de versão exata e intenções humanas com UUID/CAS (migração 0014); veja [skills](skills.md). |
 | artifacts / artifact_commands | Blobs fora do SQLite, hash/tamanho, versões imutáveis (0009), vínculo de conversa/tarefa e origem; intenções humanas append-only com UUID e hash do pedido (0013). |
-| budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (migração 0010). |
+| budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (0010), com integridade da cadeia chamada/execução/tarefa/conversa/abelha (0016). |
+| provisioning_rejections | Recusas imutáveis de UUIDs que não aceitaram intent, inclusive após retomada ou rotação de credencial (0017); veja [recusas do provisionador](provision-rejection.md). |
 | safety_control / safety_commands | Parada global durável: estado único com geração/revisão e comandos humanos idempotentes (migração 0011). |
 | attention_items / attention_preferences / attention_commands | Avisos de tarefas ligados ao evento canônico, leitura/preferências humanas por abelha/tipo e UUIDs idempotentes (migração 0012). |
 | domain_events | Ledger de criação/edição/reconciliação com IDs, revisão e estado. |
@@ -101,11 +103,19 @@ identidade são imutáveis. `artifact_commands` confirma a intenção humana jun
 do rascunho e fecha o replay pelo hash do pedido. Falha de upgrade reverte a
 transação e conserva backup e versão anterior. Consulte [artefatos](artifacts.md).
 
+A migração 0014 acrescenta a biblioteca e suas revisões imutáveis, sem ativar
+procedimentos automaticamente; consulte [skills](skills.md). A 0015 preserva
+rotinas legadas e separa definições humanas de cursores e ocorrências; não inicia
+um scheduler. A 0016 recusa upgrade com consumo incoerente sem modificar sua
+evidência e protege a cadeia também em SQL direto; consulte
+[integridade de consumo](usage-integrity.md). A 0017 grava recusas definitivas de
+provisionamento em um ledger imutável, sem reclassificar efeitos aceitos ou incertos.
+
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 
 Uma base existente recebe backup coerente pela Backup API antes de uma migração pendente. O arquivo aparece ao lado da base como `bees.sqlite3.backup-<instante-UTC>.sqlite3`; falha de backup impede a migração. O backup é verificado e preservado quando uma migração falha. Reinício sem migração pendente não cria outro backup.
 
-Backups contêm os dados privados da base e não têm limpeza automática nesta etapa. Para restaurar, pare todos os processos e use um backup conhecido em um diretório limpo, sem reaproveitar WAL/SHM de outra versão. Restore operacional guiado e exportação lógica são entregas posteriores. Não copiar apenas o arquivo principal de uma base ativa. [Backup SQLite](https://sqlite.org/backup.html), [APSW Backup API](https://rogerbinns.github.io/apsw/connection.html#apsw.Connection.backup).
+Backups contêm os dados privados da base e não têm limpeza automática nesta etapa. Para restaurar, pare todos os processos e use um backup conhecido em um diretório limpo, sem reaproveitar WAL/SHM de outra versão. A [exportação lógica privada](portability.md) possui formato próprio e exclui credenciais operacionais; não substitui o backup de manutenção. Restore operacional guiado permanece separado. Não copiar apenas o arquivo principal de uma base ativa. [Backup SQLite](https://sqlite.org/backup.html), [APSW Backup API](https://rogerbinns.github.io/apsw/connection.html#apsw.Connection.backup).
 
 No Linux, diretórios novos são privados e a base usa permissões restritas. No Windows, as permissões dependem das ACLs da pasta do usuário; a biblioteca não modifica ACLs do sistema nem criptografa o banco. Escolha uma pasta privada.
 

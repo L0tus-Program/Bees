@@ -39,6 +39,12 @@ SCHEMA = (
     "result_json TEXT,publish_id TEXT NOT NULL UNIQUE)",
 )
 
+SCHEMA_V1 = SCHEMA
+SCHEMA = tuple(
+    statement.replace("'confirmed','unknown'", "'confirmed','unknown','rejected'")
+    for statement in SCHEMA_V1
+)
+
 
 def _unique_json(pairs):
     result = {}
@@ -120,7 +126,7 @@ class Journal:
                 "INSERT INTO binding VALUES(1,?,?)", (marker["journal_id"], claim.model_dump_json())
             )
             connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
-            connection.execute("PRAGMA user_version=1")
+            connection.execute("PRAGMA user_version=2")
             connection.execute("COMMIT")
             sync_directory(directory)
         except OSError, sqlite3.Error, HostError:
@@ -189,10 +195,10 @@ class Journal:
                 self._files_read_only()
                 self._validate_read_only()
                 return
-            if (
-                self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
-                or self.connection.execute("PRAGMA user_version").fetchone()[0] != 1
-            ):
+            self.version = self.connection.execute("PRAGMA user_version").fetchone()[0]
+            if self.connection.execute("PRAGMA application_id").fetchone()[
+                0
+            ] != APPLICATION_ID or self.version not in {1, 2}:
                 raise ProvisionError("provision_state_invalid")
             row = self.connection.execute(
                 "SELECT journal_id,claim_json FROM binding WHERE id=1"
@@ -277,9 +283,10 @@ class Journal:
                 or json.loads(marker.read_bytes(), object_pairs_hook=_unique_json) != self._marker
             ):
                 raise ValueError("invalid")
+            self.version = self.connection.execute("PRAGMA user_version").fetchone()[0]
             if (
                 self.connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
-                or self.connection.execute("PRAGMA user_version").fetchone()[0] != 1
+                or self.version not in {1, 2}
                 or self.connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete"
                 or self.connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]
                 or self.connection.execute("PRAGMA foreign_key_check").fetchall()
@@ -288,7 +295,7 @@ class Journal:
             schema = self.connection.execute(
                 "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY sql"
             ).fetchall()
-            if [row[0] for row in schema] != sorted(SCHEMA):
+            if [row[0] for row in schema] != sorted(SCHEMA if self.version == 2 else SCHEMA_V1):
                 raise ValueError("invalid")
             binding = self.connection.execute("SELECT * FROM binding").fetchall()
             if (
@@ -362,6 +369,7 @@ class Journal:
                 "result_observed",
                 "confirmed",
                 "unknown",
+                "rejected",
             } or (index < len(rows) - 1 and status != "confirmed"):
                 raise ValueError("invalid")
             _uuid(row["request_id"])
@@ -385,7 +393,7 @@ class Journal:
             has_result = row["result_json"] is not None
             if (has_pid and effect is None) or (has_result and not has_pid):
                 raise ValueError("invalid")
-            if status in {"prepared", "authority_started"} and (
+            if status in {"prepared", "authority_started", "rejected"} and (
                 effect is not None or has_pid or has_result
             ):
                 raise ValueError("invalid")
@@ -510,6 +518,7 @@ class Journal:
                     "result_observed",
                     "confirmed",
                     "unknown",
+                    "rejected",
                 }:
                     raise ProvisionError("provision_state_invalid")
                 for name in ("request_id", "publish_id", "effect_request_id"):
@@ -534,6 +543,8 @@ class Journal:
 
     def prepare(self, operation: Operation):
         self._assert_writable()
+        if self.version != 2:
+            raise ProvisionError("provision_rejection_migration_required")
         existing = self.operations()
         if operation not in OPERATIONS or any(
             row["status"] != "confirmed" for row in existing.values()
@@ -588,6 +599,39 @@ class Journal:
     def unknown(self, operation: Operation):
         with self.transaction():
             self.connection.execute(
-                "UPDATE operations SET status='unknown' WHERE operation=? AND status!='confirmed'",
+                "UPDATE operations SET status='unknown' WHERE operation=? "
+                "AND status NOT IN ('confirmed','rejected')",
                 (operation,),
             )
+
+    def reject(self, operation: Operation):
+        """Somente recusa definitiva de begin, antes de existir autorização/launcher."""
+        if self.version != 2:
+            raise ProvisionError("provision_rejection_migration_required")
+        row = self.operations().get(operation)
+        if row is None or any(
+            row[name] is not None
+            for name in ("effect_request_id", "pid", "start_ticks", "result_json")
+        ):
+            raise ProvisionError("provision_transition_invalid")
+        self.transition(operation, "authority_started", "rejected")
+
+    def migrate_for_rejections(self):
+        """Migração explícita v1->v2, sob lock e só sem operações pendentes.
+
+        O operador deve quiescer o serviço e guardar backup antes desta chamada.
+        Abrir um journal nunca muda seu formato nem reclassifica unknown.
+        """
+        self._assert_writable()
+        self.assert_locked()
+        if self.version != 1:
+            raise ProvisionError("provision_transition_invalid")
+        if any(row["status"] != "confirmed" for row in self.operations().values()):
+            raise ProvisionError("provision_reconciliation_required")
+        with self.transaction():
+            self.connection.execute("ALTER TABLE operations RENAME TO operations_v1")
+            self.connection.execute(SCHEMA[1])
+            self.connection.execute("INSERT INTO operations SELECT * FROM operations_v1")
+            self.connection.execute("DROP TABLE operations_v1")
+            self.connection.execute("PRAGMA user_version=2")
+        self.version = 2
