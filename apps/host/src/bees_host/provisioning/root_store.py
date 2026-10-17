@@ -206,7 +206,7 @@ class RootStore:
                     state / "enrollment", bootstrap, binding=store.binding, cipher=store.cipher
                 )
                 enrollment_id = enrolled.check_only().store_id
-                ledger = SupervisorStore.initialize_for_acquisition(
+                ledger = SupervisorStore.initialize_for_rejections(
                     state / "ledger",
                     installation_id=store.binding.installation_id,
                     host_id=store.binding.host_id,
@@ -343,7 +343,7 @@ class RootStore:
         ledger.assert_locked()
         if (
             ledger.directory != state / "ledger"
-            or ledger.version != 2
+            or ledger.version not in {2, 3}
             or ledger.store_id != composition.ledger_store_id
             or ledger.installation_id != self.binding.installation_id
             or ledger.host_id != self.binding.host_id
@@ -438,7 +438,14 @@ class RootStore:
         ):
             raise ProvisionError("provision_root_invalid")
         if run["status"] == "stopped" and operations:
-            raise ProvisionError("provision_root_invalid")
+            if (
+                journal.version != 2
+                or not any(row["status"] == "rejected" for row in operations.values())
+                or any(
+                    row["status"] not in {"confirmed", "rejected"} for row in operations.values()
+                )
+            ):
+                raise ProvisionError("provision_root_invalid")
         if run["status"] == "completed":
             if (
                 set(operations) != set(OPERATIONS)
