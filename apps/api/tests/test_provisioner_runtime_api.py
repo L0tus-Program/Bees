@@ -329,3 +329,27 @@ def test_middleware_and_closed_contracts_remain_enforced(state):
         ).status_code
         == 403
     )
+
+
+def test_definitive_claim_rejection_http_is_persistent_and_closed(state):
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    client, _, plan, _, issued, _, _, _ = prepared(state)
+    safety = SafetyService(client.app.state.database)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+    value = command(plan)
+    refusal = post(client, "claim", value, issued)
+    assert refusal.status_code == 409
+    assert refusal.json() == {
+        "error": {"code": "provisioning_global_stop", "dispatch_allowed": False, "cached": False}
+    }
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2))
+    replay = post(client, "claim", value, issued)
+    assert replay.status_code == 409
+    assert replay.json() == {
+        "error": {"code": "provisioning_global_stop", "dispatch_allowed": False, "cached": True}
+    }
+    assert (
+        post(client, "claim", value | {"client_request_id": str(uuid4())}, issued).status_code
+        == 200
+    )

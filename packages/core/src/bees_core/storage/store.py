@@ -1548,6 +1548,39 @@ class BudgetLimits(_Repository[BudgetLimit]):
 
 
 class UsageEntries(_Repository[UsageEntry]):
+    def _validate_links(self, record: UsageEntry) -> None:
+        """Confere a cadeia canônica antes de escrever ou materializar consumo.
+
+        A agregação de orçamento deliberadamente não filtra vínculos inválidos:
+        evidência legada incoerente nunca pode liberar saldo por desaparecer.
+        """
+        self._context.check()
+        connection = self._context.connection
+        if record.conversation_id is not None:
+            owner = connection.execute(
+                "SELECT agent_id FROM conversations WHERE id=?",
+                (str(record.conversation_id),),
+            ).fetchone()
+            if owner is None or owner[0] != str(record.agent_id):
+                raise IntegrityError("Consumo e conversa exigem a mesma abelha canônica.")
+        if record.source == "task":
+            scope = connection.execute(
+                "SELECT t.agent_id,t.conversation_id FROM model_calls c "
+                "JOIN runs r ON r.id=c.run_id JOIN tasks t ON t.id=r.task_id WHERE c.id=?",
+                (str(record.model_call_id),),
+            ).fetchone()
+            expected = (
+                str(record.agent_id),
+                str(record.conversation_id) if record.conversation_id is not None else None,
+            )
+            if scope is None or scope != expected:
+                raise IntegrityError("Consumo exige vínculo canônico com chamada e tarefa.")
+
+    def _decode(self, row: tuple) -> UsageEntry:
+        record = super()._decode(row)
+        self._validate_links(record)
+        return record
+
     def for_model_call(self, model_call_id: UUID) -> UsageEntry | None:
         self._context.check()
         row = self._context.connection.execute(

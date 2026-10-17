@@ -21,7 +21,7 @@ from bees_core.execution import TaskWorker
 from bees_core.models import Agent, Run, UsageEntry, utc_now
 from bees_core.providers.contracts import Usage
 from bees_core.storage.database import Database
-from bees_core.storage.store import NotFoundError, RevisionConflict
+from bees_core.storage.store import NotFoundError, RevisionConflict, StoreError
 
 
 def rows(database):
@@ -452,17 +452,20 @@ def test_cross_agent_usage_is_excluded_and_invalid_event_is_not_echoed(tmp_path,
                 }
             )
         )
-        unit.usage_entries.create(
-            UsageEntry(
-                agent_id=other.id,
-                source="task",
-                model_call_id=call.id,
-                provider_kind="openai_compatible",
-                model="foreign",
-                reserved_tokens=99,
-                estimate_method="chars_div_3_v1",
-            )
-        )
+    invalid = UsageEntry(
+        agent_id=other.id,
+        source="task",
+        model_call_id=call.id,
+        provider_kind="openai_compatible",
+        model="foreign",
+        reserved_tokens=99,
+        estimate_method="chars_div_3_v1",
+    )
+    before = rows(database)
+    with pytest.raises(StoreError):
+        with store.transaction() as unit:
+            unit.usage_entries.create(invalid)
+    assert rows(database) == before
     foreign = ActivityService(database).list(other.id)
     assert foreign.usage.entries == 0 and not foreign.items
     # Canonical events are append-only; inject malformed payload through its owning writer,

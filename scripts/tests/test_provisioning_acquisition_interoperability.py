@@ -151,7 +151,7 @@ def composition(prepared, origin):
     enrollment = EnrollmentStore.initialize(
         root / "enrollment", bootstrap, binding=binding, cipher=cipher
     )
-    ledger = SupervisorStore.initialize_for_acquisition(
+    ledger = SupervisorStore.initialize_for_rejections(
         root / "ledger", installation_id=plan.installation_id, host_id=plan.host_id
     )
     journals = root / "plans"
@@ -482,5 +482,87 @@ def test_crash_equivalent_after_accepting_response_keeps_claim_without_hardware(
             assert not hardware.effects
             with pytest.raises(ProvisionError, match="reconciliation_required"):
                 retry(coordinator).run(plan)
+        finally:
+            ledger.close()
+
+
+@pytest.mark.parametrize("between_steps", [False, True])
+def test_real_http_global_stop_is_terminal_without_false_local_quarantine(
+    prepared, monkeypatch, between_steps
+):
+    """API em processo separado; core/ledger/journal/raiz reais, hardware falso."""
+    from bees_host.provisioning.contracts import AuthorityRejectedBeforeEffect
+    from bees_host.provisioning.http_authority import HTTPAuthority
+    from pydantic import SecretStr
+
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    core, plan, issued, _, _ = prepared
+    safety = SafetyService(core.database)
+
+    def stop():
+        safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+
+    with api_process(core.database.path.parent) as (origin, _):
+        coordinator, ledger, hardware, manager, _, _, _ = root_composition(
+            prepared, origin, monkeypatch
+        )
+        try:
+            if between_steps:
+                hardware.during_wait = stop
+            else:
+                stop()
+            with pytest.raises(ProvisionError, match="supervisor_stopped|authority_stopped"):
+                coordinator.run(plan)
+            acquisition = ledger.acquisitions()[0]
+            assert acquisition["status"] == "stopped"
+            assert hardware.effects == (["create_vhd"] if between_steps else [])
+            assert not manager.check_only().execution_blocked_local
+            with ledger.lock():
+                ledger.assert_acquisition_ready()
+                assert not ledger.execution_blocked_local()
+            rows = []
+            if between_steps:
+                reader = Journal.open_read_only(coordinator.journals_directory / str(plan.plan_id))
+                try:
+                    with reader.lock():
+                        rows = reader.operations()
+                        assert rows["create_vhd"]["status"] == "confirmed"
+                        assert rows["create_vm"]["status"] == "rejected"
+                finally:
+                    reader.close()
+            with core.database.transaction(write=False) as connection:
+                assert connection.execute("SELECT status FROM provisioning_effects").fetchall() == (
+                    [("confirmed",)] if between_steps else []
+                )
+                assert not connection.execute(
+                    "SELECT 1 FROM provisioning_commands WHERE command='unknown'"
+                ).fetchall()
+            safety.command(
+                SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2)
+            )
+            # Outro adaptador perde o cache RAM, mas tombstone do core preserva a recusa.
+            with HTTPAuthority(
+                origin,
+                SecretStr(issued.credential.get_secret_value()),
+                installation_id=plan.installation_id,
+                host_id=plan.host_id,
+                provisioner_id=issued.provisioner_id,
+            ) as authority:
+                with pytest.raises(ProvisionError) as error:
+                    if between_steps:
+                        authority.begin_dispatch(
+                            reader.claim, "create_vm", UUID(rows["create_vm"]["request_id"])
+                        )
+                    else:
+                        authority.claim(
+                            plan.plan_id,
+                            plan.digest(),
+                            UUID(acquisition["owner_id"]),
+                            UUID(acquisition["request_id"]),
+                        )
+                assert type(error.value) is ProvisionError
+                assert not isinstance(error.value, AuthorityRejectedBeforeEffect)
+            assert not manager.check_only().execution_blocked_local
         finally:
             ledger.close()
