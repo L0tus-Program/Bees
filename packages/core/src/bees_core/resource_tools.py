@@ -27,6 +27,7 @@ from bees_core.tools import TextInput, ToolError, ToolInvocationInput, ToolServi
 
 KIND = "resource_tool"
 TASK_KIND = "resource_tool_task"
+MODEL_TASK_KIND = "model_tool_task"
 MAX_EFFECTS = 16
 
 
@@ -107,7 +108,7 @@ class ResourceToolService:
         )
         run = unit.runs.get(run_id)
         task = unit.tasks.get(run.task_id)
-        if task.metadata.get("execution_kind") != TASK_KIND:
+        if task.metadata.get("execution_kind") not in (TASK_KIND, MODEL_TASK_KIND):
             raise ToolError("unsupported_task_kind", "Ferramenta exige modo explícito de tarefa.")
         parameters = ResourceTextParameters(
             **intent.parameters,
@@ -132,7 +133,11 @@ class ResourceToolService:
         return result, authority | {
             "contract_version": 2,
             "intent_hash": digest(result.model_dump(mode="json")),
-        }
+        } | (
+            {"execution_kind": MODEL_TASK_KIND}
+            if task.metadata["execution_kind"] == MODEL_TASK_KIND
+            else {}
+        )
 
     def _owned_intent(self, unit, agent_id, intent_id):
         root = unit.actions.get(intent_id)

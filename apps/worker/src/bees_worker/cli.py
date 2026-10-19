@@ -9,11 +9,11 @@ from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.worker_status import HEARTBEAT_KEY, HEARTBEAT_TTL, worker_status
 from bees_core.artifacts import ArtifactStore
-from bees_core.execution import TaskWorker
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.vault import FernetBackend, FileSecretVault
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore
+from bees_core.tool_runtime import ToolQueueWorker as TaskWorker
 
 
 def existing_database(settings: Settings) -> Database:
@@ -52,7 +52,7 @@ async def serve(settings: Settings) -> None:
         while True:
             store.put_cache(
                 HEARTBEAT_KEY,
-                {"last_seen": datetime.now(UTC).isoformat()},
+                {"last_seen": datetime.now(UTC).isoformat(), "tool_cycle_version": 1},
                 ttl_seconds=HEARTBEAT_TTL,
             )
             await asyncio.sleep(3)

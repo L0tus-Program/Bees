@@ -39,6 +39,32 @@ class TaskWorker:
     provedor parou após timeout/crash. Não há retries automáticos pós-despacho.
     """
 
+    task_kinds = frozenset({"text_task"})
+
+    def _tools(self, unit, task, run):
+        return []
+
+    def _check_request(self, unit, claim, prepared):
+        if prepared.request.tools or any(
+            message.tool_calls or message.role == "tool" for message in prepared.request.messages
+        ):
+            raise ProviderError("unsupported_capability")
+
+    def _check_response(self, claim, prepared, response):
+        if response.message.tool_calls:
+            raise ProviderError("invalid_response")
+
+    def _resume_pending(self, claim, generation):
+        return False
+
+    def _adapter(self, prepared, authorize_generation):
+        return create_adapter(
+            prepared.config.kind,
+            self.providers.resolver,
+            transport=self.providers.transport,
+            before_generation=authorize_generation,
+        )
+
     def __init__(
         self,
         database: Database,
@@ -94,7 +120,7 @@ class TaskWorker:
             uow.execution.assert_claim(claim, now=now)
             task = uow.tasks.get(claim.task.id)
             run = uow.runs.get(claim.run.id)
-            if task.metadata.get("execution_kind") != "text_task":
+            if task.metadata.get("execution_kind") not in self.task_kinds:
                 self._settle_local(uow, claim, code="unsupported_task_kind")
                 return None
             if task.desired_state != "running":
@@ -125,6 +151,7 @@ class TaskWorker:
                     task.conversation_id,
                     self._instruction(task, run),
                     task_id=task.id,
+                    tools=self._tools(uow, task, run),
                 )
             if prepared.config.secret_ref is not None:
                 validate_bearer_secret(self.providers.resolver.resolve(prepared.config.secret_ref))
@@ -242,6 +269,7 @@ class TaskWorker:
             with self.store.transaction(actor="worker", source="task_dispatch") as uow:
                 # Parada ou nova geração desde o claim: nada é enviado ao provedor.
                 ensure_running(uow, generation)
+                self._check_request(uow, claim, prepared)
                 decision = self.providers.model_policy(uow, prepared)
                 uow.execution.assert_claim(claim, now=utc_now())
                 task = uow.tasks.get(claim.task.id)
@@ -293,12 +321,7 @@ class TaskWorker:
                 )
             calls[0] = call
 
-        adapter = create_adapter(
-            prepared.config.kind,
-            self.providers.resolver,
-            transport=self.providers.transport,
-            before_generation=authorize_generation,
-        )
+        adapter = self._adapter(prepared, authorize_generation)
         operation = asyncio.create_task(adapter.complete(prepared.config, prepared.request))
         next_renew = time.monotonic() + min(5, self.lease_seconds / 3)
         deadline = time.monotonic() + remaining_seconds
@@ -701,6 +724,11 @@ class TaskWorker:
             generation = uow.safety.state().generation
         if claim is None:
             return False
+        return await self._run_claim(claim, generation)
+
+    async def _run_claim(self, claim, generation):
+        if self._resume_pending(claim, generation):
+            return True
         if self._publication(claim.run).get("status") in ("pending", "started"):
             # Resposta já confirmada: concluir a publicação sem nova chamada ao modelo.
             self._publish(claim, generation)
@@ -722,11 +750,7 @@ class TaskWorker:
                     self._settle_stopped(uow, claim, call)
                     return True
                 self.providers.validate_snapshot(uow, prepared)
-                if prepared.request.tools or any(
-                    message.tool_calls or message.role == "tool"
-                    for message in prepared.request.messages
-                ):
-                    raise ProviderError("unsupported_capability")
+                self._check_request(uow, claim, prepared)
                 if time.monotonic() - start >= (
                     claim.task.max_active_seconds - claim.task.active_milliseconds / 1000
                 ):
@@ -781,8 +805,7 @@ class TaskWorker:
             # Uma resposta recusada pelo contrato ainda consumiu o que o provedor informou.
             usage = response.usage
             response = self.providers.normalized_response(prepared, response)
-            if response.message.tool_calls:
-                raise ProviderError("invalid_response")
+            self._check_response(claim, prepared, response)
         except _CancelledByUser:
             error_code = "cancelled_after_dispatch"
         except ProviderError as error:

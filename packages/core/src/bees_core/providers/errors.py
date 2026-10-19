@@ -32,9 +32,15 @@ ErrorCode = Literal[
     "policy_approval_required",
     "budget_exhausted",
     "global_stop",
+    "task_limit_reached",
+    "tool_result_too_large",
 ]
 
 MESSAGES: dict[str, str] = {
+    "task_limit_reached": "A tarefa atingiu seu limite de chamadas, operações ou tempo.",
+    "tool_result_too_large": (
+        "O resultado da ferramenta não cabe no próximo contexto; nenhuma nova geração foi iniciada."
+    ),
     "invalid_config": "Configuração do provedor inválida.",
     "invalid_request": "Histórico ou ferramentas inválidos para o contrato de conversa.",
     "unsupported_capability": "O backend não atende às capacidades solicitadas.",

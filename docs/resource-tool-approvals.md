@@ -41,6 +41,6 @@ Autonomia e `/autonomia` permitem consultar, editar efeito/nome/motivo e revogar
 
 Não há nova migração: schema18 já representa ações, aprovações, regras e metadata privada. Exportações lógicas de operador conservam esses dados privados; projeções comuns, eventos, listagens e erros não incluem a entrada. Não coloque credenciais no texto a transformar.
 
-O worker textual de produção ainda não coordena `resource_tool_task`; este checkpoint prova serviço, API humana, interface e processo/IPC/journal reais com composição controlada de teste. O coordenador e o loop limitado do modelo pertencem a BEES-010.2. Não há execução automática de ferramentas pelo modelo, recurso Windows, integração guest, VM ou adaptador de apps comprovado por esta entrega.
+O modo interno `resource_tool_task` deste checkpoint continua separado. BEES-010.2 acrescenta o [ciclo limitado em tarefas explícitas](tool-cycle.md), com coordenação na fila de produção e validação com servidor de modelo controlado. Não há recurso Windows, integração guest, VM ou adaptador de apps comprovado por esta entrega.
 
 Os testes incluem mudança de autoridade e geração de parada, TTL, revogação, CAS concorrente, replay global de UUID humano, rollback no begin, limite durável, reinício e perda de resposta com contagem do efeito. Contratos HTTP rodam também no Windows; testes do processo POSIX são skips explícitos nessa plataforma.

@@ -204,12 +204,14 @@ class ChatMessage(Contract):
         return self
 
 
-def validate_calls(calls: list[ToolCall], tools: list[ToolDefinition]) -> None:
+def validate_calls(
+    calls: list[ToolCall], tools: list[ToolDefinition], *, proposals: bool = False
+) -> None:
     definitions = {tool.name: tool for tool in tools}
     try:
         for call in calls:
             tool = definitions.get(call.name)
-            if tool is None:
+            if tool is None and not proposals:
                 raise ValueError("Ferramenta não declarada.")
             nodes = 0
 
@@ -225,7 +227,8 @@ def validate_calls(calls: list[ToolCall], tools: list[ToolDefinition]) -> None:
                         bound(child, depth + 1)
 
             bound(call.arguments)
-            Draft202012Validator(tool.parameters).validate(call.arguments)
+            if not proposals:
+                Draft202012Validator(tool.parameters).validate(call.arguments)
             json.dumps(call.arguments, allow_nan=False)
     except ValueError, TypeError, SchemaValidationError, RecursionError:
         raise ProviderError("invalid_response") from None

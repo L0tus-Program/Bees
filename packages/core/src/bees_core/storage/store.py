@@ -861,7 +861,11 @@ class Execution:
             # Publicar entregáveis de resposta já confirmada não consome chamada nova.
             "OR EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
             "AND json_extract(p.checkpoint_json,'$.publication.status') "
-            "IN ('pending','started'))) "
+            "IN ('pending','started')) "
+            # Resolver propostas já confirmadas não inicia uma geração paga nova.
+            "OR (json_extract(t.metadata_json,'$.execution_kind')='model_tool_task' "
+            "AND EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
+            "AND json_extract(p.checkpoint_json,'$.tool_cycle.status')='pending'))) "
             "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
             "WHERE r.task_id=t.id AND c.status='outcome_unknown' "
             "AND c.unknown_acknowledged_at IS NULL) "
