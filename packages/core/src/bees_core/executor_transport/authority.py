@@ -108,7 +108,8 @@ class CoreToolAuthority:
                 return action, request
             now = self.service.clock()
             expires = min(
-                now + timedelta(seconds=MAX_SECONDS), *(t.expires_at for t in self.claim.leases)
+                now + timedelta(seconds=self._maximum_seconds(unit, action)),
+                *(t.expires_at for t in self.claim.leases),
             )
             request = {
                 "protocol": 1,
@@ -135,6 +136,9 @@ class CoreToolAuthority:
                 action.revision,
             )
             return action, request
+
+    def _maximum_seconds(self, unit, action):
+        return MAX_SECONDS
 
     def _request(self, action, request):
         envelope(request, self.identity)

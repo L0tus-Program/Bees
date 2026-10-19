@@ -314,6 +314,8 @@ class ToolService:
         plugin_id: UUID,
         tool_name: str,
         arguments: TextInput,
+        *,
+        approval_review: bool = False,
     ) -> tuple[ActionIntent, dict]:
         agent = unit.agents.get(agent_id)
         run = unit.runs.get(run_id)
@@ -323,9 +325,12 @@ class ToolService:
         latest = unit.runs.latest(task.id)
         if (
             agent.status != "active"
-            or task.desired_state != "running"
-            or task.status != "running"
-            or run.status != "running"
+            or task.desired_state == "cancelled"
+            or (not approval_review and task.desired_state != "running")
+            or task.status
+            not in (("queued", "running", "waiting_approval") if approval_review else ("running",))
+            or run.status
+            not in (("queued", "running", "waiting_approval") if approval_review else ("running",))
             or latest is None
             or latest.id != run.id
         ):

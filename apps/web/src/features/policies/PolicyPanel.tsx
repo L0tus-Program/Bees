@@ -7,7 +7,8 @@ import { getPolicies, updatePolicy } from '../../api/policies'
 import type { PolicyCollection, PolicyRecord } from '../../api/policies'
 import { ErrorNotice } from '../../components/Feedback'
 import { PolicyForm } from './PolicyForm'
-import { editableGenerationPolicy, mergePolicyPage, revocablePolicy } from './state'
+import { editablePolicy, editableResourcePolicy, mergePolicyPage, revocablePolicy } from './state'
+import { ResourcePolicyScope } from './ResourcePolicyScope'
 
 export function PolicyPanel({ agent }: { agent: AgentSummary }) {
   const { t, i18n } = useTranslation('policies')
@@ -40,7 +41,7 @@ export function PolicyPanel({ agent }: { agent: AgentSummary }) {
       setData((previous) => offset === 0 ? collection : mergePolicyPage(previous, collection)); setError(null); setLoading(false)
       if (reconcileEditor.current) {
         const policy = collection.policies.find((item) => item.id === reconcileEditor.current)
-        setEditor(policy && editableGenerationPolicy(policy, agent.id) && policy.status === 'active' ? policy : null)
+        setEditor(policy && editablePolicy(policy, agent.id) && policy.status === 'active' ? policy : null)
         reconcileEditor.current = null; setNotice('reloaded')
       }
     }, (failure: unknown) => { if (!controller.signal.aborted) { setError(asApiError(failure)); setLoading(false) } })
@@ -73,13 +74,14 @@ export function PolicyPanel({ agent }: { agent: AgentSummary }) {
     {data?.has_more && <p className="quiet-note">{t('more')}</p>}
     {data && data.policies.length === 0 && !editor && <div className="policy-empty"><h3>{t('empty')}</h3><p>{t('emptyHelp')}</p></div>}
     <div className="policy-list">{data?.policies.map((policy) => {
-      const editable = editableGenerationPolicy(policy, agent.id)
+      const editable = editablePolicy(policy, agent.id)
+      const resource = editableResourcePolicy(policy, agent.id)
       return <article className={`policy-card ${policy.status === 'revoked' ? 'revoked' : ''}`} key={policy.id}>
         <div className="policy-card-heading"><h3>{policy.name}</h3><span className={`policy-effect effect-${policy.effect}`}>{t(policy.effect)}</span></div>
         <p className="quiet-note">{t(policy.status === 'active' ? 'active' : 'revokedStatus')} · {new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(policy.updated_at))}</p>
         {policy.origin === 'approval' && <p className="transfer-notice">{t('approvalOrigin')}</p>}
         {policy.agent_id === null && <p className="quiet-note">{t('global')}</p>}{policy.agent_id !== null && !editable && <p className="quiet-note">{t('unsupported')}</p>}
-        {editable && <div className="policy-target">{policy.scope.resource && <p><strong>{t('connection')}</strong><code>{policy.scope.resource}</code></p>}{typeof policy.scope.parameters?.model === 'string' && <p><strong>{t('model')}</strong><span>{policy.scope.parameters.model}</span></p>}{!policy.scope.resource && !policy.scope.parameters?.model && <p>{t('allGeneration')}</p>}</div>}
+        {resource ? <ResourcePolicyScope scope={policy.scope} /> : editable && <div className="policy-target">{policy.scope.resource && <p><strong>{t('connection')}</strong><code>{policy.scope.resource}</code></p>}{typeof policy.scope.parameters?.model === 'string' && <p><strong>{t('model')}</strong><span>{policy.scope.parameters.model}</span></p>}{!policy.scope.resource && !policy.scope.parameters?.model && <p>{t('allGeneration')}</p>}</div>}
         {policy.reason && <p className="policy-reason">{policy.reason}</p>}
         {revocablePolicy(policy, agent.id) && <div className="policy-actions">{editable && <button className="text-button" type="button" disabled={loading || busy || !!error || !!editor || !!revoking} onClick={() => { setEditor(policy); setNotice(null) }}>{t('editRule')}</button>}<button className="text-button destructive-text" type="button" disabled={loading || busy || !!error || !!editor || !!revoking} onClick={() => { setRevoking(policy); setNotice(null) }}>{t('revokeRule')}</button></div>}
         {revoking?.id === policy.id && <div className="policy-revoke"><h4>{t('revokeConfirm')}</h4><p>{t('revokeImpact')}</p><div className="policy-actions"><button className="button secondary" type="button" disabled={busy} onClick={() => setRevoking(null)}>{t('cancel')}</button><button className="button danger" type="button" disabled={busy} onClick={() => { void revoke(policy) }}>{t(busy ? 'saving' : 'confirmRevoke')}</button></div></div>}

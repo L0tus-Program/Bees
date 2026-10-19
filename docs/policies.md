@@ -1,5 +1,7 @@
 # Autonomia e políticas
 
+As [decisões do recurso local de texto](resource-tool-approvals.md) acrescentam `text.normalize.transform_resource`, que pergunta por padrão. Autonomia permite consultar, editar e revogar a regra exata desse recurso, conservando seu alcance ao editar; a geração textual continua com os comportamentos abaixo.
+
 BEES-008 entrega avaliação determinística de regras e sua aplicação nas gerações de chat e de tarefas textuais. Regras são estado canônico do Bees, com revisão e auditoria, independentes do fornecedor. BEES-009 acrescenta [decisões pontuais de tarefas](approvals.md) e regras persistentes pela conversa. Ferramentas e acesso a computadores continuam nas histórias dos executores e ambientes reais.
 
 ## Uso pela interface

@@ -37,6 +37,7 @@ from bees_api.profiles import router as profiles_router
 from bees_api.provisioner_runtime import router as provisioner_runtime_router
 from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
+from bees_api.resource_tools import router as resource_tools_router
 from bees_api.restoration import router as restoration_router
 from bees_api.routines import router as routines_router
 from bees_api.runtime import validate_sqlite_runtime
@@ -174,6 +175,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
+    app.include_router(resource_tools_router)
     app.include_router(tools_router)
     app.include_router(environments_router)
     app.include_router(host_links_router)

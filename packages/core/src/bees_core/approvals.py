@@ -95,7 +95,11 @@ class ApprovalService:
         action = unit.actions.get(approval.action_id) if approval else None
         run = unit.runs.get(action.run_id) if action else None
         task = unit.tasks.get(run.task_id) if run else None
-        if task is None or task.agent_id != UUID(str(agent_id)):
+        if (
+            task is None
+            or task.agent_id != UUID(str(agent_id))
+            or action.metadata.get("approval_kind") == "resource_tool"
+        ):
             raise NotFoundError("Aprovação não encontrada nesta abelha.")
         return approval, action, task, run
 

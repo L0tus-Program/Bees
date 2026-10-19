@@ -1,5 +1,7 @@
 # Contratos de ferramentas e extensões locais
 
+O checkpoint BEES-009.1/.2 acrescenta [decisões próprias para o recurso local de texto](resource-tool-approvals.md), com espera sem lease, revisão humana e consumo junto do efeito. Os limites históricos abaixo registram as respectivas entregas.
+
 BEES-010 estabelece contratos próprios do Bees para ferramentas, sem formato fechado de um provedor. O checkpoint inicial oferece uma ferramenta pura de transformação de texto e gestão de extensões declarativas. Não instala código Python de terceiros no processo que guarda banco e credenciais. Navegador, arquivos, shell, apps, MCP e executores remotos dependem de seus adaptadores e ambientes próprios.
 
 ## Gestão pela interface

@@ -1,0 +1,7 @@
+.resource-review { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
+.resource-review dd { margin: 0 0 .75rem; }
+.resource-approval dd { overflow-wrap: anywhere; }
+.resource-review textarea { white-space: pre-wrap; max-height: 16rem; }
+.resource-review details { margin: 1rem 0; }
+.resource-approval-panel { margin: 1rem 0; }
+.resource-approval .approval-target dd { overflow-wrap: anywhere; }
