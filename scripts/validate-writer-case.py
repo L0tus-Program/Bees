@@ -141,7 +141,7 @@ def odt(raw: bytes) -> dict:
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             members = archive.infolist()
-            names = [member.filename for member in members]
+            names = [member.orig_filename for member in members]
             if len(members) != count or len(set(names)) != len(names):
                 raise CaseError("writer_invalid_odt")
             if (
@@ -152,9 +152,11 @@ def odt(raw: bytes) -> dict:
             ):
                 raise CaseError("writer_invalid_odt")
             for member in members:
-                name = member.filename
+                name = member.orig_filename
                 if (
-                    name.startswith("/")
+                    member.filename != name
+                    or any(ord(character) < 32 for character in name)
+                    or name.startswith("/")
                     or "\\" in name
                     or ":" in name
                     or any(part in {".", ".."} for part in name.rstrip("/").split("/"))

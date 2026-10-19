@@ -70,7 +70,11 @@ def document(
     raw = io.BytesIO()
     with zipfile.ZipFile(raw, "w") as archive:
         for name, value in members.items():
-            archive.writestr(name, value)
+            # ZipInfo normaliza os.sep no Windows; preserve o nome hostil no wire.
+            info = zipfile.ZipInfo(name)
+            info.filename = name
+            info.orig_filename = name
+            archive.writestr(info, value)
     return raw.getvalue()
 
 
@@ -131,11 +135,21 @@ def test_empty_truncated_or_wrong_format_is_rejected(raw):
 
 @pytest.mark.parametrize(
     "name",
-    ["../escape", "/absolute", "a\\b", "Scripts/macro.py", "Basic/main.xml", "Object 1/data"],
+    [
+        "../escape",
+        "/absolute",
+        "a\\b",
+        "a\x00hidden",
+        "Scripts/macro.py",
+        "Basic/main.xml",
+        "Object 1/data",
+    ],
 )
 def test_unsupported_archive_members_are_rejected(name):
+    raw = document(extra={name: b"untrusted"})
+    assert name.encode("utf-8") in raw
     with pytest.raises(CASE.CaseError, match="member_refused"):
-        CASE.odt(document(extra={name: b"untrusted"}))
+        CASE.odt(raw)
 
 
 def test_mimetype_empty_structure_xml_entities_and_active_content_are_rejected():
