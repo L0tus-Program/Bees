@@ -50,7 +50,11 @@ export function isRoutineDefinition(value: unknown): value is RoutineDefinition 
     || !['none', 'own', 'personal'].includes(String(value.environment)) || !exact(value.destination, ['kind', 'conversation_id']) || value.destination.kind !== 'conversation' || !uuid(value.destination.conversation_id)
     || !['always', 'failures', 'none'].includes(String(value.notification)) || !Number.isSafeInteger(value.grace_seconds) || (value.grace_seconds as number) < 0 || (value.grace_seconds as number) > 3600
     || value.misfire_policy !== 'skip' || value.overlap_policy !== 'skip') return false
-  const raw = JSON.stringify(value)
+  const bounded = { ...value }
+  if ((value.execution_mode ?? 'prepare') === 'prepare' && value.runtime_binding == null) {
+    delete bounded.execution_mode; delete bounded.runtime_binding
+  }
+  const raw = JSON.stringify(bounded)
   return new TextEncoder().encode(raw).byteLength <= 32768 && !secret.test(raw)
 }
 export function checkedRoutine(value: unknown, agentId: string, routineId?: string): Routine {
