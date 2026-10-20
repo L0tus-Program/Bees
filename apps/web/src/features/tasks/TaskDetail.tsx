@@ -15,6 +15,7 @@ import { ActionHistory } from './ActionHistory'
 import { UnknownAcknowledgment } from './UnknownAcknowledgment'
 import { TaskArtifacts } from '../artifacts/TaskArtifacts'
 import { TaskDeliverables } from './TaskDeliverables'
+import { TaskSkillContext } from '../skills/TaskSkillContext'
 
 const ResourceApprovalPanel = lazy(() => import('../approvals/ResourceApprovalPanel'))
 
@@ -74,6 +75,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}
       <TaskDeliverables task={task} />
+      <TaskSkillContext key={`skill:${task.id}`} task={task} />
       <TaskArtifacts agentId={agentId} taskId={taskId} />
       {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>

@@ -34,9 +34,13 @@ ErrorCode = Literal[
     "global_stop",
     "task_limit_reached",
     "tool_result_too_large",
+    "skill_unavailable",
 ]
 
 MESSAGES: dict[str, str] = {
+    "skill_unavailable": (
+        "A revisão ou as entradas da skill não estão mais disponíveis para executar."
+    ),
     "task_limit_reached": "A tarefa atingiu seu limite de chamadas, operações ou tempo.",
     "tool_result_too_large": (
         "O resultado da ferramenta não cabe no próximo contexto; nenhuma nova geração foi iniciada."

@@ -2,6 +2,9 @@
 
 O [modo opcional de transformação local](tool-cycle.md) acrescenta um ciclo limitado separado das tarefas e do chat textuais. A aprovação da geração não autoriza a ferramenta.
 
+A [reexecução de skill](skills.md#reexecutar-em-tarefa-nova) cria uma tarefa nesse
+ciclo com revisão e entradas fixas, sem herdar grants ou decisões de outra execução.
+
 Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurado na abelha. O usuário fornece objetivo e resultado esperado, acompanha o estado e consulta a resposta. Navegação, arquivos, aplicativos, ferramentas e rotinas dependem das próximas histórias; uma resposta do modelo não comprova execução dessas ações.
 
 ## Uso

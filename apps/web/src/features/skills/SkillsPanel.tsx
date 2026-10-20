@@ -7,6 +7,8 @@ import type { Skill, SkillDefinition, SkillIntent, SkillProcessOrigin, SkillRevi
 import { ErrorNotice } from '../../components/Feedback'
 import { TaskTime } from '../tasks/TaskTime'
 import { ProcessDrafts } from './ProcessDrafts'
+import { SkillRunner } from './SkillRunner'
+import { executableSkill } from '../../api/skillTasks'
 import { SkillDescription, SkillEditor } from './SkillContent'
 import type { Editor } from './SkillContent'
 import './skills.css'
@@ -27,6 +29,8 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
   const [review, setReview] = useState<Skill | null>(null)
   const [history, setHistory] = useState<{ skill: Skill; items: SkillRevision[]; more: boolean } | null>(null)
   const [processLocked, setProcessLocked] = useState(false)
+  const [runLocked, setRunLocked] = useState(false)
+  const [runSkill, setRunSkill] = useState<Skill | null>(null)
   const [origin, setOrigin] = useState<SkillProcessOrigin | null>(null)
   const reading = useRef<AbortController | null>(null)
   const writing = useRef<AbortController | null>(null)
@@ -107,7 +111,7 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
     finally { if (!controller.signal.aborted) setBusy(false) }
   }
-  const disabled = loading || busy || pending !== null || processLocked
+  const disabled = loading || busy || pending !== null || processLocked || runLocked
   return <section className="surface skills-panel" aria-labelledby="skills-heading" aria-busy={loading || busy}>
     <div className="form-heading"><h2 id="skills-heading">{t('title')}</h2><button type="button" className="text-button" disabled={busy || loading} onClick={() => { void load() }}>{t('refresh')}</button></div>
     <p>{t('description')}</p><p className="quiet-note">{t('executionScope')}</p>
@@ -116,11 +120,13 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
     {notice && <p role="status">{t(notice)}</p>}
     {pending && !busy && <div className="transfer-notice" role="status"><p>{t('lost')}</p><button type="button" className="button secondary" onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
     <div className="skill-actions"><button type="button" className="button secondary" disabled={disabled || !!error} onClick={() => { importGeneration.current = Symbol(); setEditor({ definition: empty() }); setReview(null); setHistory(null) }}>{t('create')}</button><label className="field">{t('import')}<input type="file" accept="application/json,.json" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} /></label></div>
-    <ProcessDrafts key={agent.id} agentId={agent.id} disabled={loading || busy || pending !== null || editor !== null || review !== null} onLock={setProcessLocked} onSaved={() => { setNotice('saved'); void load() }} />
+    <ProcessDrafts key={agent.id} agentId={agent.id} disabled={loading || busy || runLocked || runSkill !== null || pending !== null || editor !== null || review !== null} onLock={setProcessLocked} onSaved={() => { setNotice('saved'); void load() }} />
+    <SkillRunner key={`run:${agent.id}`} agent={agent} selected={runSkill} onClose={() => setRunSkill(null)} onLock={setRunLocked} />
     {editor && <SkillEditor key={JSON.stringify(editor.definition)} initial={editor} disabled={disabled} onSave={save} onCancel={() => { setEditor(null); setError(null) }} />}
     {review && <section className="skill-review"><h3>{t('reviewEnable', { version: review.current_version })}</h3><h4>{review.current.definition.name}</h4><SkillDescription definition={review.current.definition} /><p>{t('enableHelp')}</p><div className="skill-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(enableIntent(review)) }}>{t('confirmEnable')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => setReview(null)}>{t('cancel')}</button></div></section>}
     {!loading && !error && items.length === 0 && <p>{t('empty')}</p>}
     <ul className="skill-list">{items.map((skill) => <li key={skill.id}><h3>{skill.current.definition.name}</h3><p>{t('version', { version: skill.current_version })} · {t(skill.enabled_version === null ? 'disabled' : 'enabled')}</p><p>{skill.current.definition.purpose}</p><div className="skill-actions">
+      {executableSkill(skill) && <button type="button" className="button primary" disabled={disabled || !!error || editor !== null || review !== null} onClick={() => setRunSkill(skill)}>{t('run')}</button>}
       <button type="button" className="button secondary" disabled={disabled || !!error} onClick={() => { importGeneration.current = Symbol(); setEditor({ definition: skill.current.definition, previous: skill }); setHistory(null); setReview(null) }}>{t('edit')}</button>
       <button type="button" className="button secondary" disabled={disabled || !!error} onClick={() => { if (skill.enabled_version === null) { setReview(skill); setEditor(null); setHistory(null) } else void send(enableIntent(skill)) }}>{t(skill.enabled_version === null ? 'enable' : 'disable')}</button>
       <button type="button" className="text-button" disabled={disabled} onClick={() => { void showHistory(skill) }}>{t('history')}</button><button type="button" className="text-button" disabled={disabled} onClick={() => { void download(skill, skill.current_version) }}>{t('export')}</button>

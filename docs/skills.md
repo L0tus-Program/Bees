@@ -12,12 +12,11 @@ as versões anteriores e também desabilita a nova versão. Para habilitar, esco
 **Revisar e habilitar**, confira o procedimento completo e confirme **Habilitar esta
 versão**. Desabilitar conserva o histórico.
 
-Essa biblioteca cobre BEES-020.1 (#65) e a conversão humana de BEES-020.2 (#66).
-Ela ainda não executa procedimentos em tarefas: esse fluxo pertence a
-BEES-020.3 (#67). Habilitar uma versão não inicia uma tarefa, altera memória,
-concede uma ferramenta ou autoriza acesso ao computador. Declarações de ambiente e
-ferramentas descrevem compatibilidade; as políticas e concessões precisam continuar
-sendo avaliadas pelo executor de cada ação quando essa integração estiver disponível.
+Essa biblioteca cobre BEES-020.1 (#65), a conversão humana de BEES-020.2 (#66) e a
+reexecução limitada de BEES-020.3 (#67), descrita abaixo. Habilitar uma versão não
+inicia uma tarefa, altera memória, concede uma ferramenta ou autoriza acesso ao
+computador. Declarações de ambiente e ferramentas descrevem compatibilidade;
+políticas e concessões continuam sendo avaliadas antes de cada efeito.
 
 **Revisões** permite consultar todas as versões em páginas de até 50 registros e
 exportar uma versão específica. O conteúdo, o hash, a data e a origem de cada revisão
@@ -25,6 +24,62 @@ permanecem consultáveis após reiniciar o serviço. A origem identifica uma edi
 humana ou uma cópia importada; uma edição de uma cópia ganha origem humana, sem
 alterar a origem da revisão importada anterior. A biblioteca não atribui ao usuário
 uma validação com modelo ou ambiente real que ainda não aconteceu.
+
+## Reexecutar em tarefa nova
+
+**Reexecutar** apresenta a revisão habilitada, passos, entradas e critérios antes
+de **Criar tarefa com estas entradas**. A tarefa nova conserva definição, versão,
+hash e entradas; não copia uma resposta anterior como nova entrega. Seu resultado
+e as decisões aparecem abaixo do formulário e nas tarefas da conversa. No detalhe,
+**Consultar passos e entradas desta tarefa** lê explicitamente o snapshot original,
+inclusive depois de editar ou desabilitar a skill. As listas não expõem as entradas.
+
+O recorte disponível usa o [ciclo limitado existente](tool-cycle.md): procedimentos
+`none` sem ferramentas ou `own` com somente `text.normalize`. Até procedimentos
+sem ferramenta exigem atualmente o runtime preparado desse ciclo. São necessários
+modelo com capacidade de ferramentas, worker compatível ativo, recurso POSIX
+preparado pelo operador e instalação/grant atuais. Apps, navegador, VM e máquina
+pessoal permanecem indisponíveis nesse recorte; não há troca automática de ambiente.
+
+Entradas precisam corresponder aos nomes obrigatórios/permitidos da revisão;
+cada valor tem até 2.048 caracteres e o pedido até 8.192 bytes UTF-8. O limite é
+quatro gerações, dezesseis propostas de ferramenta e 120 segundos. A geração pode
+consumir o modelo configurado. Declarar passos não comprova que o resultado atende
+aos critérios; confira a entrega e as evidências da ferramenta.
+
+Revisão/entradas não mudam por redirecionamento. Editar/desabilitar a skill bloqueia
+novas tarefas e os próximos despachos das tarefas existentes, conservando o snapshot.
+Revogar grant ou desabilitar a instalação também bloqueia o efeito. Antes da geração
+e do efeito, a transação curta revalida os vínculos; nenhum await ocorre sob o writer.
+O snapshot de skill também integra o alcance de regras salvas pela decisão humana:
+outra versão ou entrada não reaproveita essa decisão. Regras amplas explicitamente
+criadas pela pessoa continuam seguindo a política atual; a skill não cria nenhuma.
+
+Criação usa `POST /api/v1/agents/{agent_id}/skill-tasks` com `client_request_id`,
+`skill_id`, `skill_version`, `inputs`, `max_calls` e `max_active_seconds` opcionais.
+Sessão, Host/Origin/CSRF são obrigatórios. UUID idêntico/corpo idêntico retorna a
+mesma tarefa mesmo após indisponibilidade do worker ou desabilitação da skill;
+outro corpo, abelha ou canal textual/de ferramenta gera conflito. O recibo contém
+UUID e hash do pedido normalizado. Não há parâmetros HTTP para conceder recurso,
+fornecer uma definição alternativa ou satisfazer aprovação.
+
+A aba preserva o pedido antes de enviar. Perda de resposta, inclusive após commit,
+reload ou 2xx inválido, exige **Verificar o mesmo pedido** com o UUID original;
+não há POST automático. Sem armazenamento da aba, o envio não começa. Descartar
+recuperação não cancela uma tarefa já criada. Entradas privadas ficam no pedido
+da aba até confirmação; não inclua credenciais. Fechar a aba pode perder esse apoio.
+
+`GET /api/v1/agents/{agent_id}/tasks/{task_id}/skill-context` lê o snapshot privado
+sob sessão e escopo da abelha, sem ativação, tarefa ou efeito. A interface verifica
+o hash completo contra o vínculo recebido no detalhe. Persistência usa os metadados
+da tarefa existente; não há nova migração. Restart/espera/unknown reutilizam o
+journal, orçamento e decisões separados de geração e ferramenta do ciclo comum.
+
+Testes SQLite/provider controlado/processo POSIX cobrem duas entradas com resultados
+distintos, restart, criação concorrente, replay, entradas inválidas, edição,
+desabilitação/revoke antes do efeito e regra salva de outro snapshot. Isso não
+substitui a escolha de ferramenta por LLM real, o aceite humano da qualidade ou
+o scheduler de rotinas de BEES-021.2 (#70).
 
 ## Criar a partir de um processo
 

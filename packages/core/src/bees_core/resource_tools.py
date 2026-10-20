@@ -23,6 +23,7 @@ from bees_core.policies import ActionIntent, PolicyScope, ResourceTextParameters
 from bees_core.security.hosts import HostService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
+from bees_core.tasks import TaskError
 from bees_core.tools import TextInput, ToolError, ToolInvocationInput, ToolService, digest
 
 KIND = "resource_tool"
@@ -110,6 +111,12 @@ class ResourceToolService:
         task = unit.tasks.get(run.task_id)
         if task.metadata.get("execution_kind") not in (TASK_KIND, MODEL_TASK_KIND):
             raise ToolError("unsupported_task_kind", "Ferramenta exige modo explícito de tarefa.")
+        from bees_core.skill_context import validate_skill_task
+
+        try:
+            skill = validate_skill_task(unit, task, tool_name="text.normalize")
+        except TaskError:
+            raise ApprovalError("approval_stale") from None
         parameters = ResourceTextParameters(
             **intent.parameters,
             installation_id=target.installation_id,
@@ -120,7 +127,8 @@ class ResourceToolService:
             grant_revision=authority["grant_revision"],
             agent_revision=authority["agent_revision"],
             tool_version="1",
-        ).model_dump(mode="json")
+            **({"skill_execution_hash": digest(skill)} if skill is not None else {}),
+        ).model_dump(mode="json", exclude_unset=True)
         result = ActionIntent(
             agent_id=agent_id,
             tool_name="text.normalize",
@@ -133,7 +141,7 @@ class ResourceToolService:
         return result, authority | {
             "contract_version": 2,
             "intent_hash": digest(result.model_dump(mode="json")),
-        } | (
+        } | ({"skill_execution_hash": digest(skill)} if skill is not None else {}) | (
             {"execution_kind": MODEL_TASK_KIND}
             if task.metadata["execution_kind"] == MODEL_TASK_KIND
             else {}
