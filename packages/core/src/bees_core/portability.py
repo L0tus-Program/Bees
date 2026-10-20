@@ -1,4 +1,4 @@
-"""Logical portability v1: private coherent snapshots, no operational credentials."""
+"""Logical portability v2; reads the closed v1 inventory without inventing provenance."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ from bees_core.artifacts import ArtifactStore
 from bees_core.storage.database import Database
 
 FORMAT = "bees.logical"
-VERSION = 1
-MIN_DATABASE_SCHEMA = 17
+VERSION = 2
+MIN_DATABASE_SCHEMA = 18
 CONTENT_POLICY = "private-human-data-no-operational-credentials"
 # Explicit contract. Unknown tables/columns fail closed until reviewed.
 COLUMNS = {
@@ -324,6 +324,18 @@ COLUMNS = {
         "origin",
         "created_at",
     ),
+    "skill_process_origins": (
+        "skill_id",
+        "version",
+        "agent_id",
+        "task_id",
+        "run_id",
+        "message_id",
+        "result_sha256",
+        "review_json",
+        "created_at",
+        "actor",
+    ),
     "skills": (
         "id",
         "agent_id",
@@ -450,6 +462,7 @@ PRIMARY = {
     "skill_commands": ("client_request_id",),
     "skill_events": ("seq",),
     "skill_revisions": ("skill_id", "version"),
+    "skill_process_origins": ("skill_id", "version"),
     "skills": ("id",),
     "task_commands": ("id",),
     "tasks": ("id",),
@@ -502,6 +515,13 @@ LINKS = {
         ("skills", ("skill_id",), ("id",)),
     ],
     "skill_revisions": [("skills", ("skill_id",), ("id",))],
+    "skill_process_origins": [
+        ("skill_revisions", ("skill_id", "version"), ("skill_id", "version")),
+        ("skills", ("skill_id", "agent_id"), ("id", "agent_id")),
+        ("tasks", ("task_id", "agent_id"), ("id", "agent_id")),
+        ("runs", ("run_id", "task_id"), ("id", "task_id")),
+        ("messages", ("message_id",), ("id",)),
+    ],
     "skills": [
         ("skill_revisions", ("id", "current_version"), ("skill_id", "version")),
         ("agents", ("agent_id",), ("id",)),
@@ -616,6 +636,7 @@ INTEGER_COLUMNS = {
     "skill_commands": (),
     "skill_events": ("seq", "revision", "version"),
     "skill_revisions": ("version",),
+    "skill_process_origins": ("version",),
     "skills": ("revision", "current_version", "enabled_version"),
     "task_commands": ("expected_revision", "revision"),
     "tasks": (
@@ -687,6 +708,7 @@ NULLABLE_COLUMNS = {
     "skill_commands": (),
     "skill_events": (),
     "skill_revisions": (),
+    "skill_process_origins": (),
     "skills": ("enabled_version",),
     "task_commands": (),
     "tasks": ("conversation_id", "routine_id", "submission_key"),
@@ -885,6 +907,7 @@ def _record_contract(table: str, record: dict) -> None:
             "content_hash",
             "request_hash",
             "manifest_hash",
+            "result_sha256",
             "checksum",
         } and not _DIGEST.fullmatch(value):
             raise PortabilityError("portability_integrity_failed")
@@ -914,16 +937,19 @@ def _manifest_contract(manifest, limits: Limits) -> None:
     if (
         manifest["format"] != FORMAT
         or type(manifest["version"]) is not int
-        or manifest["version"] != VERSION
+        or manifest["version"] not in (1, VERSION)
         or manifest["content_policy"] != CONTENT_POLICY
-        or not _integer(manifest["database_schema"], MIN_DATABASE_SCHEMA)
+        or not _integer(manifest["database_schema"], 17)
+        or (manifest["version"] == 1 and manifest["database_schema"] != 17)
+        or (manifest["version"] == VERSION and manifest["database_schema"] < MIN_DATABASE_SCHEMA)
         or not _integer(manifest["sanitized_fields"])
         or not _uuid(manifest["id"])
         or not _timestamp(manifest["created_at"])
         or manifest["excluded_tables"] != sorted(EXCLUDED)
         or manifest["reconnect"] is not True
         or type(manifest["tables"]) is not dict
-        or set(manifest["tables"]) != set(COLUMNS)
+        or set(manifest["tables"])
+        != (set(COLUMNS) - {"skill_process_origins"} if manifest["version"] == 1 else set(COLUMNS))
         or type(manifest["blobs"]) is not dict
         or any(not _inventory(item, rows=True) for item in manifest["tables"].values())
         or any(
@@ -1019,6 +1045,37 @@ def _graph(tables: dict[str, list[dict]]) -> None:
                 key = tuple(record[column] for column in source)
                 if None not in key and key not in indices[parent, target]:
                     raise PortabilityError("portability_invalid_graph")
+    if tables.get("skill_process_origins"):
+        from bees_core.skills import ProcessReview
+
+        messages = {record["id"]: record for record in tables["messages"]}
+        tasks = {record["id"]: record for record in tables["tasks"]}
+        runs = {record["id"]: record for record in tables["runs"]}
+        for origin in tables["skill_process_origins"]:
+            message, task, run = (
+                messages[origin["message_id"]],
+                tasks[origin["task_id"]],
+                runs[origin["run_id"]],
+            )
+            try:
+                review = ProcessReview.model_validate_json(origin["review_json"])
+                checkpoint = _load(run["checkpoint_json"])
+                deliverables = checkpoint.get("deliverables", {})
+                if (
+                    origin["actor"] != "user"
+                    or run["status"] != "completed"
+                    or message["role"] != "assistant"
+                    or message["conversation_id"] != task["conversation_id"]
+                    or checkpoint.get("result_message_id") != message["id"]
+                    or not isinstance(deliverables, dict)
+                    or deliverables.get("partial", False) is not False
+                    or hashlib.sha256(message["content"].encode("utf-8")).hexdigest()
+                    != origin["result_sha256"]
+                    or any(url not in message["content"] for url in review.sources)
+                ):
+                    raise ValueError
+            except ValueError, TypeError:
+                raise PortabilityError("portability_invalid_graph") from None
     # Polymorphic domain events retain identifiers to excluded operational facts;
     # they are evidence, never credentials or authority.
 
@@ -1278,13 +1335,16 @@ class ExportService:
             self._limits(sum(member.file_size for member in members), 0, len(members))
             manifest = _load(archive.read("manifest.json"))
             _manifest_contract(manifest, self.limits)
-            expected = {"manifest.json"} | {f"data/{table}.jsonl" for table in COLUMNS}
+            columns_for_version = {
+                table: columns for table, columns in COLUMNS.items() if table in manifest["tables"]
+            }
+            expected = {"manifest.json"} | {f"data/{table}.jsonl" for table in columns_for_version}
             expected |= {f"blobs/{identifier}" for identifier in manifest["blobs"]}
             if set(names) != expected:
                 raise PortabilityError("portability_invalid_package")
             tables = {}
             row_count = 0
-            for table, columns in COLUMNS.items():
+            for table, columns in columns_for_version.items():
                 data = archive.read(f"data/{table}.jsonl")
                 item = manifest["tables"][table]
                 if (

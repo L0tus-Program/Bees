@@ -10,3 +10,8 @@
 .skill-description dt { font-weight: 600; margin-top: .8rem; }
 .skill-description dd { margin-left: 0; }
 .skill-history details { padding: .8rem 0; }
+.skill-process { border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 1rem; }
+.skill-process fieldset { display: grid; gap: .8rem; min-width: 0; }
+.skill-process dd, .skill-process li { overflow-wrap: anywhere; }
+.skill-process dd { margin-left: 0; white-space: pre-wrap; }
+.skill-process-result { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 25rem; overflow-y: auto; }

@@ -21,6 +21,7 @@ Identifier = Annotated[str, Field(strict=True, pattern=r"^[a-z][a-z0-9_.-]{0,63}
 _SECRET = re.compile(
     r"(?:sk-(?:or-v1-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}"
     r"|github_pat_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9_.-]{20,}"
+    r"|b[phx]_[A-Za-z0-9_-]{43}"
     r"|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)",
     re.IGNORECASE,
 )
@@ -109,6 +110,57 @@ class Command(Contract):
 
 class CreateSkill(Command):
     definition: SkillDefinition
+
+
+class ProcessReview(Contract):
+    sources: list[Text] = Field(min_length=1, max_length=10)
+    review_note: Text
+    pending: Text
+    confirmed: bool = Field(strict=True)
+
+    @field_validator("sources")
+    @classmethod
+    def public_sources(cls, values):
+        from bees_core.research import public_url
+
+        if len(set(values)) != len(values):
+            raise ValueError("Fontes duplicadas.")
+        return [public_url(value) for value in values]
+
+    @field_validator("confirmed")
+    @classmethod
+    def human_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Confirme a revisão humana do procedimento.")
+        return value
+
+
+class CreateProcessSkill(CreateSkill):
+    task_id: UUID
+    run_id: UUID
+    message_id: UUID
+    result_sha256: Annotated[str, Field(strict=True, pattern=r"^[a-f0-9]{64}$")]
+    review: ProcessReview
+
+    @field_validator("task_id", "run_id", "message_id")
+    @classmethod
+    def non_nil_source(cls, value):
+        if not value.int:
+            raise ValueError("A referência de origem não pode ser nula.")
+        return value
+
+
+class SkillProcessOrigin(Contract):
+    skill_id: UUID
+    version: int
+    agent_id: UUID
+    task_id: UUID
+    run_id: UUID
+    message_id: UUID
+    result_sha256: str
+    review: ProcessReview
+    created_at: datetime
+    actor: Literal["user"]
 
 
 class ImportSkill(Command):
@@ -286,6 +338,8 @@ class SkillService:
                     raise RevisionConflict("Identificador já usado para outra intenção de skill.")
                 return Skill.model_validate_json(replay[3])
             stamp = utc_now().isoformat(timespec="microseconds")
+            if operation == "process":
+                self._validate_process(connection, repo.agent_id, value)
             if skill_id is None:
                 skill_id = uuid4()
                 connection.execute(
@@ -298,6 +352,20 @@ class SkillService:
                 repo.append(
                     skill_id, 1, definition, "import" if operation == "import" else "human", stamp
                 )
+                if operation == "process":
+                    connection.execute(
+                        "INSERT INTO skill_process_origins VALUES(?,1,?,?,?,?,?,?,?,'user')",
+                        (
+                            str(skill_id),
+                            str(repo.agent_id),
+                            str(value.task_id),
+                            str(value.run_id),
+                            str(value.message_id),
+                            value.result_sha256,
+                            _canonical(value.review),
+                            stamp,
+                        ),
+                    )
                 kind = "created"
             else:
                 if previous.revision != value.expected_revision:
@@ -347,6 +415,58 @@ class SkillService:
         return self._mutate(
             agent_id, None, CreateSkill.model_validate(value.model_dump()), "create"
         )
+
+    @staticmethod
+    def _validate_process(connection, agent_id, value):
+        row = connection.execute(
+            "SELECT m.content,r.checkpoint_json FROM tasks t JOIN runs r ON r.task_id=t.id "
+            "JOIN messages m ON m.conversation_id=t.conversation_id "
+            "AND m.id=json_extract(r.checkpoint_json,'$.result_message_id') "
+            "AND m.role='assistant' WHERE t.id=? AND t.agent_id=? AND r.id=? "
+            "AND m.id=? AND r.status='completed'",
+            (str(value.task_id), str(agent_id), str(value.run_id), str(value.message_id)),
+        ).fetchone()
+        if row is None:
+            raise NotFoundError("Processo concluído não encontrado nesta abelha.")
+        deliverables = json.loads(row[1]).get("deliverables", {})
+        if (
+            hashlib.sha256(row[0].encode("utf-8")).hexdigest() != value.result_sha256
+            or not isinstance(deliverables, dict)
+            or deliverables.get("partial", False) is not False
+            or any(url not in row[0] for url in value.review.sources)
+        ):
+            raise RevisionConflict("Confira o resultado completo e suas fontes antes de salvar.")
+
+    def create_from_process(self, agent_id, value: CreateProcessSkill) -> Skill:
+        return self._mutate(
+            agent_id, None, CreateProcessSkill.model_validate(value.model_dump()), "process"
+        )
+
+    def process_origin(self, agent_id, skill_id, version: int) -> SkillProcessOrigin | None:
+        if type(version) is not int or version < 1:
+            raise ValueError("Versão inválida.")
+        with self.store.transaction(write=False) as unit:
+            repo = self._repository(unit, agent_id)
+            repo.revision(UUID(str(skill_id)), version)
+            row = repo.connection.execute(
+                "SELECT task_id,run_id,message_id,result_sha256,review_json,created_at,actor "
+                "FROM skill_process_origins WHERE skill_id=? AND version=? AND agent_id=?",
+                (str(skill_id), version, str(repo.agent_id)),
+            ).fetchone()
+            if row is None:
+                return None
+            return SkillProcessOrigin(
+                skill_id=skill_id,
+                version=version,
+                agent_id=repo.agent_id,
+                task_id=row[0],
+                run_id=row[1],
+                message_id=row[2],
+                result_sha256=row[3],
+                review=json.loads(row[4]),
+                created_at=row[5],
+                actor=row[6],
+            )
 
     def import_skill(self, agent_id, value: ImportSkill) -> Skill:
         return self._mutate(

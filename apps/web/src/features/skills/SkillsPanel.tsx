@@ -1,60 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError, asApiError } from '../../api/client'
 import type { AgentSummary } from '../../api/onboarding'
-import { checkedDocument, enableIntent, exportSkill, importIntent, listSkills, sendSkill, skillIntent, skillRevisions } from '../../api/skills'
-import type { Skill, SkillDefinition, SkillIntent, SkillRevision } from '../../api/skills'
+import { checkedDocument, enableIntent, exportSkill, getProcessOrigin, importIntent, listSkills, sendSkill, skillIntent, skillRevisions } from '../../api/skills'
+import type { Skill, SkillDefinition, SkillIntent, SkillProcessOrigin, SkillRevision } from '../../api/skills'
 import { ErrorNotice } from '../../components/Feedback'
 import { TaskTime } from '../tasks/TaskTime'
+import { ProcessDrafts } from './ProcessDrafts'
+import { SkillDescription, SkillEditor } from './SkillContent'
+import type { Editor } from './SkillContent'
 import './skills.css'
 
 const empty = (): SkillDefinition => ({ name: '', purpose: '', inputs: [], steps: [{ title: '', instruction: '' }], resources: { environment: 'none', tools: [] }, output: '', completion: '' })
-type Editor = { definition: SkillDefinition; previous?: Skill; imported?: boolean }
-
-export function SkillDescription({ definition }: { definition: SkillDefinition }) {
-  const { t } = useTranslation('skills')
-  return <div className="skill-description">
-    <p>{definition.purpose}</p>
-    {definition.inputs.length > 0 && <><h4>{t('inputs')}</h4><ul>{definition.inputs.map((input) => <li key={input.name}><strong>{input.name}</strong>: {input.description} ({t(input.required ? 'required' : 'optional')})</li>)}</ul></>}
-    <ol>{definition.steps.map((step, index) => <li key={index}><strong>{step.title}</strong><p>{step.instruction}</p></li>)}</ol>
-    <dl><dt>{t('environment')}</dt><dd>{t(`environment_${definition.resources.environment}`)}</dd><dt>{t('tools')}</dt><dd>{definition.resources.tools.join(', ') || t('none')}</dd><dt>{t('output')}</dt><dd>{definition.output}</dd><dt>{t('completion')}</dt><dd>{definition.completion}</dd></dl>
-  </div>
-}
-
-export function SkillEditor({ initial, disabled, onSave, onCancel }: { initial: Editor; disabled: boolean; onSave: (definition: SkillDefinition) => void; onCancel: () => void }) {
-  const { t } = useTranslation('skills')
-  const [value, setValue] = useState(initial.definition)
-  const [toolsText, setToolsText] = useState(initial.definition.resources.tools.join(', '))
-  function submit(event: FormEvent) { event.preventDefault(); if (!disabled) onSave(value) }
-  const field = (name: 'name' | 'purpose' | 'output' | 'completion') => <label className="field">{t(name)}{name === 'name' ? <input required maxLength={100} value={value[name]} onChange={(event) => setValue({ ...value, [name]: event.target.value })} /> : <textarea required maxLength={2048} value={value[name]} onChange={(event) => setValue({ ...value, [name]: event.target.value })} />}</label>
-  return <form className="skill-editor" onSubmit={submit}>
-    <h3>{t(initial.previous ? 'edit' : initial.imported ? 'reviewImport' : 'create')}</h3>
-    <p>{t('saveHelp')}</p>
-    <fieldset disabled={disabled}>
-      {field('name')}{field('purpose')}
-      <h4>{t('inputs')}</h4>
-      {value.inputs.map((input, index) => <fieldset key={index}><legend>{t('inputNumber', { number: index + 1 })}</legend>
-        <label className="field">{t('inputName')}<input required pattern={'[a-z][a-z0-9_.\\-]{0,63}'} maxLength={64} value={input.name} onChange={(event) => setValue({ ...value, inputs: value.inputs.map((item, i) => i === index ? { ...item, name: event.target.value } : item) })} /></label>
-        <label className="field">{t('inputDescription')}<input required maxLength={2048} value={input.description} onChange={(event) => setValue({ ...value, inputs: value.inputs.map((item, i) => i === index ? { ...item, description: event.target.value } : item) })} /></label>
-        <label className="checkbox-label"><input type="checkbox" checked={input.required} onChange={(event) => setValue({ ...value, inputs: value.inputs.map((item, i) => i === index ? { ...item, required: event.target.checked } : item) })} />{t('required')}</label>
-        <button type="button" className="text-button" onClick={() => setValue({ ...value, inputs: value.inputs.filter((_, i) => i !== index) })}>{t('remove')}</button>
-      </fieldset>)}
-      {value.inputs.length < 20 && <button type="button" className="button secondary" onClick={() => setValue({ ...value, inputs: [...value.inputs, { name: '', description: '', required: true }] })}>{t('addInput')}</button>}
-      <h4>{t('steps')}</h4>
-      {value.steps.map((step, index) => <fieldset key={index}><legend>{t('stepNumber', { number: index + 1 })}</legend>
-        <label className="field">{t('stepTitle')}<input required maxLength={100} value={step.title} onChange={(event) => setValue({ ...value, steps: value.steps.map((item, i) => i === index ? { ...item, title: event.target.value } : item) })} /></label>
-        <label className="field">{t('instruction')}<textarea required maxLength={2048} value={step.instruction} onChange={(event) => setValue({ ...value, steps: value.steps.map((item, i) => i === index ? { ...item, instruction: event.target.value } : item) })} /></label>
-        {value.steps.length > 1 && <button type="button" className="text-button" onClick={() => setValue({ ...value, steps: value.steps.filter((_, i) => i !== index) })}>{t('remove')}</button>}
-      </fieldset>)}
-      {value.steps.length < 30 && <button type="button" className="button secondary" onClick={() => setValue({ ...value, steps: [...value.steps, { title: '', instruction: '' }] })}>{t('addStep')}</button>}
-      <label className="field">{t('environment')}<select value={value.resources.environment} onChange={(event) => setValue({ ...value, resources: { ...value.resources, environment: event.target.value as SkillDefinition['resources']['environment'] } })}>{(['none', 'own', 'personal'] as const).map((environment) => <option key={environment} value={environment}>{t(`environment_${environment}`)}</option>)}</select></label>
-      <label className="field">{t('tools')}<input maxLength={1300} value={toolsText} onChange={(event) => { setToolsText(event.target.value); setValue({ ...value, resources: { ...value.resources, tools: event.target.value.split(',').map((tool) => tool.trim()).filter(Boolean) } }) }} /><small>{t('toolsHelp')}</small></label>
-      {field('output')}{field('completion')}
-      <div className="skill-actions"><button type="submit" className="button primary">{t(disabled ? 'saving' : 'save')}</button><button type="button" className="button secondary" onClick={onCancel}>{t('cancel')}</button></div>
-    </fieldset>
-  </form>
-}
+export { SkillDescription, SkillEditor } from './SkillContent'
 
 export function SkillsPanel({ agent }: { agent: AgentSummary }) {
   const { t } = useTranslation('skills')
@@ -68,6 +26,8 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
   const [pending, setPending] = useState<SkillIntent | null>(null)
   const [review, setReview] = useState<Skill | null>(null)
   const [history, setHistory] = useState<{ skill: Skill; items: SkillRevision[]; more: boolean } | null>(null)
+  const [processLocked, setProcessLocked] = useState(false)
+  const [origin, setOrigin] = useState<SkillProcessOrigin | null>(null)
   const reading = useRef<AbortController | null>(null)
   const writing = useRef<AbortController | null>(null)
   const locked = useRef(false)
@@ -137,7 +97,17 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
     } catch (failure) { setError(asApiError(failure)) }
     finally { setBusy(false) }
   }
-  const disabled = loading || busy || pending !== null
+  async function showOrigin(skill: Skill, version: number) {
+    setBusy(true)
+    const controller = new AbortController(); reading.current?.abort(); reading.current = controller
+    try {
+      const value = await getProcessOrigin(agent.id, skill.id, version, controller.signal)
+      if (controller.signal.aborted) return
+      setOrigin(value); setNotice(value === null ? 'processNoOrigin' : null)
+    } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
+    finally { if (!controller.signal.aborted) setBusy(false) }
+  }
+  const disabled = loading || busy || pending !== null || processLocked
   return <section className="surface skills-panel" aria-labelledby="skills-heading" aria-busy={loading || busy}>
     <div className="form-heading"><h2 id="skills-heading">{t('title')}</h2><button type="button" className="text-button" disabled={busy || loading} onClick={() => { void load() }}>{t('refresh')}</button></div>
     <p>{t('description')}</p><p className="quiet-note">{t('executionScope')}</p>
@@ -146,6 +116,7 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
     {notice && <p role="status">{t(notice)}</p>}
     {pending && !busy && <div className="transfer-notice" role="status"><p>{t('lost')}</p><button type="button" className="button secondary" onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
     <div className="skill-actions"><button type="button" className="button secondary" disabled={disabled || !!error} onClick={() => { importGeneration.current = Symbol(); setEditor({ definition: empty() }); setReview(null); setHistory(null) }}>{t('create')}</button><label className="field">{t('import')}<input type="file" accept="application/json,.json" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} /></label></div>
+    <ProcessDrafts key={agent.id} agentId={agent.id} disabled={loading || busy || pending !== null || editor !== null || review !== null} onLock={setProcessLocked} onSaved={() => { setNotice('saved'); void load() }} />
     {editor && <SkillEditor key={JSON.stringify(editor.definition)} initial={editor} disabled={disabled} onSave={save} onCancel={() => { setEditor(null); setError(null) }} />}
     {review && <section className="skill-review"><h3>{t('reviewEnable', { version: review.current_version })}</h3><h4>{review.current.definition.name}</h4><SkillDescription definition={review.current.definition} /><p>{t('enableHelp')}</p><div className="skill-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(enableIntent(review)) }}>{t('confirmEnable')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => setReview(null)}>{t('cancel')}</button></div></section>}
     {!loading && !error && items.length === 0 && <p>{t('empty')}</p>}
@@ -155,7 +126,8 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
       <button type="button" className="text-button" disabled={disabled} onClick={() => { void showHistory(skill) }}>{t('history')}</button><button type="button" className="text-button" disabled={disabled} onClick={() => { void download(skill, skill.current_version) }}>{t('export')}</button>
     </div></li>)}</ul>
     {more && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void load(items.length) }}>{t('more')}</button>}
-    {history && <section className="skill-history"><h3>{history.skill.current.definition.name} · {t('history')}</h3>{history.items.map((revision) => <details key={revision.version}><summary>{t('version', { version: revision.version })} · {t(`origin_${revision.origin}`)} · <TaskTime value={revision.created_at} /></summary><SkillDescription definition={revision.definition} /><button type="button" className="text-button" disabled={disabled} onClick={() => { void download(history.skill, revision.version) }}>{t('export')}</button></details>)}{history.more && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void showHistory(history.skill, history.items.length) }}>{t('more')}</button>}</section>}
+    {history && <section className="skill-history"><h3>{history.skill.current.definition.name} · {t('history')}</h3>{history.items.map((revision) => <details key={revision.version}><summary>{t('version', { version: revision.version })} · {t(`origin_${revision.origin}`)} · <TaskTime value={revision.created_at} /></summary><SkillDescription definition={revision.definition} /><button type="button" className="text-button" disabled={disabled} onClick={() => { void download(history.skill, revision.version) }}>{t('export')}</button><button type="button" className="text-button" disabled={disabled} onClick={() => { void showOrigin(history.skill, revision.version) }}>{t('processOrigin')}</button></details>)}{history.more && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void showHistory(history.skill, history.items.length) }}>{t('more')}</button>}</section>}
+    {origin && <section className="skill-process"><h3>{t('processOrigin')} · {t('version', { version: origin.version })}</h3><p>{t('processHumanOrigin')}</p><dl><dt>{t('processTask')}</dt><dd>{origin.task_id}</dd><dt>{t('processRun')}</dt><dd>{origin.run_id}</dd><dt>SHA-256</dt><dd>{origin.result_sha256}</dd><dt>{t('processReview')}</dt><dd>{origin.review.review_note}</dd><dt>{t('processPending')}</dt><dd>{origin.review.pending}</dd></dl><ul>{origin.review.sources.map((source) => <li key={source}>{source}</li>)}</ul><button type="button" className="text-button" onClick={() => setOrigin(null)}>{t('cancel')}</button></section>}
   </section>
 }
 

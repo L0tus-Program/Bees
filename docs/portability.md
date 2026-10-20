@@ -25,7 +25,7 @@ A interface de download na aplicação é trabalho de integração; a API já pe
 a operação humana autenticada. A [restauração BEES-023.2 (#79)](restoration.md) publica somente uma instalação
 nova e inativa, com revisão humana de acesso e reconexão obrigatória.
 
-## Formato `bees.logical`, versão 1
+## Formato `bees.logical`, versão 2
 
 O arquivo é ZIP32, sem compressão, criptografia, comentário ou volumes adicionais.
 Não há extração de arquivos durante a verificação. Os únicos membros permitidos são:
@@ -123,11 +123,15 @@ produto para tratar este ZIP como backup completo ou instalação pronta.
 
 ## Compatibilidade e evidência
 
-Leitores v1 aceitam apenas a versão 1 e o inventário exato reconhecido, com esquema
-de origem 17 ou posterior conhecido e histórico
+O escritor atual gera versão 2, com esquema de origem 18 ou posterior conhecido,
+incluindo `skill_process_origins`. O leitor aceita dois inventários fechados: v1
+com schema17 e v2 com schema18 ou posterior conhecido. O pacote v1 não recebe
+origens inventadas; ao restaurá-lo a tabela nova fica vazia. Ambos exigem histórico
 de migrações de checksums conhecido. Uma nova tabela/coluna exige classificação e
 revisão do contrato; mudança incompatível no pacote exige outra versão do formato.
 Nenhuma migração é aplicada ao estado ativo ao ler/verificar uma exportação.
+Vínculos de origem de skill também conferem checkpoint, mensagem, hash do resultado
+e contrato da revisão humana, mesmo quando um pacote adulterado recalcula seus hashes.
 
 Os testes focados estão em
 [`test_portability.py`](../packages/core/tests/test_portability.py) e

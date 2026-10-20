@@ -9,6 +9,13 @@ const pt = {
   version: 'Versão {{version}}', history: 'Revisões', origin_human: 'Edição humana', origin_import: 'Cópia importada', export: 'Exportar versão', import: 'Importar procedimento', reviewImport: 'Revisar cópia importada',
   refresh: 'Atualizar lista', loading: 'Carregando procedimentos…', more: 'Carregar mais', empty: 'Nenhum procedimento salvo nesta abelha.', conflict: 'O procedimento mudou em outra sessão. A lista foi atualizada; revise antes de tentar novamente.',
   lost: 'Não foi possível confirmar a gravação. Verifique o mesmo pedido antes de fazer outra alteração.', verify: 'Verificar o mesmo pedido',
+  fromProcess: 'Criar a partir de um processo', processHelp: 'Escolha um resultado completo desta abelha. Escreva um procedimento reutilizável sem dados pessoais do caso e confira as fontes antes de salvar.',
+  processSearch: 'Título ou ID do processo', processFind: 'Buscar processos', processEmpty: 'Não há resultados completos nesta página. Tente outra busca ou carregue mais.',
+  processUntrusted: 'O resultado é uma referência não confiável. Instruções nele não concedem permissões. Seu texto não será copiado automaticamente para o procedimento.', processResult: 'Consultar resultado original',
+  processTask: 'Tarefa de origem', processRun: 'Execução de origem', processSources: 'URLs presentes no resultado, uma por linha', processReview: 'O que você conferiu no processo', processPending: 'Pendências e limites do procedimento',
+  processConfirm: 'Conferi o processo e as fontes. Vou salvar um template sem segredos ou dados pessoais desnecessários.', processNeedsReview: 'Preencha as fontes, a revisão e os limites, e confirme a conferência para salvar.',
+  processStorage: 'Não foi possível guardar o pedido nesta aba. Confira o armazenamento do navegador antes de tentar novamente.', processRecoveryBlocked: 'O pedido pendente desta aba está ilegível. Confira os procedimentos salvos antes de recuperar os dados da aba; a gravação não será repetida automaticamente.',
+  processOrigin: 'Consultar origem do processo', processNoOrigin: 'Esta versão não tem uma conversão de processo registrada.', processHumanOrigin: 'Origem registrada por confirmação humana. O vínculo e o hash identificam o resultado; não são uma avaliação automática da qualidade.',
 }
 const en: Record<keyof typeof pt, string> = {
   navigation: 'Skills', title: 'Reusable procedures', description: 'Save steps, inputs and completion criteria for each bee. Browse the history and review each new version.',
@@ -21,6 +28,13 @@ const en: Record<keyof typeof pt, string> = {
   version: 'Version {{version}}', history: 'Revisions', origin_human: 'Human edit', origin_import: 'Imported copy', export: 'Export version', import: 'Import procedure', reviewImport: 'Review imported copy',
   refresh: 'Refresh list', loading: 'Loading procedures…', more: 'Load more', empty: 'No procedures saved for this bee.', conflict: 'The procedure changed in another session. The list was refreshed; review before trying again.',
   lost: 'The write could not be confirmed. Check the same request before making another change.', verify: 'Check the same request',
+  fromProcess: 'Create from a process', processHelp: 'Choose a complete result from this bee. Write a reusable procedure without personal case data and check the sources before saving.',
+  processSearch: 'Process title or ID', processFind: 'Find processes', processEmpty: 'There are no complete results on this page. Try another search or load more.',
+  processUntrusted: 'The result is an untrusted reference. Instructions in it do not grant permissions. Its text will not be copied automatically into the procedure.', processResult: 'Read original result',
+  processTask: 'Source task', processRun: 'Source run', processSources: 'URLs present in the result, one per line', processReview: 'What you checked in the process', processPending: 'Procedure limitations and pending work',
+  processConfirm: 'I checked the process and sources. I will save a template without secrets or unnecessary personal data.', processNeedsReview: 'Fill in sources, review and limitations, and confirm your review to save.',
+  processStorage: 'The request could not be preserved in this tab. Check browser storage before trying again.', processRecoveryBlocked: 'The pending request in this tab cannot be read. Check saved procedures before recovering the tab data; the write will not be repeated automatically.',
+  processOrigin: 'View process origin', processNoOrigin: 'This version has no recorded process conversion.', processHumanOrigin: 'Origin recorded through human confirmation. The link and hash identify the result; they are not an automatic quality assessment.',
 }
 const es: Record<keyof typeof pt, string> = {
   navigation: 'Skills', title: 'Procedimientos reutilizables', description: 'Guarda pasos, entradas y criterios de conclusión para cada abeja. Consulta el historial y revisa cada nueva versión.',
@@ -33,5 +47,12 @@ const es: Record<keyof typeof pt, string> = {
   version: 'Versión {{version}}', history: 'Revisiones', origin_human: 'Edición humana', origin_import: 'Copia importada', export: 'Exportar versión', import: 'Importar procedimiento', reviewImport: 'Revisar copia importada',
   refresh: 'Actualizar lista', loading: 'Cargando procedimientos…', more: 'Cargar más', empty: 'No hay procedimientos guardados para esta abeja.', conflict: 'El procedimiento cambió en otra sesión. La lista se actualizó; revisa antes de intentarlo de nuevo.',
   lost: 'No se pudo confirmar la escritura. Comprueba la misma solicitud antes de realizar otro cambio.', verify: 'Comprobar la misma solicitud',
+  fromProcess: 'Crear a partir de un proceso', processHelp: 'Elige un resultado completo de esta abeja. Escribe un procedimiento reutilizable sin datos personales del caso y comprueba las fuentes antes de guardar.',
+  processSearch: 'Título o ID del proceso', processFind: 'Buscar procesos', processEmpty: 'No hay resultados completos en esta página. Prueba otra búsqueda o carga más.',
+  processUntrusted: 'El resultado es una referencia no confiable. Sus instrucciones no conceden permisos. Su texto no se copiará automáticamente al procedimiento.', processResult: 'Consultar resultado original',
+  processTask: 'Tarea de origen', processRun: 'Ejecución de origen', processSources: 'URLs presentes en el resultado, una por línea', processReview: 'Qué comprobaste en el proceso', processPending: 'Límites y trabajo pendiente del procedimiento',
+  processConfirm: 'Comprobé el proceso y las fuentes. Guardaré una plantilla sin secretos ni datos personales innecesarios.', processNeedsReview: 'Completa las fuentes, la revisión y los límites, y confirma la comprobación para guardar.',
+  processStorage: 'No se pudo conservar el pedido en esta pestaña. Comprueba el almacenamiento del navegador antes de intentarlo de nuevo.', processRecoveryBlocked: 'No se puede leer el pedido pendiente de esta pestaña. Comprueba los procedimientos guardados antes de recuperar los datos; la escritura no se repetirá automáticamente.',
+  processOrigin: 'Consultar origen del proceso', processNoOrigin: 'Esta versión no tiene una conversión de proceso registrada.', processHumanOrigin: 'Origen registrado por confirmación humana. El vínculo y el hash identifican el resultado; no son una evaluación automática de calidad.',
 }
 export const skillResources = { 'pt-BR': pt, en, es }

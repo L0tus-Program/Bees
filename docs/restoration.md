@@ -1,6 +1,6 @@
 # Restaurar em uma instalação inativa
 
-BEES-023.2 (#79) restaura um pacote [lógico v1](portability.md) em um diretório
+BEES-023.2 (#79) restaura um pacote [lógico v1 ou v2](portability.md) em um diretório
 novo escolhido pelo operador. Não sobrescreve o serviço atual, não faz merge de
 identidades e não inicia processos no destino. A seleção do destino pertence à
 configuração confiável; o ZIP e a API nunca fornecem um caminho para executar ou
@@ -79,7 +79,7 @@ importar o core não restaura nem apaga o journal privado do host.
 
 O serviço verifica os mesmos bytes que depois interpreta: formato/versão, inventário,
 tipos, limites, IDs, FKs lógicas, hashes, blobs e exclusão de segredos do contrato
-v1. Não extrai nomes arbitrários do ZIP. Cria um staging irmão privado e uma base
+v1/v2. Não extrai nomes arbitrários do ZIP. Cria um staging irmão privado e uma base
 nova com as migrações conhecidas. A carga tem ordem explícita para os triggers e
 ocorre em uma transação; não desativa FKs ou gatilhos. Linhagens com predecessor
 removido reconstroem a transição legítima dentro dessa transação inédita, preservando
