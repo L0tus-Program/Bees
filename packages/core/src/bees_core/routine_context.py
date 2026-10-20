@@ -3,8 +3,8 @@
 import json
 from uuid import UUID
 
-from bees_core.routines import RoutineService
-from bees_core.storage.store import IntegrityError, NotFoundError
+from bees_core.routines import RoutineService, _stamp
+from bees_core.storage.store import IntegrityError, NotFoundError, RevisionConflict
 from bees_core.tasks import TaskError
 from bees_core.tools import digest
 
@@ -14,10 +14,13 @@ def validate_routine_task(unit, task):
     if value is None and "routine_execution_hash" not in task.metadata:
         return None
     try:
+        manual = isinstance(value, dict) and "manual_request_id" in value
+        fields = {"routine_id", "revision", "occurrence_id", "scheduled_at", "definition"}
+        if manual:
+            fields |= {"manual_request_id", "runtime_binding"}
         if (
             not isinstance(value, dict)
-            or set(value)
-            != {"routine_id", "revision", "occurrence_id", "scheduled_at", "definition"}
+            or set(value) != fields
             or digest(value) != task.metadata.get("routine_execution_hash")
         ):
             raise ValueError
@@ -30,9 +33,9 @@ def validate_routine_task(unit, task):
             (value["occurrence_id"],),
         ).fetchone()
         if (
-            routine.status != "active"
+            (routine.status == "cancelled" if manual else routine.status != "active")
             or routine.revision != value["revision"]
-            or routine.definition.execution_mode != "scheduled"
+            or (not manual and routine.definition.execution_mode != "scheduled")
             or digest(routine.definition.model_dump(mode="json")) != digest(value["definition"])
             or row is None
             or row
@@ -43,6 +46,30 @@ def validate_routine_task(unit, task):
         source = task.metadata.get("skill_execution")
         definition = value["definition"]
         pinned = routine.definition.runtime_binding
+        if manual:
+            from bees_core.routine_manual import ManualRoutineInput, ManualRoutineService
+
+            receipt = ManualRoutineService._replay(
+                unit,
+                agent_id,
+                routine.id,
+                ManualRoutineInput(
+                    client_request_id=value["manual_request_id"],
+                    expected_revision=routine.revision,
+                ),
+            )
+            if (
+                receipt is None
+                or value["manual_request_id"] != str(receipt.client_request_id)
+                or receipt.occurrence.id != UUID(value["occurrence_id"])
+                or receipt.occurrence.routine_id != routine.id
+                or receipt.occurrence.routine_revision != routine.revision
+                or receipt.occurrence.task_id != task.id
+                or _stamp(receipt.occurrence.scheduled_at) != value["scheduled_at"]
+                or receipt.runtime_binding.model_dump(mode="json") != value["runtime_binding"]
+            ):
+                raise ValueError
+            pinned = receipt.runtime_binding
         target = task.metadata.get("tool_cycle_binding", {})
         plugin = unit.plugins.get(pinned.plugin_id) if pinned else None
         if (
@@ -61,7 +88,15 @@ def validate_routine_task(unit, task):
         destination = unit.conversations.get(routine.definition.destination.conversation_id)
         if destination is None or destination.agent_id != task.agent_id:
             raise ValueError
-    except ValueError, TypeError, KeyError, AttributeError, NotFoundError, IntegrityError:
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        NotFoundError,
+        IntegrityError,
+        RevisionConflict,
+    ):
         raise TaskError("routine_unavailable") from None
     return value
 
@@ -82,6 +117,6 @@ def routine_scope_hash(binding):
         {
             key: value
             for key, value in binding.items()
-            if key not in {"occurrence_id", "scheduled_at"}
+            if key not in {"occurrence_id", "scheduled_at", "manual_request_id"}
         }
     )

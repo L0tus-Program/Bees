@@ -128,8 +128,8 @@ export async function sendRoutine(raw: RoutineIntent, signal?: AbortSignal) {
   return value
 }
 
-export async function routineRuntime(agentId: string, signal?: AbortSignal): Promise<{available: boolean; reason: string | null}> {
+export async function routineRuntime(agentId: string, signal?: AbortSignal): Promise<{available: boolean; reason: string | null; manual_available: boolean}> {
   const value = await request(`${base(agentId)}/runtime`, { authenticated: true, signal })
-  if (!exact(value, ['available', 'reason', 'version', 'max_calls', 'max_active_seconds']) || typeof value.available !== 'boolean' || value.available !== (value.reason === null) || !(value.reason === null || ['worker_unavailable', 'resource_unavailable', 'tool_unavailable'].includes(String(value.reason))) || value.version !== 1 || value.max_calls !== 4 || value.max_active_seconds !== 120) throw new ApiError('invalid_response')
-  return {available: value.available, reason: value.reason as string | null}
+  if (!(exact(value, ['available', 'reason', 'version', 'max_calls', 'max_active_seconds']) || exact(value, ['available', 'reason', 'version', 'max_calls', 'max_active_seconds', 'manual_available'])) || typeof value.available !== 'boolean' || value.available !== (value.reason === null) || !(value.reason === null || ['worker_unavailable', 'resource_unavailable', 'tool_unavailable'].includes(String(value.reason))) || value.version !== 1 || value.max_calls !== 4 || value.max_active_seconds !== 120 || !(value.manual_available === undefined || typeof value.manual_available === 'boolean' && (!value.manual_available || value.available))) throw new ApiError('invalid_response')
+  return {available: value.available, reason: value.reason as string | null, manual_available: value.manual_available === true}
 }

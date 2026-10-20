@@ -29,6 +29,39 @@ Outro recurso ou versão gera `runtime_changed`, sem escolher outro executor. Pa
 trocar, revise e escolha **Selecionar recurso atual para esta revisão**, confira e
 salve/ative novamente. Uma instalação nova também precisa de grant humano próprio.
 
+## Executar uma vez, sem ativar a agenda
+
+**Executar uma vez** revisa definição, entradas, recurso e limites antes de criar
+uma tarefa. É uma intenção humana nova, com UUID e CAS da revisão. Agendas
+preparatórias ou pausadas podem ser executadas assim; legados sem definição e
+rotinas canceladas são recusados. O pedido não ativa a rotina, muda sua revisão,
+avança o cursor ou repõe horários. Uma ocorrência em curso, pendente ou de
+resultado desconhecido impede outra execução manual da mesma rotina.
+
+Conversa/tarefa/run, ocorrência e recibo são confirmados em uma transação curta,
+sem rede. A ocorrência já fica vinculada à tarefa na fila comum. O comando
+humano imutável fixa o recurso e é revalidado antes de cada geração/efeito; texto
+de modelo ou metadata sem esse comando não autoriza execução manual. Concessões,
+skill habilitada, políticas, orçamento e parada global continuam atuais. O worker
+precisa anunciar `routine_manual_version=1`; um worker antigo não recebe o modo.
+Não há novo esquema, instalação ou concessão implícita.
+
+A revisão humana da rotina permanece fixa. Edição, cancelamento ou outra mutação
+da revisão invalida próximos despachos antigos. Para pausar/cancelar uma tarefa
+manual já criada, use seus controles próprios: uma agenda que já estava pausada
+continua pausada durante a execução explicitamente solicitada. Resultado
+`outcome_unknown` não é apagado por replay ou por novo UUID e impede repetição.
+
+O recibo guarda a resposta original da criação, mesmo se a tarefa já terminou.
+Consultar esse recibo não cria tarefas; o histórico mostra o estado atual. Uma
+resposta perdida conserva o UUID mínimo no armazenamento da aba, sem entradas.
+Após reload não há POST automático: **Consultar recibo do mesmo pedido** verifica
+o comando. Se não houver recibo, outro botão permite reenviar explicitamente a
+mesma intenção. CAS e idempotência ainda valem se o primeiro pedido estiver em
+curso. O replay confirmado funciona com recurso/worker indisponível e após
+edição/cancelamento; não autoriza outra execução. Histórico e tarefa identificam
+a origem manual.
+
 ## Definição humana e identidade
 
 Uma rotina operacional declara nome, instruções, frequência, horário, fuso IANA,
@@ -166,10 +199,13 @@ Host/Origin/CSRF existentes. Os endpoints são:
 | POST | `/{routine_id}/revisions` | Edita com UUID, CAS e definição; resultado pausado |
 | PUT | `/{routine_id}/status` | UUID, CAS e `active`, `paused` ou `cancelled` |
 | GET | `/{routine_id}/revisions` | Snapshots humanos imutáveis, mais recentes primeiro |
+| POST | `/{routine_id}/manual` | Cria uma tarefa manual com UUID e CAS, sem ativar agenda |
+| GET | `/{routine_id}/manual/{request_id}` | Recibo humano original, sem execução |
 | GET | `/{routine_id}/occurrences` | Histórico temporal, mais recente primeiro |
 
 As consultas paginadas aceitam `limit` de 1 a 100 e `offset` não negativo.
-Não há endpoint HTTP para materializar, despachar ou forçar uma ocorrência.
+O endpoint manual aceita apenas uma intenção humana explícita; não há endpoint
+GET para materializar/despachar ou endpoint de efeito da ferramenta.
 `RoutineService.evaluate(..., expected_revision=..., now=...)` é uma operação
 interna transacional; consumidores precisam usar a revisão canônica atual.
 
@@ -215,3 +251,17 @@ duas gerações HTTP controladas, uma ocorrência concluída e um resumo na conv
 Chromium pt-BR/en/es390/1280 também comprovou resposta perdida após commit/reload
 com o mesmo UUID e sem POST automático. Isso não afirma seleção por LLM real,
 execução de apps/VM ou aceite humano da qualidade da entrega.
+
+A execução manual acrescenta testes de recibo offline, alteração de revisão,
+concorrência, pausa/cancel/revoke após aprovação, regra exata reutilizada, comando
+forjado recusado, crash real dentro do writer e unknown sem retry. A interface
+testa os três idiomas, confirmação, reload sem POST, consulta do recibo, reenvio
+explícito com o mesmo UUID, armazenamento adulterado e worker indisponível.
+
+Na prova manual com Chromium/API e worker CLI padrão, os três idiomas em390/1280
+passaram por revisão sem escrita. Uma única confirmação perdeu realmente a resposta
+após commit; reload não fez POST e a consulta do recibo abriu a tarefa original.
+Com a aba fechada e reinício durante aprovação, houve duas gerações HTTP controladas,
+um único início POSIX, uma ocorrência concluída e um aviso. A definição permaneceu
+pausada na revisão1, sem alterar a próxima execução; zero chamadas pagas. Essas
+provas não representam LLM real ou execução em VM/apps/máquina pessoal.

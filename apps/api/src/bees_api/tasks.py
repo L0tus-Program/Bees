@@ -184,6 +184,11 @@ def _view(detail) -> dict:
                     "occurrence_id": task.metadata["routine_execution"]["occurrence_id"],
                     "scheduled_at": task.metadata["routine_execution"]["scheduled_at"],
                     "name": task.metadata["routine_execution"]["definition"]["name"],
+                    **(
+                        {"trigger": "manual"}
+                        if "manual_request_id" in task.metadata["routine_execution"]
+                        else {}
+                    ),
                 }
             }
             if "routine_execution" in task.metadata

@@ -12,6 +12,7 @@ import type { RoutineEditorState } from './RoutineEditor'
 import { RoutineDescription, RoutineTime } from './RoutineDescription'
 import { clearRoutineIntent, preserveRoutineIntent, restoreRoutineIntent } from './recovery'
 import { TaskDetail } from '../tasks/TaskDetail'
+import { ManualRoutineRun } from './ManualRoutineRun'
 import './routines.css'
 
 type Review = { intent: RoutineIntent; definition: RoutineDefinition }
@@ -40,6 +41,9 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
   const [review, setReview] = useState<Review | null>(null)
   const [history, setHistory] = useState<History | null>(null)
   const [runtime, setRuntime] = useState(false)
+  const [manualRuntime, setManualRuntime] = useState(false)
+  const [manualRoutine, setManualRoutine] = useState<Routine | null>(null)
+  const [manualBlocked, setManualBlocked] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
   const [pending, setPending] = useState<RoutineIntent | null>(() => restoreRoutineIntent(agent.id))
   const [storageUnavailable, setStorageUnavailable] = useState(false)
@@ -59,11 +63,12 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     const controller = new AbortController(); reading.current = controller
     setLoading(true)
     try {
-      const [page, runtime] = await Promise.all([listRoutines(agent.id, offset, controller.signal), routineRuntime(agent.id, controller.signal).catch(() => ({ available: false }))])
+      const [page, runtime] = await Promise.all([listRoutines(agent.id, offset, controller.signal), routineRuntime(agent.id, controller.signal).catch(() => ({ available: false, manual_available: false }))])
       if (controller.signal.aborted) return
       setItems((old) => offset ? [...old, ...page.filter((item) => !old.some((previous) => previous.id === item.id))] : page)
       setMore(page.length === 50); setError(null)
       setRuntime(runtime.available)
+      setManualRuntime(runtime.manual_available)
       return true
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)); return false }
     finally { if (!controller.signal.aborted) setLoading(false) }
@@ -162,7 +167,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
     finally { if (!controller.signal.aborted) { locked.current = false; setBusy(false) } }
   }
-  const disabled = loading || busy || pending !== null
+  const disabled = loading || busy || pending !== null || manualBlocked || manualRoutine !== null
   const reviewEffect = review?.intent.action === 'status' ? review.intent.body.status === 'active' ? review.definition.execution_mode === 'scheduled' ? 'scheduledEffect' : 'eligibleEffect' : review.intent.body.status === 'paused' ? 'pauseEffect' : 'cancelEffect' : 'saveEffect'
   return <section className="surface routines-panel" aria-labelledby="routines-heading" aria-busy={loading || busy}>
     <div className="form-heading"><h2 id="routines-heading">{t('title')}</h2><button type="button" className="text-button" disabled={busy || loading} onClick={() => { void load(); void loadSkills() }}>{t('refresh')}</button></div>
@@ -173,6 +178,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     {storageUnavailable && <p role="status">{t('storageUnavailable')}</p>}
     {!skillsLoading && skills.length === 0 && <p>{t('noSkills')}</p>}
     {!agent.conversation_id && <p>{t('noConversation')}</p>}
+    <ManualRoutineRun key={`manual:${agent.id}`} agentId={agent.id} routine={manualRoutine} available={manualRuntime} onLock={setManualBlocked} onClose={() => { setManualRoutine(null); returnFocus.current?.focus(); void load() }} onCreated={(id) => { setManualRoutine(null); setTaskId(id); void load() }} />
     <div className="routine-actions"><button type="button" className="button secondary" disabled={disabled || skillsLoading || skills.length === 0 || !agent.conversation_id || !!error || !!skillError} onClick={(event) => { returnFocus.current = event.currentTarget; void openEditor() }}>{t('create')}</button>{moreSkills && <button type="button" className="text-button" disabled={disabled || skillsLoading} onClick={() => { void loadSkills(skills.length) }}>{t('moreSkills')}</button>}</div>
     {editor && !review && <RoutineEditor key={`${editor.previous?.id ?? 'new'}:${editor.previous?.revision ?? 0}`} initial={editor} skills={skills} conversationId={agent.conversation_id} disabled={disabled} onReview={prepare} onCancel={() => { setEditor(null); returnFocus.current?.focus() }} />}
     {review && <section className="routine-review" aria-labelledby="routine-review-heading"><h3 id="routine-review-heading" tabIndex={-1} ref={reviewHeading}>{t('reviewTitle')}</h3><RoutineDescription definition={review.definition} /><p>{t(reviewEffect)}</p>{!runtime && <p>{t('unavailable')}</p>}<div className="routine-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(review.intent) }}>{t('confirm')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => { setReview(null); if (!editor) returnFocus.current?.focus() }}>{t('back')}</button></div></section>}
@@ -184,6 +190,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
       <p>{t('next')}: {routine.next_run_at ? <RoutineTime value={routine.next_run_at} timezone={routine.timezone} /> : t('noNext')}</p>
       {routine.definition && <p>{t(routine.definition.schedule.frequency)} · {routine.definition.schedule.time} ({routine.timezone}) · {t(`notification_${routine.definition.notification}`)}</p>}
       <div className="routine-actions">
+        {routine.definition && routine.status !== 'cancelled' && <button type="button" className="button secondary" disabled={disabled || !manualRuntime || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; setManualRoutine(routine); setEditor(null); setReview(null); setHistory(null); setTaskId(null) }}>{t('manual')}</button>}
         {routine.status !== 'cancelled' && <button type="button" className="button secondary" disabled={disabled || skillsLoading || !!error || routine.origin === 'legacy' && (skills.length === 0 || !agent.conversation_id)} onClick={(event) => { returnFocus.current = event.currentTarget; void openEditor(routine) }}>{t('edit')}</button>}
         {routine.definition && routine.status !== 'cancelled' && <><button type="button" className="button secondary" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, routine.status === 'active' ? 'paused' : 'active') }}>{t(routine.status === 'active' ? 'pause' : 'eligible')}</button><button type="button" className="text-button" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, 'cancelled') }}>{t('cancelRoutine')}</button></>}
         <button type="button" className="text-button" disabled={disabled} onClick={() => { void showHistory(routine) }}>{t('history')}</button>
@@ -192,7 +199,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     {more && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void load(items.length) }}>{t('more')}</button>}
     {history && <section className="routine-history" aria-labelledby="routine-history-heading"><h3 id="routine-history-heading" tabIndex={-1} ref={historyHeading}>{history.routine.name} · {t('history')}</h3>
       {history.occurrences.length === 0 && <p>{t('historyEmpty')}</p>}
-      <ol>{history.occurrences.map((occurrence) => <li key={occurrence.id}><p><strong>{t(`occurrence_${occurrence.status}`)}</strong> · {t('revision', { revision: occurrence.routine_revision })}</p><RoutineTime value={occurrence.scheduled_at} timezone={history.revisions.find((item) => item.revision === occurrence.routine_revision)?.definition.timezone ?? 'UTC'} /><p>{t(`reason_${reasons.has(occurrence.reason) ? occurrence.reason : 'other'}`)}</p>{typeof occurrence.metadata.task_status === 'string' && ['queued', 'running', 'waiting_approval', 'waiting_resource', 'paused', 'completed', 'failed', 'cancelled'].includes(occurrence.metadata.task_status) && <p>{t('linkedTask')}: {t(`status.${occurrence.metadata.task_status}`, { ns: 'tasks' })}</p>}{occurrence.task_id && <button type="button" className="text-button" onClick={() => setTaskId(occurrence.task_id)}>{t('openTask')}</button>}{occurrence.window_end !== occurrence.scheduled_at && <p>{t('range')}: <RoutineTime value={occurrence.window_end} timezone={history.revisions.find((item) => item.revision === occurrence.routine_revision)?.definition.timezone ?? 'UTC'} /></p>}</li>)}</ol>
+      <ol>{history.occurrences.map((occurrence) => <li key={occurrence.id}><p><strong>{t(`occurrence_${occurrence.status}`)}</strong> · {t('revision', { revision: occurrence.routine_revision })}{occurrence.metadata.origin === 'manual' && <> · {t('manualOrigin')}</>}</p><RoutineTime value={occurrence.scheduled_at} timezone={history.revisions.find((item) => item.revision === occurrence.routine_revision)?.definition.timezone ?? 'UTC'} /><p>{t(`reason_${reasons.has(occurrence.reason) ? occurrence.reason : 'other'}`)}</p>{typeof occurrence.metadata.task_status === 'string' && ['queued', 'running', 'waiting_approval', 'waiting_resource', 'paused', 'completed', 'failed', 'cancelled'].includes(occurrence.metadata.task_status) && <p>{t('linkedTask')}: {t(`status.${occurrence.metadata.task_status}`, { ns: 'tasks' })}</p>}{occurrence.task_id && <button type="button" className="text-button" onClick={() => setTaskId(occurrence.task_id)}>{t('openTask')}</button>}{occurrence.window_end !== occurrence.scheduled_at && <p>{t('range')}: <RoutineTime value={occurrence.window_end} timezone={history.revisions.find((item) => item.revision === occurrence.routine_revision)?.definition.timezone ?? 'UTC'} /></p>}</li>)}</ol>
       {history.moreOccurrences && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void showHistory(history.routine, 'occurrences') }}>{t('moreHistory')}</button>}
       <h4>{t('revisions')}</h4>{history.revisions.map((revision) => <details key={revision.revision}><summary>{t('revision', { revision: revision.revision })} · <RoutineTime value={revision.created_at} timezone={revision.definition.timezone} /></summary><RoutineDescription definition={revision.definition} /></details>)}
       {history.moreRevisions && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void showHistory(history.routine, 'revisions') }}>{t('moreRevisions')}</button>}

@@ -9,6 +9,7 @@ from bees_api.auth import require_session
 from bees_api.worker_status import HEARTBEAT_KEY, worker_status
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import ProviderError
+from bees_core.routine_manual import ManualRoutineInput, ManualRoutineReceipt, ManualRoutineService
 from bees_core.routines import (
     CreateRoutine,
     ReviseRoutine,
@@ -81,6 +82,9 @@ def runtime_status(agent_id: UUID, request: Request, session: _SESSION):
         "version": 1,
         "max_calls": 4,
         "max_active_seconds": 120,
+        "manual_available": reason is None
+        and type(heartbeat.get("routine_manual_version")) is int
+        and heartbeat["routine_manual_version"] == 1,
     }
 
 
@@ -102,6 +106,36 @@ def set_status(
 ):
     return _mutation(
         RoutineService(request.app.state.database).set_status, agent_id, routine_id, body
+    )
+
+
+@router.post("/{routine_id}/manual", response_model=ManualRoutineReceipt, status_code=201)
+def execute_manual(
+    agent_id: UUID, routine_id: UUID, body: ManualRoutineInput, request: Request, session: _SESSION
+):
+    service = ManualRoutineService(request.app.state.database)
+    prior = service.replay(agent_id, routine_id, body)
+    if prior is not None:
+        return prior
+    from bees_api.tasks import _tool_task_capabilities
+
+    heartbeat = request.app.state.store.get_cache(HEARTBEAT_KEY)
+    if (
+        not _tool_task_capabilities(request, agent_id)[0]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("routine_manual_version")) is not int
+        or heartbeat["routine_manual_version"] != 1
+    ):
+        raise TaskError("unsupported_capability")
+    return _mutation(service.execute, agent_id, routine_id, body)
+
+
+@router.get("/{routine_id}/manual/{request_id}", response_model=ManualRoutineReceipt)
+def manual_receipt(
+    agent_id: UUID, routine_id: UUID, request_id: UUID, request: Request, session: _SESSION
+):
+    return ManualRoutineService(request.app.state.database).receipt(
+        agent_id, routine_id, request_id
     )
 
 

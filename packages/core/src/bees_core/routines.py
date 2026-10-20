@@ -483,9 +483,10 @@ class RoutineService:
                     task = unit.tasks.get(occurrence.task_id)
                     if task is None or task.agent_id != agent_id or task.routine_id != routine.id:
                         raise IntegrityError("Vínculo de tarefa da ocorrência inválido.")
-                    occurrence = occurrence.model_copy(
-                        update={"metadata": {"task_status": task.status}}
-                    )
+                    metadata = {"task_status": task.status}
+                    if "manual_request_id" in task.metadata.get("routine_execution", {}):
+                        metadata["origin"] = "manual"
+                    occurrence = occurrence.model_copy(update={"metadata": metadata})
                 result.append(occurrence)
             return result
 
