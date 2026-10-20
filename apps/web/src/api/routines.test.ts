@@ -6,6 +6,22 @@ import { activeRoutine, agentId, definition, occurrence, persistedRoutine as rou
 
 afterEach(() => { vi.unstubAllGlobals(); setCsrfToken() })
 describe('routine transport and human commands', () => {
+  it('preserves the old payload limit when an upgraded API returns preparatory defaults', () => {
+    const candidate = { ...definition, instructions: 'x'.repeat(4096), inputs: Object.fromEntries(Array.from({ length: 16 }, (_, index) => [`v${index}`, 'x'])) }
+    const size = () => new TextEncoder().encode(JSON.stringify(candidate)).byteLength
+    for (const key of Object.keys(candidate.inputs)) {
+      const extra = Math.min(2047, 32768 - size())
+      candidate.inputs[key] += 'x'.repeat(extra)
+      if (size() === 32768) break
+    }
+    expect(size()).toBe(32768)
+    expect(isRoutineDefinition(candidate)).toBe(true)
+    expect(isRoutineDefinition({ ...candidate, execution_mode: 'prepare', runtime_binding: null })).toBe(true)
+    expect(isRoutineDefinition({ ...candidate, execution_mode: 'scheduled' })).toBe(false)
+    const room = Object.keys(candidate.inputs).find((key) => candidate.inputs[key].length < 2048)!
+    candidate.inputs[room] += 'x'
+    expect(isRoutineDefinition({ ...candidate, execution_mode: 'prepare', runtime_binding: null })).toBe(false)
+  })
   it('rejects unsafe and unsupported schedules and validates origin and revision identity', () => {
     expect(isRoutineDefinition(definition)).toBe(true)
     for (const value of [

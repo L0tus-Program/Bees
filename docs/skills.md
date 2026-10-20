@@ -78,8 +78,9 @@ journal, orçamento e decisões separados de geração e ferramenta do ciclo com
 Testes SQLite/provider controlado/processo POSIX cobrem duas entradas com resultados
 distintos, restart, criação concorrente, replay, entradas inválidas, edição,
 desabilitação/revoke antes do efeito e regra salva de outro snapshot. Isso não
-substitui a escolha de ferramenta por LLM real, o aceite humano da qualidade ou
-o scheduler de rotinas de BEES-021.2 (#70).
+substitui a escolha de ferramenta por LLM real ou o aceite humano da qualidade.
+O [scheduler de rotinas](routines.md) usa esse mesmo
+ciclo no recorte disponível, com ativação programada explícita.
 
 ## Criar a partir de um processo
 

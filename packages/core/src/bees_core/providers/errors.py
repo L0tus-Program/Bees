@@ -35,9 +35,11 @@ ErrorCode = Literal[
     "task_limit_reached",
     "tool_result_too_large",
     "skill_unavailable",
+    "routine_unavailable",
 ]
 
 MESSAGES: dict[str, str] = {
+    "routine_unavailable": "A rotina ou sua ocorrência mudou; revise a tarefa antes de continuar.",
     "skill_unavailable": (
         "A revisão ou as entradas da skill não estão mais disponíveis para executar."
     ),

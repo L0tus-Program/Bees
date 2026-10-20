@@ -1,15 +1,33 @@
 # Rotinas e contrato temporal
 
 BEES-021.1 (#69) define a agenda canônica e a persistência de ocorrências.
-O serviço `bees_core.routines.RoutineService` calcula instantes e registra decisões;
-ele não inicia tarefa, modelo, ferramenta, mensagem externa ou máquina virtual.
-O scheduler/worker de BEES-021.2 (#70) e a interface de BEES-021.3 (#71) consomem
-este contrato separadamente.
+`RoutineService` calcula instantes e registra decisões, sem despachar efeitos.
+O `RoutineScheduler` de BEES-021.2 (#70), no processo do worker padrão, cria tarefas
+pelo [ciclo de skill](skills.md#reexecutar-em-tarefa-nova). Cada geração/ferramenta
+segue journal, orçamento, claims e políticas comuns. A interface (#71) permite
+optar pela execução programada, ativar e abrir a tarefa e suas decisões no histórico.
 
-A [reexecução limitada de skill](skills.md#reexecutar-em-tarefa-nova) já fornece
-criação transacional de tarefa com revisão/entradas fixas para o recorte textual
-disponível. Isso é um componente para o scheduler; ativar uma agenda ainda não
-despacha tarefas automaticamente neste checkpoint.
+## Preparar ou executar automaticamente
+
+O padrão continua `execution_mode=prepare`: uma agenda assim não cria tarefas,
+mesmo ativa. Definições anteriores sem esse campo permanecem preparatórias após
+upgrade. Marque **Permitir tarefas automáticas quando esta agenda for ativada**,
+confira entradas, destino e limites e salve. A revisão fica pausada; **Ativar agenda**
+exige outra confirmação e só considera o próximo horário. São até quatro gerações,
+dezesseis propostas de ferramenta e 120 segundos ativos por ocorrência, com possível
+consumo do modelo configurado. Espera por decisão não concede acesso nem repete geração.
+
+O recorte aceita texto sem ferramentas ou `own` com somente `text.normalize`.
+Ambos exigem o runtime desse ciclo: recurso POSIX preparado pelo operador, modelo
+compatível com ferramentas, instalação/grant atuais e worker ativo. Apps, navegador,
+VM e máquina pessoal continuam indisponíveis. Fechar o navegador não interrompe a
+agenda; serviço parado aparece indisponível, com recuperação limitada pela tolerância.
+
+O salvamento humano fixa `runtime_binding`: instalação, recurso, extensão, hash do
+manifesto e versão `1` do contrato. É referência de compatibilidade, não concessão.
+Outro recurso ou versão gera `runtime_changed`, sem escolher outro executor. Para
+trocar, revise e escolha **Selecionar recurso atual para esta revisão**, confira e
+salve/ative novamente. Uma instalação nova também precisa de grant humano próprio.
 
 ## Definição humana e identidade
 
@@ -28,6 +46,13 @@ para ativar a rotina e continua sendo verificada na materialização. Uma ediç�
 desabilitação da skill provoca `skill_unavailable`, sem selecionar outra versão.
 O consumidor também deve revalidar a skill e a rotina na sua transação de claim;
 `pending` representa elegibilidade temporal, nunca autorização para um efeito.
+
+O scheduler revalida a criação atômica da tarefa, e o executor repete as guardas
+antes de cada geração e efeito. Definição, instruções, entradas, revisão, horário e
+ocorrência ficam vinculados. Editar, pausar ou cancelar invalida próximos despachos
+antigos; um efeito já iniciado conserva o journal. Grants e políticas são atuais.
+Uma regra salva pela decisão própria pode ser reutilizada no mesmo recurso/revisão/
+entradas; outra rotina, revisão ou nova regra `ask`/`deny` não herda essa autorização.
 
 A rotina recebe UUID e revisão humana crescente. Cada mutação exige
 `client_request_id` UUID não nulo; edições e mudanças de estado também exigem
@@ -98,6 +123,35 @@ tem sua própria revisão, incrementada nas transições; o esquema aceita somen
 O vínculo eventual com uma tarefa não pode ser substituído depois de preenchido.
 O scheduler deve validar esse vínculo e o escopo da abelha ao criá-lo.
 
+## Worker, vínculo e recuperação
+
+O worker avalia lotes de até 32 agendas a cada três segundos, mesmo durante uma
+geração em andamento. Não há timer na API ou broker obrigatório. Criação de
+conversa/tarefa/run e vínculo `pending -> running` usam um writer SQLite, CAS da
+ocorrência e UUID determinístico. Não existe rede/efeito externo nessa aquisição;
+ela não precisa de outra lease separada. Após commit, o claim/lease/fencing comum
+coordena despachos. Duas instâncias e crashes pré/pós-commit não duplicam tarefas.
+
+Parada global impede materializar/despachar trabalho novo. Recurso/ferramenta
+indisponível ou versão incompatível pula a ocorrência com motivo, sem instalação
+ou troca implícita. O histórico projeta a situação da tarefa vinculada, incluindo
+espera por aprovação e pausa. **Abrir tarefa e decisões** permite consultar resultado
+e controles. A ocorrência permanece `running` durante espera ou revisão; cancelar
+a tarefa vinculada libera a sobreposição depois da reconciliação.
+
+Conclusão/falha/desconhecido são reconciliados com o journal. Cancelamento de tarefa
+já criada usa `failed`/`task_cancelled` no contrato persistido. `outcome_unknown` fica
+preservado e impede outra ocorrência automática; retomar a tarefa não apaga essa
+evidência. A reconciliação humana desse resultado continua separada do scheduler;
+não apagar registros ou repetir efeitos para corrigir o histórico. Ativar a agenda
+em outra revisão também não retoma a tarefa antiga.
+
+Fatos de aprovação, erro e desconhecido usam a atenção durável das tarefas.
+`notification` controla resumos opcionais na conversa ao terminar ou pular uma
+ocorrência: `always`, `failures` ou `none`, sem entradas ou resultado bruto. Aviso e
+conclusão são atômicos; janelas puladas têm recuperação após crash com identidade
+determinística, sem duplicação. Não há email, webhook ou outro envio externo.
+
 ## API e persistência
 
 O prefixo é `/api/v1/agents/{agent_id}/routines`, sob sessão humana e as proteções
@@ -106,6 +160,7 @@ Host/Origin/CSRF existentes. Os endpoints são:
 | Método | Caminho relativo | Resultado |
 | --- | --- | --- |
 | GET | vazio | Lista paginada de rotinas, sem avaliação ou efeitos |
+| GET | `/runtime` | Capacidade atual do worker/modelo/recurso, sem efeitos |
 | POST | vazio | Cria com `client_request_id`, `definition` e `active` opcional |
 | GET | `/{routine_id}` | Estado e definição da revisão atual |
 | POST | `/{routine_id}/revisions` | Edita com UUID, CAS e definição; resultado pausado |
@@ -117,6 +172,13 @@ As consultas paginadas aceitam `limit` de 1 a 100 e `offset` não negativo.
 Não há endpoint HTTP para materializar, despachar ou forçar uma ocorrência.
 `RoutineService.evaluate(..., expected_revision=..., now=...)` é uma operação
 interna transacional; consumidores precisam usar a revisão canônica atual.
+
+`execution_mode` e `runtime_binding` são declarações opcionais; o binding é resolvido
+e validado canonicamente no salvamento humano. Comandos preparatórios antigos
+conservam o hash de serialização anterior. Não há nova migração neste checkpoint;
+preserve código compatível com os contratos gravados e não use uma versão antiga
+contra definições novas. Ocorrências projetam `metadata.task_status`, sem entradas
+ou conteúdo de outra tarefa.
 
 A migração `0015_routine_occurrences.sql` adiciona definições, cursores, comandos
 e ocorrências sem reescrever metadados antigos. Siga a manutenção com serviço
@@ -140,7 +202,16 @@ migração com backup preservando legados. `apps/api/tests/test_routines_api.py`
 verifica sessão, Host/Origin/CSRF, UUID/CAS, contratos fechados, skill fixada e
 consultas sem criação de tarefas.
 
-Estes testes comprovam o contrato temporal e sua persistência. Não representam
-um scheduler em execução ou um aceite com worker/modelo real: esses aceites
-pertencem à #70. Avisos e destino ficam declarados e preservados; seu envio exige
-o fluxo de entrega e as políticas do executor, sem envio implícito nesta etapa.
+`test_routine_scheduler.py` acrescenta dois dispatchers concorrentes, crashes reais
+pré/pós-vínculo, restart, revisão fixa, legado preparatório, troca explícita de
+recurso/versão, nova regra ask, deny/revoke/pausa antes do efeito, parada global,
+indisponibilidade longa, avisos e desconhecido sem retry. A API testa sessão e
+sondagem somente leitura, inclusive heartbeat incompatível.
+
+Na prova cloud, o worker CLI padrão criou a tarefa no horário UTC com a aba fechada.
+A agenda preparatória ativa não criou ocorrência. Reiniciar o worker durante a
+espera conservou a aprovação própria; depois dela houve um início POSIX real,
+duas gerações HTTP controladas, uma ocorrência concluída e um resumo na conversa.
+Chromium pt-BR/en/es390/1280 também comprovou resposta perdida após commit/reload
+com o mesmo UUID e sem POST automático. Isso não afirma seleção por LLM real,
+execução de apps/VM ou aceite humano da qualidade da entrega.

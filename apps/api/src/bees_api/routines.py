@@ -6,6 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from bees_api.auth import require_session
+from bees_api.worker_status import HEARTBEAT_KEY, worker_status
+from bees_core.executor_transport.contracts import TransportError
+from bees_core.providers.errors import ProviderError
 from bees_core.routines import (
     CreateRoutine,
     ReviseRoutine,
@@ -16,6 +19,10 @@ from bees_core.routines import (
     SetRoutineStatus,
 )
 from bees_core.security.identity import Session
+from bees_core.storage.store import NotFoundError
+from bees_core.tasks import TaskError
+from bees_core.tool_runtime import available_runtime
+from bees_core.tools import ToolError
 
 _SESSION = Annotated[Session, Depends(require_session)]
 _LIMIT = Annotated[int, Query(ge=1, le=100)]
@@ -44,6 +51,37 @@ def list_routines(
 @router.post("", response_model=RoutineView)
 def create(agent_id: UUID, body: CreateRoutine, request: Request, session: _SESSION):
     return _mutation(RoutineService(request.app.state.database).create, agent_id, body)
+
+
+@router.get("/runtime")
+def runtime_status(agent_id: UUID, request: Request, session: _SESSION):
+    store = request.app.state.store
+    with store.transaction(write=False) as unit:
+        if unit.agents.get(agent_id) is None:
+            raise NotFoundError("Abelha não encontrada.")
+    heartbeat = store.get_cache(HEARTBEAT_KEY)
+    reason = None
+    if (
+        not worker_status(store)["available"]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("routine_scheduler_version")) is not int
+        or heartbeat["routine_scheduler_version"] != 1
+    ):
+        reason = "worker_unavailable"
+    else:
+        try:
+            available_runtime(request.app.state.database, agent_id)
+        except TransportError:
+            reason = "resource_unavailable"
+        except TaskError, ToolError, ProviderError:
+            reason = "tool_unavailable"
+    return {
+        "available": reason is None,
+        "reason": reason,
+        "version": 1,
+        "max_calls": 4,
+        "max_active_seconds": 120,
+    }
 
 
 @router.get("/{routine_id}", response_model=RoutineView)

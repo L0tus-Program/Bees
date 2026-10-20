@@ -108,71 +108,87 @@ def _view(detail) -> dict:
         if messages:
             message = messages[-1]
             result = {"content": message.content, "created_at": message.created_at.isoformat()}
-    return {
-        "id": str(task.id),
-        "agent_id": str(task.agent_id),
-        "conversation_id": str(task.conversation_id) if task.conversation_id else None,
-        "title": task.title,
-        "objective": task.objective,
-        "expected_result": task.expected_result,
-        "status": task.status,
-        "revision": task.revision,
-        "created_at": task.created_at.isoformat(),
-        "updated_at": task.updated_at.isoformat(),
-        "active_run_id": str(run.id) if run else None,
-        "control_requested": (
-            "pause"
-            if task.desired_state == "paused" and task.status == "running"
-            else "cancel"
-            if task.desired_state == "cancelled" and task.status == "running"
-            else None
-        ),
-        "available_controls": controls,
-        "tool_approvals_available": task.metadata.get("execution_kind")
-        in (TASK_KIND, MODEL_TASK_KIND),
-        "model_approvals_available": task.metadata.get("execution_kind") != TASK_KIND,
-        "partial": run is not None
-        and task.status == "paused"
-        and run.checkpoint.get("partial") is True,
-        "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
-        "unknown_model_calls": detail.unknown_model_calls,
-        "unknown_tool_actions": detail.unknown_tool_actions,
-        "action_in_flight": detail.action_in_flight,
-        "max_calls": task.max_calls,
-        "max_active_seconds": task.max_active_seconds,
-        "calls_started": task.calls_started,
-        "active_milliseconds": task.active_milliseconds,
-        "deliverables": list(task.metadata.get("deliverables") or []),
-        "deliverable_results": _deliverables(run),
-        "publication_pending": _publication_pending(run),
-        "latest_run": (
-            {
-                "id": str(run.id),
-                "status": run.status,
-                "provider": run.provider,
-                "model": run.model,
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-                "error_code": run.error,
-                "result": result,
-            }
-            if run
-            else None
-        ),
-        "progress": {
-            "code": run.checkpoint.get("progress", task.status) if run else task.status,
-            "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
-        },
-    } | (
+    return (
         {
-            "skill_execution": {
-                "skill_id": task.metadata["skill_execution"]["skill_id"],
-                "version": task.metadata["skill_execution"]["version"],
-                "snapshot_hash": task.metadata["skill_execution_hash"],
-            }
+            "id": str(task.id),
+            "agent_id": str(task.agent_id),
+            "conversation_id": str(task.conversation_id) if task.conversation_id else None,
+            "title": task.title,
+            "objective": task.objective,
+            "expected_result": task.expected_result,
+            "status": task.status,
+            "revision": task.revision,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+            "active_run_id": str(run.id) if run else None,
+            "control_requested": (
+                "pause"
+                if task.desired_state == "paused" and task.status == "running"
+                else "cancel"
+                if task.desired_state == "cancelled" and task.status == "running"
+                else None
+            ),
+            "available_controls": controls,
+            "tool_approvals_available": task.metadata.get("execution_kind")
+            in (TASK_KIND, MODEL_TASK_KIND),
+            "model_approvals_available": task.metadata.get("execution_kind") != TASK_KIND,
+            "partial": run is not None
+            and task.status == "paused"
+            and run.checkpoint.get("partial") is True,
+            "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
+            "unknown_model_calls": detail.unknown_model_calls,
+            "unknown_tool_actions": detail.unknown_tool_actions,
+            "action_in_flight": detail.action_in_flight,
+            "max_calls": task.max_calls,
+            "max_active_seconds": task.max_active_seconds,
+            "calls_started": task.calls_started,
+            "active_milliseconds": task.active_milliseconds,
+            "deliverables": list(task.metadata.get("deliverables") or []),
+            "deliverable_results": _deliverables(run),
+            "publication_pending": _publication_pending(run),
+            "latest_run": (
+                {
+                    "id": str(run.id),
+                    "status": run.status,
+                    "provider": run.provider,
+                    "model": run.model,
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                    "error_code": run.error,
+                    "result": result,
+                }
+                if run
+                else None
+            ),
+            "progress": {
+                "code": run.checkpoint.get("progress", task.status) if run else task.status,
+                "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
+            },
         }
-        if "skill_execution" in task.metadata
-        else {}
+        | (
+            {
+                "skill_execution": {
+                    "skill_id": task.metadata["skill_execution"]["skill_id"],
+                    "version": task.metadata["skill_execution"]["version"],
+                    "snapshot_hash": task.metadata["skill_execution_hash"],
+                }
+            }
+            if "skill_execution" in task.metadata
+            else {}
+        )
+        | (
+            {
+                "routine_execution": {
+                    "routine_id": task.metadata["routine_execution"]["routine_id"],
+                    "revision": task.metadata["routine_execution"]["revision"],
+                    "occurrence_id": task.metadata["routine_execution"]["occurrence_id"],
+                    "scheduled_at": task.metadata["routine_execution"]["scheduled_at"],
+                    "name": task.metadata["routine_execution"]["definition"]["name"],
+                }
+            }
+            if "routine_execution" in task.metadata
+            else {}
+        )
     )
 
 

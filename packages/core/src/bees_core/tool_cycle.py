@@ -184,7 +184,7 @@ class ToolTaskService(TaskService):
         with self.store.transaction(source="tool_task_create") as unit:
             return self.create_bound_in_unit(unit, agent_id, value)
 
-    def create_bound_in_unit(self, unit, agent_id, value, *, metadata=None):
+    def create_bound_in_unit(self, unit, agent_id, value, *, metadata=None, routine_id=None):
         """Composição confiável fixa contexto e criação na mesma transação."""
         if value.deliverables:
             raise TaskError("unsupported_capability")
@@ -192,6 +192,7 @@ class ToolTaskService(TaskService):
         if prior is not None:
             if (
                 prior.agent_id != UUID(str(agent_id))
+                or prior.routine_id != routine_id
                 or prior.metadata.get("execution_kind") != MODEL_TASK_KIND
                 or prior.metadata.get("submission_hash") != submission_digest(value)
                 or prior.metadata.get("tool_cycle_binding") != self.binding()
@@ -218,6 +219,7 @@ class ToolTaskService(TaskService):
             agent_id,
             value,
             metadata=(metadata or {}) | {"tool_cycle_binding": self.binding()},
+            routine_id=routine_id,
         )
         return unit.tasks.update(
             task.model_copy(
@@ -297,6 +299,11 @@ class ToolTaskWorker(TaskWorker):
         skill = skill_instruction(task)
         if skill:
             parts.append(skill)
+        from bees_core.routine_context import routine_instruction
+
+        routine = routine_instruction(task)
+        if routine:
+            parts.append(routine)
         return "\n\n".join(parts)
 
     def _tools(self, unit, task, run):
@@ -308,8 +315,11 @@ class ToolTaskWorker(TaskWorker):
 
         try:
             skill = validate_skill_task(unit, task)
-        except TaskError:
-            raise ProviderError("skill_unavailable") from None
+            from bees_core.routine_context import validate_routine_task
+
+            validate_routine_task(unit, task)
+        except TaskError as error:
+            raise ProviderError(error.code) from None
         if skill is not None and not skill["definition"]["resources"]["tools"]:
             return []
         if self._counter(task) >= MAX_TOOL_CALLS or task.calls_started >= MAX_CALLS:

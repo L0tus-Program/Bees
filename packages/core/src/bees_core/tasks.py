@@ -167,7 +167,9 @@ class TaskService:
         with self.store.transaction(source="task_create") as uow:
             return self.create_in_unit(uow, agent_id, value)
 
-    def create_in_unit(self, uow, agent_id: UUID | str, value: TaskInput, *, metadata=None) -> Task:
+    def create_in_unit(
+        self, uow, agent_id: UUID | str, value: TaskInput, *, metadata=None, routine_id=None
+    ) -> Task:
         """Cria fila/conversa/run na transação confiável do chamador, sem rede."""
         value = TaskInput.model_validate(value.model_dump(mode="python"))
         agent_id = UUID(str(agent_id))
@@ -176,6 +178,7 @@ class TaskService:
         if existing is not None:
             if (
                 existing.agent_id != agent_id
+                or existing.routine_id != routine_id
                 or existing.metadata.get("execution_kind", "text_task") != "text_task"
                 or existing.metadata.get("submission_hash") != digest
                 or (
@@ -195,6 +198,7 @@ class TaskService:
         )
         task = Task(
             agent_id=agent.id,
+            routine_id=routine_id,
             conversation_id=conversation.id,
             title=value.title,
             objective=value.objective,

@@ -1,6 +1,7 @@
 """Agenda humana e ocorrências duráveis. Consultas nunca despacham trabalho."""
 
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
@@ -35,6 +36,14 @@ class RoutineDestination(Contract):
     conversation_id: UUID
 
 
+class RoutineRuntimeBinding(Contract):
+    installation_id: UUID
+    resource_id: UUID
+    plugin_id: UUID
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    tool_version: Literal["1"] = "1"
+
+
 class RoutineDefinition(Contract):
     name: str = Field(min_length=1, max_length=200)
     instructions: str = Field(min_length=1, max_length=4096)
@@ -49,6 +58,9 @@ class RoutineDefinition(Contract):
     grace_seconds: int = Field(default=60, ge=0, le=3600, strict=True)
     misfire_policy: Literal["skip"] = "skip"
     overlap_policy: Literal["skip"] = "skip"
+    # Definições anteriores eram somente preparatórias; upgrade não ativa execução.
+    execution_mode: Literal["prepare", "scheduled"] = "prepare"
+    runtime_binding: RoutineRuntimeBinding | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -61,7 +73,11 @@ class RoutineDefinition(Contract):
 
     @model_validator(mode="after")
     def bounded(self):
-        raw = self.model_dump_json()
+        raw = self.model_dump_json(
+            exclude={"execution_mode", "runtime_binding"}
+            if self.execution_mode == "prepare" and self.runtime_binding is None
+            else set()
+        )
         if len(raw.encode()) > 32768 or _SECRET.search(raw):
             raise ValueError("Rotina excede o limite ou contém possível credencial.")
         if any(not value.strip() or len(value) > 2048 for value in self.inputs.values()):
@@ -82,6 +98,19 @@ class ReviseRoutine(Command):
 class SetRoutineStatus(Command):
     expected_revision: int = Field(ge=1, strict=True)
     status: Literal["active", "paused", "cancelled"]
+
+
+def command_hash(command):
+    payload = command.model_dump(mode="json")
+    definition = payload.get("definition")
+    if isinstance(definition, dict) and definition.get("execution_mode") == "prepare":
+        # Replays anteriores ao scheduler conservam o hash exato já persistido.
+        definition.pop("execution_mode")
+    if isinstance(definition, dict) and definition.get("runtime_binding") is None:
+        definition.pop("runtime_binding", None)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 class RoutineRevision(Contract):
@@ -187,11 +216,12 @@ class RoutineService:
             raise IntegrityError("Integridade da definição de rotina inválida.")
         return RoutineDefinition.model_validate_json(row[0])
 
-    def _get(self, unit, connection, agent_id, routine_id):
+    @classmethod
+    def _get(cls, unit, connection, agent_id, routine_id):
         routine = unit.routines.get(routine_id)
         if routine is None or routine.agent_id != agent_id:
             raise NotFoundError("Rotina não encontrada nesta abelha.")
-        definition = self._definition(connection, routine.id, routine.revision)
+        definition = cls._definition(connection, routine.id, routine.revision)
         cursor = connection.execute(
             "SELECT next_run_at FROM routine_cursors WHERE routine_id=? AND routine_revision=?",
             (str(routine.id), routine.revision),
@@ -258,13 +288,24 @@ class RoutineService:
             raise ValueError("Entradas precisam satisfazer a revisão fixa da skill.")
         if definition.environment != revision.definition.resources.environment:
             raise ValueError("Ambiente precisa corresponder ao declarado pela skill.")
+        if definition.execution_mode == "scheduled":
+            from bees_core.skill_context import SkillTaskInput, supported
+
+            if not supported(revision.definition):
+                raise ValueError("A execução programada exige recursos compatíveis.")
+            SkillTaskInput(
+                client_request_id=UUID(int=1),
+                skill_id=definition.skill_id,
+                skill_version=definition.skill_version,
+                inputs=definition.inputs,
+            )
         conversation = unit.conversations.get(definition.destination.conversation_id)
         if conversation is None or conversation.agent_id != agent_id:
             raise NotFoundError("Conversa de destino não encontrada nesta abelha.")
 
     def _mutate(self, agent_id, routine_id, command, operation):
         target = operation + (":" + str(routine_id) if routine_id else "")
-        digest = hashlib.sha256(_canonical(command).encode()).hexdigest()
+        digest = command_hash(command)
         with self.store.transaction(actor="user", source="routine_human") as unit:
             connection, agent_id = self._connection(unit, agent_id)
             replay = connection.execute(
@@ -289,6 +330,33 @@ class RoutineService:
                 if operation == "status"
                 else ("active" if operation == "create" and command.active else "paused")
             )
+            if definition.execution_mode == "scheduled" and (
+                operation != "status" or status == "active"
+            ):
+                from bees_core.executor_transport.contracts import TransportError
+                from bees_core.providers.errors import ProviderError
+                from bees_core.tasks import TaskError
+                from bees_core.tool_runtime import available_runtime
+                from bees_core.tools import ToolError
+
+                try:
+                    resource, plugin_id = available_runtime(self.store.database, agent_id)
+                    plugin = unit.plugins.get(plugin_id)
+                    binding = RoutineRuntimeBinding(
+                        installation_id=resource.identity.installation_id,
+                        resource_id=resource.identity.resource_id,
+                        plugin_id=plugin_id,
+                        manifest_hash=plugin.manifest_hash,
+                    )
+                except TransportError, ProviderError, ToolError, TaskError:
+                    raise RevisionConflict(
+                        "Recurso atual indisponível; confira instalação e concessão."
+                    ) from None
+                if definition.runtime_binding is not None and definition.runtime_binding != binding:
+                    raise RevisionConflict(
+                        "Recurso ou versão mudou; revise e selecione o recurso atual."
+                    )
+                definition = definition.model_copy(update={"runtime_binding": binding})
             self._validate_links(unit, connection, agent_id, definition, active=status == "active")
             now = _utc(self.clock())
             cursor = (
@@ -404,14 +472,22 @@ class RoutineService:
         with self.store.transaction(write=False) as unit:
             connection, agent_id = self._connection(unit, agent_id)
             routine = self._get(unit, connection, agent_id, UUID(str(routine_id)))
-            return [
-                self._occurrence(row)
-                for row in connection.execute(
-                    "SELECT * FROM routine_occurrences WHERE routine_id=? "
-                    "ORDER BY scheduled_at DESC,id LIMIT ? OFFSET ?",
-                    (str(routine.id), limit, offset),
-                )
-            ]
+            result = []
+            for row in connection.execute(
+                "SELECT * FROM routine_occurrences WHERE routine_id=? "
+                "ORDER BY scheduled_at DESC,id LIMIT ? OFFSET ?",
+                (str(routine.id), limit, offset),
+            ):
+                occurrence = self._occurrence(row)
+                if occurrence.task_id is not None:
+                    task = unit.tasks.get(occurrence.task_id)
+                    if task is None or task.agent_id != agent_id or task.routine_id != routine.id:
+                        raise IntegrityError("Vínculo de tarefa da ocorrência inválido.")
+                    occurrence = occurrence.model_copy(
+                        update={"metadata": {"task_status": task.status}}
+                    )
+                result.append(occurrence)
+            return result
 
     def evaluate(self, agent_id, routine_id, *, expected_revision: int, now: datetime):
         """Materialização interna limitada; não inicia Task, modelo ou efeito externo.
