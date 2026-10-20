@@ -8,6 +8,7 @@ import { AuthForm } from './features/auth/AuthForm'
 import { Dashboard } from './features/dashboard/Dashboard'
 import { useResource } from './hooks/useResource'
 import { setupAuthorization } from './features/auth/setupAuthorization'
+import { AppearanceSelect } from './components/AppearanceSelect'
 
 export function App() {
   const { t, i18n } = useTranslation('product')
@@ -35,7 +36,7 @@ export function App() {
       <a className="skip-link" href="#main">{t('skip')}</a>
       <header className="app-header">
         <div className="brand"><img src="/bee.svg" alt="" width="42" height="42" /><span>bees<span className="brand-period">.</span></span></div>
-        <div className="header-controls"><span className="release-label">{t('textAssistant')}</span><label className="language-select"><span className="sr-only">{t('language')}</span><select value={i18n.resolvedLanguage ?? 'pt-BR'} onChange={(event) => { void i18n.changeLanguage(event.target.value) }}><option value="pt-BR">Português</option><option value="en">English</option><option value="es">Español</option></select></label>{authenticated && <button type="button" className="text-button" disabled={signingOut} onClick={() => { void signOut() }}>{t(signingOut ? 'working' : 'signOut')}</button>}</div>
+        <div className="header-controls"><span className="release-label">{t('textAssistant')}</span><AppearanceSelect /><label className="language-select"><span className="sr-only">{t('language')}</span><select value={i18n.resolvedLanguage ?? 'pt-BR'} onChange={(event) => { void i18n.changeLanguage(event.target.value) }}><option value="pt-BR">Português</option><option value="en">English</option><option value="es">Español</option></select></label>{authenticated && <button type="button" className="text-button" disabled={signingOut} onClick={() => { void signOut() }}>{t(signingOut ? 'working' : 'signOut')}</button>}</div>
       </header>
       <main id="main" tabIndex={-1}>
         {error && <ErrorNotice error={error} />}

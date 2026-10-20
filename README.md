@@ -29,6 +29,8 @@ Operadores também podem subir com `docker compose up --build --detach --wait`. 
 
 Os comandos abaixo partem da raiz do checkout. Python usa a `.venv` da raiz; frontend usa `apps/web/node_modules`. `uv.lock` e `apps/web/package-lock.json` controlam as dependências. Não instalar pacotes Python globais para executar o Bees.
 
+A interface oferece aparência clara, escura ou do sistema, com preferência por navegador. Veja [aparência e acessibilidade](docs/appearance.md).
+
 ## Desenvolvimento local
 
 Instalar:
