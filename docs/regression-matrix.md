@@ -32,7 +32,7 @@ contêm os casos positivos e negativos existentes; não são novos executores de
 | Host/guest e TLS / #26–31, #96–97 | Identidade TLS incorreta, credencial revogada, servidor perdido, sequência após restart. | [test_guest_interoperability.py](../scripts/tests/test_guest_interoperability.py), [test_provisioning_enrollment_interoperability.py](../scripts/tests/test_provisioning_enrollment_interoperability.py). Processos, TLS/HTTP e arquivos próprios reais; probes de máquina controlados. | Não comprova guest instalado nem VM pronta. Aceite físico segue separado. |
 | Provisionamento / #26–31, #119, #124 | GO só após autoridade, stop/revogação enquanto filho aguarda, lease expirado após GO, recibo confirmado com resposta perdida e claim reapresentado sem segundo GO. | `scripts/tests/test_provisioning_{interoperability,http_interoperability,supervisor_interoperability,acquisition_interoperability}.py`; [test_provisioning_rejection.py](../apps/host/tests/test_provisioning_rejection.py). Processo, FS, SQLite e HTTP loopback reais; backend VMMS controlado. | A recusa definitiva de #124 não reclassifica incerteza antiga. Windows nativo e Hyper-V físico têm gates próprios; job Linux não os substitui. |
 | Artefatos / #56–59 | Blob alterado/ausente, disco cheio, crash entre blob/COMMIT, versão concorrente, nomes maliciosos, resposta pós-publicação perdida, troca de conversa/destino e sessão expirada. | [test_artifacts.py](../packages/core/tests/test_artifacts.py), [test_artifact_uploads.py](../packages/core/tests/test_artifact_uploads.py), [test_task_deliverables.py](../packages/core/tests/test_task_deliverables.py), `apps/api/tests/test_artifacts_api.py`, `test_artifact_upload.py`, `test_artifact_chat.py`, `apps/web/src/features/artifacts/*.test.*`. SQLite/blobs/HTTP próprios reais e React/DOM. | Formatos suportados são texto UTF-8; conteúdo não é instrução/permissão. GUI autenticada anterior está documentada em [artifacts.md](artifacts.md#validação); não demonstra geração de modelo real. |
-| Skills e rotinas / #64–71 | Versão imutável, importação hostil, CAS/replay, DST, pausa/edição na fronteira, duas materializações concorrentes, restart e não sobreposição. | [test_skills.py](../packages/core/tests/test_skills.py), [test_routines.py](../packages/core/tests/test_routines.py), respectivas APIs/tests. SQLite real; tempo/corpus controlados. | Rotinas materializam ocorrências; isso não comprova scheduler despachando tarefas nem silêncio por resultado sem mudança. |
+| Skills e rotinas / #17, #25, #64–71 | Revisão/entradas fixas, importação hostil, CAS/replay, DST, dois dispatchers, crash pré/pós-commit, pausa/cancel/revoke/ask/deny e unknown sem retry. | [test_skills.py](../packages/core/tests/test_skills.py), [test_skill_tasks.py](../packages/core/tests/test_skill_tasks.py), [test_routines.py](../packages/core/tests/test_routines.py), [test_routine_scheduler.py](../packages/core/tests/test_routine_scheduler.py) e APIs/UI. SQLite, processos POSIX, CLI padrão e Chromium reais; provider HTTP controlado. | Scheduler com aba fechada e reinício durante aprovação demonstrados no [recorte nativo](routines.md#evidência-e-limites). Não demonstra LLM real, VM/apps/pessoal ou avaliação semântica de mudança relevante. |
 | Consumo / #72–73, #128 | Duas reservas concorrentes, falta/negativo/incoerência de usage não viram zero, timeout conserva reserva, dupla liquidação e vínculos adulterados recusados. | [test_budgets.py](../packages/core/tests/test_budgets.py), [test_usage_integrity.py](../packages/core/tests/test_usage_integrity.py), `test_budgets_api.py`. SQLite real, subprocesso perdido após aceite e testes SQL diretos. | Teto local de tokens por abelha não é garantia de faturamento nem quota de ferramentas/CPU/disco. Migração 0016 recusa legado incoerente sem liberar reserva. |
 | Parada global / #74 | Stop durante preflight, geração antiga após stop/resume, restart, resposta perdida e retomada que não reconhece unknown. | [test_global_stop.py](../packages/core/tests/test_global_stop.py), [test_task_control_consumption.py](../packages/core/tests/test_task_control_consumption.py), `test_global_stop_api.py`, `test_provisioning.py::test_global_stop_cuts_at_begin_and_fences_old_claim_after_resume`. | Operação já autorizada pode terminar e consumir. Geração em executor de ferramenta/rotina e ambos ambientes físicos têm aceites próprios. |
 | Atenção/atividade / #75–76 | Rollback de projeção, aviso duplicado, decisão expirada, unknown lido/silenciado, snapshot regressivo, ID estrangeiro, payload extra e histórico >1.000 runs. | [test_attention.py](../packages/core/tests/test_attention.py), [test_activity.py](../packages/core/tests/test_activity.py), `apps/api/tests/test_{attention,activity}_api.py`; contratos/state/context e componentes web correspondentes. | Observação não libera reserva. Aviso de rotina sem mudança/escopo conversa é pendência de #75. GUI/API real anterior em [activity.md](activity.md#validação-de-12102026). |
@@ -81,6 +81,22 @@ Não solicitar PAT para contornar essa condição.
 O SHA acima **não** inclui as alterações novas deste lote. O responsável pela
 integração deve acrescentar run/head/jobs do próximo head publicado antes de
 considerar a revisão atual validada remotamente.
+
+### Atualização da integração — 19/10/2026
+
+PRs #131–#139 foram integrados em `dev`, terminando em `2de1639`, cuja árvore é
+idêntica ao head `d93c0598c73de4af63e3163fde9ef3f3ddec5646` do PR #139.
+Todos os jobs dos runs [39355014126](https://github.com/L0tus-Program/Bees/actions/runs/39355014126)
+e [39355072756](https://github.com/L0tus-Program/Bees/actions/runs/39355072756)
+passaram, inclusive Windows. Isso substitui o diagnóstico Windows pendente anterior;
+continuam sendo observações sobrepostas, sem soma.
+
+O coletor ainda falha com `ci_log_fetch_failed`. O CLI pode retornar exit0 com stdout
+vazio; o endpoint oficial de logs identificou `Forbidden` em
+`productionresultssa12.blob.core.windows.net`. O requisito exato foi salvo no
+rascunho de rede, sem afirmar aplicação/publicação. Nenhum relatório `verified`,
+log bruto, URL assinada ou contagem remota foi produzido. CI do scheduler tem seu
+próprio head/run; não herda o sucesso desses runs anteriores.
 
 ## Contagens locais e regra contra dupla contagem
 

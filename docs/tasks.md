@@ -5,7 +5,7 @@ O [modo opcional de transformação local](tool-cycle.md) acrescenta um ciclo li
 A [reexecução de skill](skills.md#reexecutar-em-tarefa-nova) cria uma tarefa nesse
 ciclo com revisão e entradas fixas, sem herdar grants ou decisões de outra execução.
 
-Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurado na abelha. O usuário fornece objetivo e resultado esperado, acompanha o estado e consulta a resposta. Navegação, arquivos, aplicativos, ferramentas e rotinas dependem das próximas histórias; uma resposta do modelo não comprova execução dessas ações.
+Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurado na abelha. O usuário fornece objetivo e resultado esperado, acompanha o estado e consulta a resposta. O [scheduler](routines.md) pode criar tarefas nesse mesmo ciclo, com rotina/revisão/ocorrência fixadas. Navegação, aplicativos e demais executores mantêm seus aceites próprios; uma resposta do modelo não comprova efeito externo.
 
 ## Uso
 

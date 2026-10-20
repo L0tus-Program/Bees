@@ -5,11 +5,13 @@ A entrega parcial de BEES-021.3 (#71) expõe a gestão das definições do
 com idioma português, inglês ou espanhol. A escolha dessa seção e da abelha
 continua usando o contexto de navegação existente.
 
-O painel informa que o agendador automático ainda não está disponível. Salvar,
-revisar ou preparar uma agenda futura não inicia tarefa, modelo, ferramenta,
-mensagem externa ou execução manual. `active` é apresentado como **Elegível para
-agendador futuro**, com a mesma explicação na confirmação. O próximo horário é
-uma previsão canônica consultada da API, não uma promessa de execução do worker.
+O painel consulta a capacidade atual do worker e do recurso sem efeitos. O padrão
+é uma agenda preparatória: mesmo ativa, ela não cria tarefas. Para execução no
+horário, marque **Permitir tarefas automáticas quando esta agenda for ativada**,
+revise os limites e salve; a revisão fica pausada até outra confirmação em
+**Ativar agenda**. O worker continua com a aba fechada. O próximo horário vem da
+API; indisponibilidade, tolerância e sobreposição determinam o que pode executar.
+Não há execução manual, instalação ou concessão implícita.
 
 ## Criar, revisar e controlar
 
@@ -26,10 +28,12 @@ de atraso/sobreposição. O usuário confirma esse pedido. Criar ou editar salva
 uma revisão pausada; editar também cancela ocorrências pendentes. Voltar da
 revisão conserva os campos editados.
 
-Pausar, preparar elegibilidade futura e cancelar também passam por confirmação
-com o efeito explícito e o CAS da revisão exibida. Cancelamento é terminal.
-A preparação da agenda informa que a skill precisa estar habilitada e que o
-agendador continua indisponível; a API valida a habilitação e a revisão atual.
+Pausar, ativar e cancelar também passam por confirmação com o efeito explícito
+e o CAS da revisão exibida. Cancelamento é terminal. A skill precisa estar
+habilitada na revisão fixa. A execução automática exige o runtime compatível;
+texto sem ferramentas e `own`/`text.normalize` são os recortes disponíveis.
+Instalação/recurso/versão ficam fixados na definição. Uma troca exige editar,
+selecionar explicitamente o recurso atual e salvar/ativar novamente.
 Rotinas legadas são identificadas como metadados sem execução: não recebem um
 controle de elegibilidade direta. Uma revisão completa pode convertê-las para
 o contrato novo e pausado.
@@ -73,6 +77,8 @@ Listas de rotinas, skills, ocorrências e revisões têm páginas de 50 itens,
 carregadas por ação do usuário. Consultas não materializam ocorrências nem
 iniciam execução. O histórico apresenta estados, motivo de skip, janelas de
 indisponibilidade e snapshots humanos; não cria resultados ou atenção fictícios.
+Quando há tarefa vinculada, mostra seu estado e **Abrir tarefa e decisões**:
+origem, resultado, controles e aprovação própria usam os componentes comuns.
 
 O próximo horário mostra o instante UTC retornado pela API no fuso declarado.
 Ocorrências históricas usam o fuso da revisão correspondente quando seu snapshot
@@ -96,14 +102,17 @@ Nenhum estado ou serviço existente foi usado para esses dados de teste.
 
 Os testes do transporte e do painel verificam contratos fechados, isolamento,
 UUID/CAS, revisão antes da escrita, criação pausada, pausa/cancelamento,
-elegibilidade futura sem execução, recuperação de resposta perdida com o mesmo
+modo preparatório sem execução, recuperação de resposta perdida com o mesmo
 pedido após remount, GET obrigatório antes do retry, armazenamento bloqueado,
 resposta inválida, conflito, histórico paginado, fuso da revisão, texto escapado,
 traduções e controles nativos. TypeScript e ESLint validam os novos arquivos.
 
-A #71 permanece **Entrega Parcial**. Não estão entregues o scheduler/claim e
-execução da #70, execução manual, propostas de agenda pela conversa, projeção de
-atenção/avisos de resultados reais nem o aceite de rotina com aprovação pendente.
-Essas dependências exigem a execução real de revisão de skill (#67) e integração
-com as políticas/entregas existentes. Os controles de definição não comprovam
-esses comportamentos.
+A prova adicional do [scheduler](routines.md#evidência-e-limites) usou o CLI padrão,
+aba fechada no horário UTC, reinício durante aprovação e um início POSIX real.
+O histórico exibiu espera, origem e conclusão; houve um resumo local opcional.
+Chromium pt-BR/en/es390/1280 também verificou perda real de resposta após commit
+e recuperação com o mesmo UUID. O provider HTTP era controlado, sem chamadas pagas.
+
+A #71 permanece **Entrega Parcial**: execução manual, propostas de agenda pela
+conversa e aceite humano amplo de atenção/qualidade continuam pendentes. VM,
+apps, máquina pessoal e seleção por LLM real não foram comprovados por essa prova.

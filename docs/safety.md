@@ -58,7 +58,7 @@ A verificação ocorre antes de cada efeito novo e dentro da mesma transação q
 
 - **Chat**: antes de gravar a mensagem, junto da política e do limite de consumo, e de novo na autorização imediatamente antes da rede. A segunda verificação também compara a geração: parar e retomar durante a preparação de um chat ainda recusa esse envio. Nesse caso a mensagem já gravada fica sem resposta, como numa revogação de política no mesmo intervalo.
 - **Worker**: não reivindica tarefas enquanto parado. Uma tarefa reivindicada antes da parada volta para a fila sem iniciar a chamada (`calls_started` inalterado, chamada preparada descartada com `global_stop`), tanto antes quanto depois do preflight do provedor. Quando a recusa ocorre depois do preflight, o tempo gasto nele conta no limite de tempo ativo da tarefa, como nas demais falhas antes do despacho. A autorização final compara a geração; uma tarefa preparada antes de uma parada nunca segue com a geração antiga, mesmo após a retomada.
-- **Ferramentas**: antes de `dispatch_started`. A ação continua `ready`, sem efeito, e pode ser despachada depois da retomada. Aqui a verificação compara só o estado, não a geração; a única ferramenta atual é interna e sem efeito externo. A cerca por geração deve acompanhar os executores reais.
+- **Ferramentas**: antes de `dispatch_started`. O builtin interno verifica o estado. No [recurso POSIX](resource-tool-approvals.md), intenção, aprovação e efeito também fixam a geração; parar/retomar invalida a autorização antiga, sem consumir outra vez nem repetir um resultado desconhecido. Efeito já iniciado conserva seu journal.
 - **Provisionamento**: o claim registra a geração vigente e não é criado com o Bees parado. `begin` recusa com `provisioning_global_stop` enquanto parado ou quando o claim é de geração anterior, inclusive depois da retomada. Uma etapa cujo `begin` já foi confirmado segue: guarda online, renovação, recibo e registro de `unknown` continuam aceitos, para que o resultado seja publicado. A sequência para na etapa seguinte. O helper distingue a recusa comprovada sem efeito pela resposta fechada e pelo UUID persistido: a aquisição ou a etapa termina `stopped`, preservando as etapas anteriores. Perda de resposta, erro não reconhecido, timeout e replay em cache continuam incertos e bloqueados. A retomada não repete o UUID recusado nem libera um efeito realmente incerto. Consulte [recusas definitivas](provision-rejection.md). Veja [provisionamento](provisioning.md).
 
 ## Retomada
@@ -71,7 +71,7 @@ Retomar libera novas operações; nada que foi recusado é reenviado por isso:
 
 ## Limites deste checkpoint
 
-- Rotinas têm definições e ocorrências persistentes, sem scheduler ou execução de skills nesta entrega. O futuro despachante deve verificar estado e geração antes de cada efeito. O aceite dos ambientes reais continua pendente.
+- O [scheduler de rotinas](routines.md) deixa de materializar/despachar trabalho novo enquanto parado. Tarefas já criadas usam as mesmas guardas de geração e ferramenta; a reconciliação de resultados conhecidos permanece possível. Agendas antigas continuam preparatórias. VM/apps/máquina pessoal e seus aceites permanecem separados.
 - Pausar uma única abelha, tarefa ou ambiente específico continua nos controles próprios de cada recurso.
 - A parada é uma regra do serviço Bees. Não bloqueia processos externos que acessem o banco ou as credenciais diretamente, nem interrompe um efeito remoto já despachado.
 

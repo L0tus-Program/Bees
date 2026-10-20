@@ -75,7 +75,7 @@ Loopback dentro do container não é o host Windows/Linux. Um Ollama já instala
 
 Esta distribuição local não inclui proxy/certificado HTTPS. Não publique a porta em `0.0.0.0` no host. Acesso remoto autenticado via túnel SSH mantém a URL local; publicação por proxy segue o modo nativo documentado em [primeiro acesso](onboarding.md). O modo container não confia em headers de proxy por padrão, e não basta definir uma URL pública para obter HTTPS.
 
-Compose empacota o plano de controle. Inclui worker de tarefas textuais; não provisiona VM da abelha, conector pessoal, ferramentas ou scheduler de rotinas. Esses componentes serão acrescentados quando suas histórias estiverem implementadas.
+Compose empacota o plano de controle com o worker padrão, incluindo tarefas textuais e o [scheduler de rotinas](routines.md). Ciclos de ferramentas/skills programadas exigem o recurso POSIX previamente preparado e as concessões atuais; subir Compose não os instala ou concede. Essa distribuição não comprova VM da abelha, apps ou conector pessoal.
 
 Validação reproduzível com modelo de protocolo controlado, sem chaves reais:
 
