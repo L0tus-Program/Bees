@@ -3,7 +3,7 @@ import { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { setCsrfToken } from '../../api/client'
-import { controlTask, getTask, getTasks } from '../../api/tasks'
+import { actionStatuses, controlTask, getTask, getTasks } from '../../api/tasks'
 import type { ActionSummary, TaskRecord } from '../../api/tasks'
 import { taskResources } from '../../locales/tasks'
 import { ActionHistory } from './ActionHistory'
@@ -103,6 +103,17 @@ describe('one recovery acknowledgment for independent journals', () => {
     expect(html).toContain('text.normalize'); expect(html).toContain('Resultado desconhecido ainda não reconhecido'); expect(html).toContain('Resultado desconhecido reconhecido')
     expect(html).toContain('contexto anterior'); expect(html).toContain('Pronta para execução'); expect(html).toMatch(/datetime="2026-10-06T18:00:00Z"/i)
     expect(html).not.toContain('<button'); expect(html).not.toContain('<input')
+  })
+  it.each(['pt-BR', 'en', 'es'] as const)('explains canonical action outcomes and separates used authorization from confirmed effect in %s', async (language) => {
+    const history = actionStatuses.map((status, index) => ({ ...action, id: `record-${index}`, status, acknowledged: status === 'outcome_unknown' }))
+    const html = await render(<ActionHistory actions={[...history, { ...action, id: 'used-intent', tool_name: 'tool.intent', status: 'confirmed' }]} hasMore={true} />, language)
+    const texts = taskResources[language]
+    expect(html).toContain(texts.authorizationUsedHelp)
+    for (const status of actionStatuses) expect(html).toContain(texts.actionHelp[status])
+    expect(html).toContain(texts.actionAcknowledged)
+    expect(html).toContain(texts.actionLimited)
+    expect(html).not.toMatch(/<button|<input|actionHelp\./)
+    expect(html).not.toContain('tool.intent')
   })
   it.each(['en', 'es'] as const)('translates mixed acknowledgment and action readiness in %s', async (language) => {
     const html = await render(<><UnknownAcknowledgment kind="mixed" checked={false} onChange={() => {}} /><ActionHistory actions={[{ ...action, status: 'ready' }]} hasMore={false} /></>, language)
