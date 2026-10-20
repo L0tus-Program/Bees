@@ -1,0 +1,8 @@
+.export-panel { display: grid; gap: 1rem; }
+.export-panel h1, .export-panel p { margin: 0; }
+.export-panel fieldset { border: 1px solid var(--line, #d8d8c8); border-radius: 1rem; padding: 1rem; display: grid; gap: .8rem; min-width: 0; }
+.export-receipt { display: grid; gap: .9rem; border-block: 1px solid var(--line, #d8d8c8); padding-block: 1rem; min-width: 0; }
+.export-receipt dl { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 0; }
+.export-receipt dd { margin: .25rem 0 0; }
+.export-receipt code { overflow-wrap: anywhere; }
+.export-receipt details p { margin-block: .6rem; }

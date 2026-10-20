@@ -21,9 +21,49 @@ ou acesso pelo credenciamento de host/provisionador.
 A operação é síncrona e limitada. Não exporte continuamente; o snapshot longo
 mantém uma leitura SQLite aberta e pode atrasar checkpoints WAL. Cada solicitação
 cria um identificador independente, sem alterar revisões ou eventos de produto.
-A interface de download na aplicação é trabalho de integração; a API já permite
-a operação humana autenticada. A [restauração BEES-023.2 (#79)](restoration.md) publica somente uma instalação
+A interface autenticada oferece **Meus dados** no cabeçalho, inclusive sem abelha
+selecionada. A [restauração BEES-023.2 (#79)](restoration.md) publica somente uma instalação
 nova e inativa, com revisão humana de acesso e reconexão obrigatória.
+
+## Exportar pela interface
+
+O painel informa que a cópia inclui todas as abelhas da instalação e contém dados
+privados sem criptografia. A criação exige consentimento próprio, inicialmente
+desmarcado. Depois da confirmação do servidor, **Última cópia confirmada** mostra
+tamanho, registros e arquivos; **Baixar cópia verificada** é uma ação separada.
+Antes de solicitar o download, o navegador confere resposta autenticada, nome,
+tipo, tamanho e SHA-256, com limite de 256 MiB e prazo total de dois minutos para
+o download/verificação. O ZIP é entregue como blob inerte, sem abrir seu conteúdo.
+O aviso de download solicitado não comprova que o navegador o salvou em disco.
+
+A aba guarda somente a referência confirmada e os metadados necessários à
+verificação em `sessionStorage`. Reabrir ou recarregar não cria cópia nem baixa
+arquivo automaticamente. A referência permite consultar o mesmo ZIP após reiniciar
+a API. Logout e sessão inválida limpam a referência local; o arquivo no servidor
+continua privado e exige uma sessão humana válida para download.
+
+O endpoint de criação não tem UUID de comando ou consulta por intenção. Uma resposta
+perdida pode deixar um arquivo pronto sem confirmação na interface. O painel conserva
+essa incerteza após reload e preserva a última referência confirmada, quando existe.
+Criar outra cópia exige consentimento novo e produz outro arquivo independente;
+não é replay da criação anterior. Se não consegue guardar a intenção local antes
+do pedido, a interface não envia a criação. Se o armazenamento falha depois de uma
+confirmação válida, a cópia permanece disponível em memória e o painel pede baixá-la
+antes de fechar/recarregar a aba.
+
+**Esquecer referência desta aba** só remove os metadados locais. Não apaga os ZIPs
+do servidor ou os arquivos já baixados. A interface não oferece listagem geral de
+cópias antigas, exclusão, restauração automática ou ativação de autoridade. Esses
+limites não alteram as operações de operador documentadas abaixo.
+
+A validação da interface usa contratos fechados, streaming limitado, adulteração,
+timeout, armazenamento bloqueado, resposta perdida e reabertura. Chromium com API
+real, em pt-BR/en/es e 390/1280 px, verificou download, foco/teclado, temas claro/escuro,
+restart da API e sessão revogada. Também conferiu a limpeza após criação recusada
+com 401 e carregamento inicial sem sessão válida. Quatro pacotes próprios incluíram duas abelhas e um
+blob aceito, com nove downloads conferidos; as 35 tabelas canônicas permaneceram
+idênticas, sem tarefas ou chamadas de modelo. É uma prova com dados de teste, sem
+aceite de continuação por modelo/ambiente real.
 
 ## Formato `bees.logical`, versão 2
 
