@@ -7,6 +7,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from bees_api.artifact_transport import artifact_upload
+from bees_api.restoration_transport import restoration_upload
 
 
 class RequestSafetyMiddleware:
@@ -40,7 +41,9 @@ class RequestSafetyMiddleware:
 
         # A rota binária autentica, confere CSRF/escopo/cabeçalhos e só então recebe
         # seu corpo limitado. Nenhuma outra rota escapa do limite global de JSON.
-        if scope["method"] not in ("GET", "HEAD", "OPTIONS") and not artifact_upload(scope):
+        if scope["method"] not in ("GET", "HEAD", "OPTIONS") and not (
+            artifact_upload(scope) or restoration_upload(scope)
+        ):
             lengths = [value for key, value in scope["headers"] if key == b"content-length"]
             try:
                 if len(lengths) > 1:
