@@ -10,6 +10,7 @@ from bees_api.worker_status import HEARTBEAT_KEY, worker_status
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import ProviderError
 from bees_core.routine_manual import ManualRoutineInput, ManualRoutineReceipt, ManualRoutineService
+from bees_core.routine_proposals import RoutineProposal, RoutineProposalService
 from bees_core.routines import (
     CreateRoutine,
     ReviseRoutine,
@@ -29,6 +30,18 @@ _SESSION = Annotated[Session, Depends(require_session)]
 _LIMIT = Annotated[int, Query(ge=1, le=100)]
 _OFFSET = Annotated[int, Query(ge=0, le=2**31 - 1)]
 router = APIRouter(prefix="/api/v1/agents/{agent_id}/routines", tags=["routines"])
+
+
+@router.get("/proposals/{conversation_id}/{message_id}", response_model=RoutineProposal)
+def proposal_from_message(
+    agent_id: UUID, conversation_id: UUID, message_id: UUID, request: Request, session: _SESSION
+):
+    return _mutation(
+        RoutineProposalService(request.app.state.database).get,
+        agent_id,
+        conversation_id,
+        message_id,
+    )
 
 
 def _mutation(operation, *args):

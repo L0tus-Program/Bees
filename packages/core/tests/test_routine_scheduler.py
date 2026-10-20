@@ -206,6 +206,8 @@ def test_old_preparatory_schedule_never_becomes_operational_and_old_request_hash
     preparatory = definition.model_copy(update={"execution_mode": "prepare"})
     value = CreateRoutine(client_request_id=uuid4(), definition=preparatory, active=True)
     old = value.model_dump(mode="json")
+    assert old["proposal_source"] is None
+    old.pop("proposal_source")
     old["definition"].pop("execution_mode")
     old["definition"].pop("runtime_binding")
     assert (

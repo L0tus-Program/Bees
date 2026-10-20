@@ -141,18 +141,23 @@ class ConversationDelegationService:
         content: str,
         *,
         allow_delegation: bool = False,
+        allow_routine_proposal: bool = False,
         client_request_id: UUID | None = None,
         attachments: list[AttachmentRef] | None = None,
         attachment_consent: AttachmentConsent | None = None,
     ) -> tuple[ChatResponse, list, list[dict]]:
-        if type(allow_delegation) is not bool:
+        if type(allow_delegation) is not bool or type(allow_routine_proposal) is not bool:
             raise ProviderError("invalid_request")
         attachments = attachments or []
         validate_selection(attachments, attachment_consent)
-        if attachments and (client_request_id is None or client_request_id.version != 4):
+        if (attachments or allow_routine_proposal) and (
+            client_request_id is None or client_request_id.version != 4
+        ):
             raise ProviderError("invalid_request")
         request_id = client_request_id or uuid4()
         hash_inputs = {"agent_id": str(agent_id), "content": content, "allow": allow_delegation}
+        if allow_routine_proposal:
+            hash_inputs["routine_proposal"] = True
         if attachments:
             hash_inputs |= {
                 "attachments": [ref.model_dump(mode="json") for ref in attachments],
@@ -166,6 +171,8 @@ class ConversationDelegationService:
             ).encode()
         ).hexdigest()
         binding = {"id": str(request_id), "hash": request_hash, "allow": allow_delegation}
+        if allow_routine_proposal:
+            binding["routine_proposal"] = True
         with self.store.transaction(write=False) as unit:
             agent = self.provider._agent(unit, agent_id)
             conversation = self.provider._conversation(unit, agent, conversation_id)
@@ -189,6 +196,11 @@ class ConversationDelegationService:
             config = self.provider._validated_config(agent.provider_config)
             enabled = allow_delegation and config.capabilities.tool_calls
             context = self._result_context(unit, agent.id, conversation.id)
+
+        if allow_routine_proposal:
+            from bees_core.routine_proposals import PROPOSAL_INSTRUCTION
+
+            context.append(ChatMessage(role="system", content=PROPOSAL_INSTRUCTION))
 
         attachment_views = []
         if attachments:

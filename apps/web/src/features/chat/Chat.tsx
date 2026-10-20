@@ -28,6 +28,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
   const [selectedFiles, setSelectedFiles] = useState<ArtifactRecord[]>([])
   const [fileConsentRevision, setFileConsentRevision] = useState<number | null>(null)
   const [filesReady, setFilesReady] = useState(false)
+  const [allowRoutineProposal, setAllowRoutineProposal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [editingPolicies, setEditingPolicies] = useState(false)
@@ -49,11 +50,11 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
     controller.current = new AbortController()
     const consent = supportsDelegation && allowDelegation
     const attachmentUse = selectedFiles.length > 0 ? { attachments: selectedFiles.map((item) => ({ artifact_id: item.id, revision: item.revision, sha256: item.sha256! })), attachment_consent: { expected_agent_revision: agent.revision } } : undefined
-    const requestId = identity.forPayload({ conversation_id: resource.data.conversation_id, content: draft.trim(), allow_delegation: consent, ...(attachmentUse ?? {}) })
+    const requestId = identity.forPayload({ conversation_id: resource.data.conversation_id, content: draft.trim(), allow_delegation: consent, ...(allowRoutineProposal ? { allow_routine_proposal: true } : {}), ...(attachmentUse ?? {}) })
     try {
-      await sendChat(agent.id, resource.data.conversation_id, draft.trim(), controller.current.signal, consent, requestId, attachmentUse)
+      await sendChat(agent.id, resource.data.conversation_id, draft.trim(), controller.current.signal, consent, requestId, attachmentUse, allowRoutineProposal)
       if (controller.current.signal.aborted) return
-      updateComposer({ type: 'success' }); setSelectedFiles([]); setFileConsentRevision(null); identity.reset(); refresh()
+      updateComposer({ type: 'success' }); setAllowRoutineProposal(false); setSelectedFiles([]); setFileConsentRevision(null); identity.reset(); refresh()
     } catch (failure) {
       if (!controller.current.signal.aborted) {
         setError(asApiError(failure))
@@ -84,9 +85,10 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
       <ConversationArtifacts agentId={agent.id} conversationId={agent.conversation_id} selected={selectedFiles} onSelected={(items) => { setSelectedFiles(items); setFileConsentRevision(null) }} onReady={setFilesReady} blocked={busy || agent.status !== 'active'} />
       <form className="chat-composer" onSubmit={(event) => { void submit(event) }}>
         <label htmlFor="chat-input" className="sr-only">{t('messageLabel')}</label>
-        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => { if (failed && event.target.value !== draft) setFileConsentRevision(null); updateComposer({ type: 'draft', value: event.target.value }) }} disabled={busy || agent.status !== 'active'} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
+        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => { if (failed && event.target.value !== draft) { setFileConsentRevision(null); setAllowRoutineProposal(false) } updateComposer({ type: 'draft', value: event.target.value }) }} disabled={busy || agent.status !== 'active'} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
         {selectedFiles.length > 0 && (agent.provider_config ? <label className="checkbox-field"><input type="checkbox" checked={attachmentConsent} disabled={busy || !filesReady || agent.status !== 'active'} onChange={(event) => setFileConsentRevision(event.target.checked ? agent.revision : null)} /><span>{artifacts('consentUse')}<small>{artifacts('consentHelp', { model: agent.provider_config.model, endpoint: agent.provider_config.endpoint })}</small></span></label> : <p className="quiet-note">{artifacts('noDestination')}</p>)}
         {supportsDelegation ? <label className="checkbox-field"><input type="checkbox" checked={allowDelegation} onChange={(event) => updateComposer({ type: 'consent', value: event.target.checked })} disabled={busy || agent.status !== 'active'} /><span>{t('chatAllowDelegation')}<small>{t('chatAllowDelegationHelp')}</small></span></label> : <p className="quiet-note">{t('chatDelegationUnavailable')}</p>}
+        <label className="checkbox-field"><input type="checkbox" checked={allowRoutineProposal} onChange={(event) => setAllowRoutineProposal(event.target.checked)} disabled={busy || agent.status !== 'active'} /><span>{t('chatRoutineProposal')}<small>{t('chatRoutineProposalHelp')}</small></span></label>
         <div className="composer-actions"><small id="chat-help">{t('chatCost')}</small><button className="button primary" type="submit" disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active' || !filesAllowed}>{t(busy ? 'sending' : 'send')}</button></div>
       </form>
     </section>

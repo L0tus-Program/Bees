@@ -133,13 +133,14 @@ export function checkedMessageAttachments(value: unknown): value is MessageAttac
     && ['legacy_unknown', 'system_generated', 'user_upload', 'user_revision'].includes(String(item.source)))
     && new Set(value.map((item) => item.artifact_id)).size === value.length && value.reduce((sum, item) => sum + item.size_bytes, 0) <= 65536
 }
-export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID(), attachmentUse?: AttachmentUse) {
+export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID(), attachmentUse?: AttachmentUse, allowRoutineProposal = false) {
+  if (typeof allowRoutineProposal !== 'boolean') throw new ApiError('invalid_request')
   if (attachmentUse && (!Array.isArray(attachmentUse.attachments) || attachmentUse.attachments.length < 1 || attachmentUse.attachments.length > 4
     || new Set(attachmentUse.attachments.map((item) => item.artifact_id)).size !== attachmentUse.attachments.length
     || !attachmentUse.attachments.every((item) => uuid(item.artifact_id) && Number.isSafeInteger(item.revision) && item.revision >= 1 && /^[a-f0-9]{64}$/.test(item.sha256))
     || !Number.isSafeInteger(attachmentUse.attachment_consent?.expected_agent_revision) || attachmentUse.attachment_consent.expected_agent_revision < 1)) throw new ApiError('invalid_request')
   await request(`/agents/${encodeURIComponent(id)}/chat`, {
-    body: { conversation_id: conversationId, content, allow_delegation: allowDelegation, client_request_id: clientRequestId, ...(attachmentUse ? { attachments: attachmentUse.attachments.map(({ artifact_id, revision, sha256 }) => ({ artifact_id, revision, sha256 })), attachment_consent: { expected_agent_revision: attachmentUse.attachment_consent.expected_agent_revision } } : {}) }, signal, authenticated: true, timeoutMs: 75000,
+    body: { conversation_id: conversationId, content, allow_delegation: allowDelegation, client_request_id: clientRequestId, ...(allowRoutineProposal ? { allow_routine_proposal: true } : {}), ...(attachmentUse ? { attachments: attachmentUse.attachments.map(({ artifact_id, revision, sha256 }) => ({ artifact_id, revision, sha256 })), attachment_consent: { expected_agent_revision: attachmentUse.attachment_consent.expected_agent_revision } } : {}) }, signal, authenticated: true, timeoutMs: 75000,
   })
 }
 

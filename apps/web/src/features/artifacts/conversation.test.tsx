@@ -90,12 +90,15 @@ describe('conversation attachment flow with real React state', () => {
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Leia o material'); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) })
     await click(container.querySelector('.artifact-card input') as HTMLElement)
     expect(button('Enviar').disabled).toBe(true)
+    const proposal = [...container.querySelectorAll('.chat-composer label')].find((label) => label.textContent?.includes(productResources['pt-BR'].chatRoutineProposal))!.querySelector('input')!
+    await click(proposal)
+    expect(button('Enviar').disabled).toBe(true)
     await click(container.querySelector('.chat-composer input[type=checkbox]') as HTMLElement)
     expect(button('Enviar').disabled).toBe(false)
     await click(button('Enviar')); await settle(() => fetcher.mock.calls.some(([url]) => url.endsWith('/chat')))
     const sent = fetcher.mock.calls.find(([url]) => url.endsWith('/chat'))!
     const options = (sent as unknown as [string, RequestInit])[1]
-    expect(JSON.parse(options.body as string)).toMatchObject({ attachments: [{ artifact_id: file.id, revision: file.revision, sha256: file.sha256 }], attachment_consent: { expected_agent_revision: agent.revision } })
+    expect(JSON.parse(options.body as string)).toMatchObject({ allow_routine_proposal: true, attachments: [{ artifact_id: file.id, revision: file.revision, sha256: file.sha256 }], attachment_consent: { expected_agent_revision: agent.revision } })
     await settle(() => container.querySelector('.chat-composer input[type=checkbox]')?.parentElement?.textContent?.includes('Enviar os arquivos selecionados') !== true)
     expect((container.querySelector('.artifact-card input') as HTMLInputElement).checked).toBe(false)
   })
