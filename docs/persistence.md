@@ -33,6 +33,18 @@ Os repositórios armazenam **registros**; não executam agenda ou autorização 
 
 ## Transações e revisões
 
+A execução manual de rotina usa as tabelas existentes do schema18: comando humano,
+ocorrência, tarefa, run e vínculo são confirmados em uma única transação. O recibo
+imutável identifica aquela criação; histórico e tarefa mostram o estado atual.
+Recuperar o mesmo UUID não altera a revisão humana nem o cursor da agenda.
+
+Na criação a partir da conversa, `routines.metadata.proposal_source` guarda somente
+IDs de conversa/mensagem e SHA-256 UTF8 do conteúdo original. A mensagem continua
+append-only; não há cópia mutável que substitua a fonte. A definição revisada pode
+diferir da sugestão e nasce pausada. A referência de origem não concede permissões,
+não certifica qualidade e não cria ocorrência. Os contratos estão em
+[rotinas](routines.md) e na [gestão pela interface](routines-ui.md).
+
 `Database.transaction()` cria e fecha uma conexão própria. Escritas usam BEGIN IMMEDIATE; leituras usam snapshot e query_only. As conexões aplicam WAL, synchronous=FULL, FKs e timeout de lock. Banco e processos API/worker devem ficar no mesmo host, em filesystem local; não usar pasta de rede ou sincronização para o estado ativo.
 
 ```python

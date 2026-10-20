@@ -72,6 +72,8 @@ Retomar libera novas operações; nada que foi recusado é reenviado por isso:
 ## Limites deste checkpoint
 
 - O [scheduler de rotinas](routines.md) deixa de materializar/despachar trabalho novo enquanto parado. Tarefas já criadas usam as mesmas guardas de geração e ferramenta; a reconciliação de resultados conhecidos permanece possível. Agendas antigas continuam preparatórias. VM/apps/máquina pessoal e seus aceites permanecem separados.
+- Um novo pedido manual de rotina também é recusado enquanto parado. Consultar o recibo de um pedido já confirmado ou repetir seu UUID para recuperar o mesmo recibo não cria outra tarefa. A parada não converte uma resposta perdida em autorização para uma segunda execução.
+- Pedir uma sugestão textual pela conversa passa pela guarda de geração do chat. Ler uma sugestão existente e revisar/salvar uma definição pausada não despacha modelo ou ferramenta; essa definição continua exigindo confirmação própria para execução manual ou ativação programada.
 - Pausar uma única abelha, tarefa ou ambiente específico continua nos controles próprios de cada recurso.
 - A parada é uma regra do serviço Bees. Não bloqueia processos externos que acessem o banco ou as credenciais diretamente, nem interrompe um efeito remoto já despachado.
 
