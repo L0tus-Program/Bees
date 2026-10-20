@@ -100,8 +100,11 @@ validação cresce com decisões pendentes, não com todos os avisos históricos
 Os vínculos de evento, tipo, abelha, tarefa e data permitem métricas derivadas de
 conclusões, falhas e decisões, sem depender exclusivamente do estado atual da tarefa.
 O estado de leitura é pessoal ao usuário desta instalação individual. Não há tenants,
-canais externos, push do navegador, notificações do sistema, horários silenciosos ou
-avisos de rotinas/conexões. Esses recortes continuam pendentes em BEES-022.3.
+canais externos, push do navegador, notificações do sistema ou horários silenciosos.
+O [scheduler](routines.md) reutiliza os fatos de atenção da tarefa vinculada e pode
+gravar um resumo idempotente na conversa, conforme a definição humana da rotina.
+Isso não acrescenta preferências globais de avisos de rotinas/conexões; esses
+recortes continuam pendentes em BEES-022.3.
 
 Não há backfill: migração 12 preserva eventos e tarefas legados e começa a projetar
 novos fatos. Não inventa alertas antigos nem depende de GET para inicialização.
