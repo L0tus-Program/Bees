@@ -29,6 +29,55 @@ Outro recurso ou versão gera `runtime_changed`, sem escolher outro executor. Pa
 trocar, revise e escolha **Selecionar recurso atual para esta revisão**, confira e
 salve/ative novamente. Uma instalação nova também precisa de grant humano próprio.
 
+## Sugestões pela conversa
+
+**Pedir uma sugestão de agenda nesta mensagem** começa desmarcado. Ao enviar,
+a chamada textual normal recebe a instrução para sugerir dados, com o orçamento,
+política e provedor atuais. Não acrescenta ferramenta de agenda, concessão ou
+execução; o modelo pode pedir dados ausentes. O opt-in faz parte do UUID/hash do
+turno, e mudar a opção não permite repetir uma geração com o mesmo identificador.
+O caminho continua disponível para modelos sem chamadas de ferramenta.
+
+Uma sugestão usa um único bloco `bees-routine` com nome, instruções, frequência,
+horário, fuso IANA, entradas textuais, aviso e tolerância. O parser rejeita campos
+extras, IDs/autoridade, segredos conhecidos, chaves duplicadas, múltiplos blocos,
+JSON inválido/números especiais e tamanho excessivo. Exemplo do conteúdo do bloco:
+
+```json
+{
+  "name": "Resumo diário",
+  "instructions": "Conferir as fontes e preparar resumo para revisão.",
+  "schedule": {"frequency": "daily", "time": "09:00", "weekdays": []},
+  "timezone": "America/Sao_Paulo",
+  "inputs": {"tema": "Ciência"},
+  "notification": "always",
+  "grace_seconds": 60
+}
+```
+
+**Revisar sugestão de rotina** consulta a mensagem canônica, somente leitura e
+sob sessão. Ela precisa ser uma resposta da mesma conversa/abelha. A origem inclui
+IDs e SHA-256 UTF-8 do texto completo. Mensagens são append-only; criar a agenda
+confere novamente escopo/hash. Esses dados preservam referência, não certificado
+de qualidade ou autoridade do modelo. O endpoint não cria rascunho persistido,
+rotina, tarefa, grant ou aviso só por ler a sugestão.
+
+O usuário escolhe explicitamente uma skill local e sua revisão. Ambiente vem
+dessa skill, destino começa na conversa atual e apenas suas entradas declaradas
+são aproveitadas, com aviso para conferir os campos. O editor começa preparatório,
+sem recurso fixado. Nome, instruções, horário/fuso e demais campos continuam
+editáveis. Só a confirmação salva uma definição humana **pausada**, com
+`proposal_source` mínimo na metadata; não é possível criar uma proposta já ativa.
+Habilitar execução programada no editor ainda exige ativação separada depois.
+O texto original fica disponível inerte, sem interpretação de HTML/script.
+
+Criar usa o UUID/CAS/recuperação das definições. Resposta perdida permanece na
+aba; reload não escreve. Reabrir a sugestão e **Consultar e verificar o mesmo
+pedido** consulta as agendas antes de repetir explicitamente a intenção original.
+O replay devolve a criação original mesmo depois de cancelar a rotina. Consulte o
+estado atual em Rotinas; o recibo não afirma que ela continua pausada. Outra
+intenção pendente ou registro inválido bloqueia nova criação nessa seção.
+
 ## Executar uma vez, sem ativar a agenda
 
 **Executar uma vez** revisa definição, entradas, recurso e limites antes de criar
@@ -194,6 +243,7 @@ Host/Origin/CSRF existentes. Os endpoints são:
 | --- | --- | --- |
 | GET | vazio | Lista paginada de rotinas, sem avaliação ou efeitos |
 | GET | `/runtime` | Capacidade atual do worker/modelo/recurso, sem efeitos |
+| GET | `/proposals/{conversation_id}/{message_id}` | Sugestão privada e origem canônica, sem escrita |
 | POST | vazio | Cria com `client_request_id`, `definition` e `active` opcional |
 | GET | `/{routine_id}` | Estado e definição da revisão atual |
 | POST | `/{routine_id}/revisions` | Edita com UUID, CAS e definição; resultado pausado |
@@ -265,3 +315,12 @@ Com a aba fechada e reinício durante aprovação, houve duas gerações HTTP co
 um único início POSIX, uma ocorrência concluída e um aviso. A definição permaneceu
 pausada na revisão1, sem alterar a próxima execução; zero chamadas pagas. Essas
 provas não representam LLM real ou execução em VM/apps/máquina pessoal.
+
+A prova de proposta usou uma geração HTTP textual controlada e nenhum efeito
+até a confirmação. Chromium pt-BR/en/es390/1280 verificou seleção humana de
+procedimento, defaults preparatórios, texto/script inerte e revisão sem POST.
+A pessoa alterou nome/fuso; a criação perdeu a resposta depois do commit e foi
+recuperada após reload com o mesmo UUID/body, precedida de consulta. O estado
+canônico contém uma agenda pausada na revisão1, uma intenção de criação, nenhuma
+tarefa/ocorrência e nenhum grant novo. O hash da mensagem original foi conferido.
+Não há LLM real ou aceite semântico de qualidade inferido dessa prova.

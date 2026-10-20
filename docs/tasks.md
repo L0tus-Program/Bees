@@ -105,3 +105,10 @@ BEES-007 permanece em andamento para integrar esperas de aprovação/recurso e c
 Uma política Perguntar cria um cartão persistente na conversa e no detalhe da tarefa. Permitir uma vez ou salvar autorização no escopo concreto coloca a mesma execução na fila, preservando seu contexto. Sempre perguntar e bloquear salvam regras sem gerar. [Aprovações](approvals.md) descreve validade, efeitos e revogação. Retomar continua sem conceder autorização; uma execução nova não carrega os IDs da aprovação anterior. Recuperação após queda preserva também o journal da ação autorizada.
 
 BEES-007 passa a ter espera e decisão humana para gerações textuais. Recursos e coordenação dos ambientes reais permanecem pendentes; não se trata de execução de ferramentas ou modelo real comprovado.
+
+## Sugestão de rotina pelo chat
+
+A opção **Pedir uma sugestão de agenda nesta mensagem** orienta apenas a resposta
+textual; não delega tarefa nem concede acesso. Ela é independente da opção de
+delegação e do consentimento dos anexos. A [revisão da sugestão](routines-ui.md#rascunho-vindo-da-conversa)
+exige seleção humana de procedimento e confirmação para salvar uma agenda pausada.

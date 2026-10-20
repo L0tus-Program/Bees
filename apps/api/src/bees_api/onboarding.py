@@ -77,6 +77,7 @@ class ChatInput(Input):
     task_id: UUID | None = None
     content: str = Field(min_length=1, max_length=32768)
     allow_delegation: bool = Field(default=False, strict=True)
+    allow_routine_proposal: bool = Field(default=False, strict=True)
     client_request_id: UUID | None = None
     attachments: list[AttachmentRef] = Field(default_factory=list, max_length=4)
     attachment_consent: AttachmentConsent | None = None
@@ -436,7 +437,12 @@ async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESS
     with request.app.state.receipts.operation(body.conversation_id):
         provider: ProviderService = request.app.state.providers
         if body.task_id is not None:
-            if body.allow_delegation or body.attachments or body.attachment_consent is not None:
+            if (
+                body.allow_delegation
+                or body.allow_routine_proposal
+                or body.attachments
+                or body.attachment_consent is not None
+            ):
                 raise ProviderError("invalid_request")
             response = await provider.chat(
                 agent_id, body.conversation_id, body.content, task_id=body.task_id
@@ -453,6 +459,7 @@ async def chat(agent_id: UUID, body: ChatInput, request: Request, session: _SESS
             body.conversation_id,
             body.content,
             allow_delegation=body.allow_delegation,
+            allow_routine_proposal=body.allow_routine_proposal,
             client_request_id=body.client_request_id,
             attachments=body.attachments,
             attachment_consent=body.attachment_consent,

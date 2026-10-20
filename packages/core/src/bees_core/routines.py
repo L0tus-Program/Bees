@@ -44,6 +44,18 @@ class RoutineRuntimeBinding(Contract):
     tool_version: Literal["1"] = "1"
 
 
+class RoutineProposalSource(Contract):
+    conversation_id: UUID
+    message_id: UUID
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def identity(self):
+        if not self.conversation_id.int or not self.message_id.int:
+            raise ValueError("Origem exige identidades não nulas.")
+        return self
+
+
 class RoutineDefinition(Contract):
     name: str = Field(min_length=1, max_length=200)
     instructions: str = Field(min_length=1, max_length=4096)
@@ -88,6 +100,13 @@ class RoutineDefinition(Contract):
 class CreateRoutine(Command):
     definition: RoutineDefinition
     active: bool = Field(default=False, strict=True)
+    proposal_source: RoutineProposalSource | None = None
+
+    @model_validator(mode="after")
+    def proposed_paused(self):
+        if self.proposal_source is not None and self.active:
+            raise ValueError("Uma sugestão deve ser salva pausada antes de ativar.")
+        return self
 
 
 class ReviseRoutine(Command):
@@ -102,6 +121,8 @@ class SetRoutineStatus(Command):
 
 def command_hash(command):
     payload = command.model_dump(mode="json")
+    if payload.get("proposal_source") is None:
+        payload.pop("proposal_source", None)
     definition = payload.get("definition")
     if isinstance(definition, dict) and definition.get("execution_mode") == "prepare":
         # Replays anteriores ao scheduler conservam o hash exato já persistido.
@@ -381,7 +402,20 @@ class RoutineService:
                 "overlap_policy": "skip",
             }
             if previous is None:
-                routine = unit.routines.create(Routine(**values))
+                metadata = {}
+                if command.proposal_source is not None:
+                    from bees_core.routine_proposals import RoutineProposalService
+
+                    source = RoutineProposalService.source_in_unit(
+                        unit,
+                        agent_id,
+                        command.proposal_source.conversation_id,
+                        command.proposal_source.message_id,
+                    ).source
+                    if source != command.proposal_source:
+                        raise RevisionConflict("A sugestão mudou; consulte e revise novamente.")
+                    metadata["proposal_source"] = source.model_dump(mode="json")
+                routine = unit.routines.create(Routine(**values, metadata=metadata))
             else:
                 base = unit.routines.get(previous.id)
                 routine = unit.routines.update(

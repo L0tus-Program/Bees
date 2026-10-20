@@ -2,6 +2,7 @@ import { ApiError, record, request } from './client'
 import { exact, instant, timestamp, uuid } from './activity'
 
 export type RoutineStatus = 'active' | 'paused' | 'cancelled'
+export interface RoutineProposalSource { conversation_id: string; message_id: string; content_hash: string }
 export interface RoutineDefinition {
   execution_mode?: 'prepare' | 'scheduled'
   runtime_binding?: { installation_id: string; resource_id: string; plugin_id: string; manifest_hash: string; tool_version: '1' } | null
@@ -28,7 +29,7 @@ export interface RoutineOccurrence {
 export interface RoutineRevision { routine_id: string; revision: number; definition: RoutineDefinition; origin: 'human'; created_at: string }
 export interface RoutineIntent {
   agentId: string; routineId?: string; action: 'create' | 'revise' | 'status'
-  body: { client_request_id: string; expected_revision?: number; definition?: RoutineDefinition; status?: RoutineStatus }
+  body: { client_request_id: string; expected_revision?: number; definition?: RoutineDefinition; status?: RoutineStatus; proposal_source?: RoutineProposalSource }
 }
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
 const text = (value: unknown, max: number): value is string => typeof value === 'string' && value.trim().length > 0 && Array.from(value).length <= max
@@ -37,6 +38,9 @@ const status = (value: unknown): value is RoutineStatus => ['active', 'paused', 
 const secret = /(?:sk-(?:or-v1-)?[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|Bearer\s+[A-Za-z0-9_.-]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)/i
 const nil = '00000000-0000-0000-0000-000000000000'
 const commandId = (value: unknown): value is string => uuid(value) && value !== nil
+export function isRoutineProposalSource(value: unknown): value is RoutineProposalSource {
+  return exact(value, ['conversation_id', 'message_id', 'content_hash']) && commandId(value.conversation_id) && commandId(value.message_id) && typeof value.content_hash === 'string' && /^[0-9a-f]{64}$/.test(value.content_hash)
+}
 export function isRoutineDefinition(value: unknown): value is RoutineDefinition {
   const keys = ['name', 'instructions', 'schedule', 'timezone', 'skill_id', 'skill_version', 'inputs', 'environment', 'destination', 'notification', 'grace_seconds', 'misfire_policy', 'overlap_policy']
   if (!record(value) || !keys.every((key) => Object.hasOwn(value, key)) || Object.keys(value).some((key) => ![...keys, 'execution_mode', 'runtime_binding'].includes(key))) return false
@@ -103,10 +107,10 @@ export async function routineRevisions(agentId: string, routineId: string, offse
     || value.some((item, index) => index > 0 && item.revision >= value[index - 1].revision)) throw new ApiError('invalid_response')
   return value as RoutineRevision[]
 }
-export function definitionIntent(agentId: string, definition: RoutineDefinition, previous?: Routine): RoutineIntent {
-  if (!isRoutineDefinition(definition) || previous && previous.agent_id !== agentId) throw new ApiError('invalid_request')
+export function definitionIntent(agentId: string, definition: RoutineDefinition, previous?: Routine, proposalSource?: RoutineProposalSource): RoutineIntent {
+  if (!isRoutineDefinition(definition) || previous && previous.agent_id !== agentId || proposalSource && (previous !== undefined || !isRoutineProposalSource(proposalSource))) throw new ApiError('invalid_request')
   base(agentId)
-  return { agentId, ...(previous ? { routineId: previous.id } : {}), action: previous ? 'revise' : 'create', body: { client_request_id: crypto.randomUUID(), definition, ...(previous ? { expected_revision: previous.revision } : {}) } }
+  return { agentId, ...(previous ? { routineId: previous.id } : {}), action: previous ? 'revise' : 'create', body: { client_request_id: crypto.randomUUID(), definition, ...(previous ? { expected_revision: previous.revision } : {}), ...(proposalSource ? { proposal_source: proposalSource } : {}) } }
 }
 export function routineStatusIntent(routine: Routine, value: RoutineStatus): RoutineIntent {
   if (!status(value) || routine.origin !== 'human' || routine.status === 'cancelled') throw new ApiError('invalid_request')
@@ -115,7 +119,9 @@ export function routineStatusIntent(routine: Routine, value: RoutineStatus): Rou
 export function checkedRoutineIntent(value: unknown, agentId: string): RoutineIntent {
   if (!record(value) || value.agentId !== agentId || !uuid(agentId) || !['create', 'revise', 'status'].includes(String(value.action)) || !record(value.body) || !commandId(value.body.client_request_id)) throw new ApiError('invalid_request')
   if (value.action === 'create') {
-    if (!exact(value, ['agentId', 'action', 'body']) || !exact(value.body, ['client_request_id', 'definition']) || !isRoutineDefinition(value.body.definition)) throw new ApiError('invalid_request')
+    const hasSource = Object.hasOwn(value.body, 'proposal_source')
+    const keys = hasSource ? ['client_request_id', 'definition', 'proposal_source'] : ['client_request_id', 'definition']
+    if (!exact(value, ['agentId', 'action', 'body']) || !exact(value.body, keys) || hasSource && !isRoutineProposalSource(value.body.proposal_source) || !isRoutineDefinition(value.body.definition)) throw new ApiError('invalid_request')
   } else if (!exact(value, ['agentId', 'routineId', 'action', 'body']) || !uuid(value.routineId) || !positive(value.body.expected_revision)
     || (value.action === 'status' ? !exact(value.body, ['client_request_id', 'expected_revision', 'status']) || !status(value.body.status) : !exact(value.body, ['client_request_id', 'expected_revision', 'definition']) || !isRoutineDefinition(value.body.definition))) throw new ApiError('invalid_request')
   return value as unknown as RoutineIntent
@@ -125,6 +131,10 @@ export async function sendRoutine(raw: RoutineIntent, signal?: AbortSignal) {
   const path = intent.action === 'create' ? base(intent.agentId) : `${base(intent.agentId)}/${intent.routineId}/${intent.action === 'status' ? 'status' : 'revisions'}`
   const value = checkedRoutine(await request(path, { body: intent.body, ...(intent.action === 'status' ? { method: 'PUT' as const } : {}), authenticated: true, signal }), intent.agentId, intent.routineId)
   if (value.origin !== 'human' || value.revision !== (intent.body.expected_revision ?? 0) + 1 || value.status !== (intent.body.status ?? 'paused')) throw new ApiError('invalid_response')
+  if (intent.body.proposal_source) {
+    const source = value.metadata.proposal_source, expected = intent.body.proposal_source
+    if (!isRoutineProposalSource(source) || source.conversation_id !== expected.conversation_id || source.message_id !== expected.message_id || source.content_hash !== expected.content_hash) throw new ApiError('invalid_response')
+  }
   return value
 }
 

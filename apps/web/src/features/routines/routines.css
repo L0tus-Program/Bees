@@ -9,6 +9,8 @@
 .routine-description dt { font-weight: 600; }
 .routine-description dd { margin-inline-start: 0; white-space: pre-wrap; }
 .routine-description p { white-space: pre-wrap; }
+.routine-proposal { margin-block: 1rem; min-width: 0; overflow-wrap: anywhere; }
+.message details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow-y: auto; }
 .routine-unavailable { border-inline-start: .25rem solid var(--accent, #586b45); padding-inline-start: .8rem; }
 .routine-history ol { padding-inline-start: 1.2rem; }
 .routine-history li { padding-block: .5rem; }

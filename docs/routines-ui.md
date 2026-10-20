@@ -44,6 +44,29 @@ explicitamente sua versão atual e seu ambiente declarado. O destino atual é a
 conversa da abelha; uma conversa já fixada na definição também pode ser
 conservada. A API continua responsável por validar o escopo da conversa.
 
+## Rascunho vindo da conversa
+
+Marque **Pedir uma sugestão de agenda nesta mensagem** somente quando quiser
+orientar a resposta textual. A opção é separada da delegação e do consentimento
+de anexos: nenhuma substitui a outra. Após a resposta, **Revisar sugestão de
+rotina** abre a consulta canônica da mensagem, sem salvar ou executar. O bloco
+estruturado fica recolhido no texto; a mensagem original completa pode ser lida
+como texto inerte.
+
+O formulário exige escolher um procedimento local; o modelo não fornece skill,
+ambiente, destino ou permissões. Apenas entradas declaradas são aproveitadas,
+com aviso explícito. Nome, instruções, horário/fuso e demais campos podem ser
+editados. O padrão é preparatório. **Revisar antes de salvar** e a confirmação
+seguinte criam uma agenda pausada, com referência/hash da mensagem original.
+Abra Rotinas para consultar seu estado atual e decidir sobre ativação separada.
+Uma sugestão não representa procedimento ou entrega de qualidade já validada.
+
+Perda de resposta conserva a intenção mínima necessária ao mesmo pedido. Reload
+não envia novamente. Reabrir a sugestão recupera a confirmação original; consultar
+e verificar faz GET antes de repetir o mesmo UUID/body. Outro pedido pendente ou
+registro inválido bloqueia nova criação. Conteúdo externo nunca é renderizado
+como HTML nem recebe autoridade para instalar ou conceder recursos.
+
 ## Execução manual
 
 **Executar uma vez** oferece uma revisão antes de **Confirmar uma tarefa agora**.
@@ -130,8 +153,7 @@ O histórico exibiu espera, origem e conclusão; houve um resumo local opcional.
 Chromium pt-BR/en/es390/1280 também verificou perda real de resposta após commit
 e recuperação com o mesmo UUID. O provider HTTP era controlado, sem chamadas pagas.
 
-A #71 permanece **Entrega Parcial**: propostas de agenda pela
-conversa e aceite humano amplo de atenção/qualidade continuam pendentes. VM,
+A #71 permanece **Entrega Parcial** no aceite humano amplo de atenção/qualidade. VM,
 apps, máquina pessoal e seleção por LLM real não foram comprovados por essa prova.
 
 Na prova manual com Chromium/API e worker CLI padrão, os três idiomas em390/1280
@@ -141,3 +163,9 @@ Com a aba fechada e reinício durante aprovação, houve duas gerações HTTP co
 um único início POSIX, uma ocorrência concluída e um aviso. A definição permaneceu
 pausada na revisão1, sem alterar a próxima execução; zero chamadas pagas. Essas
 provas não representam LLM real ou execução em VM/apps/máquina pessoal.
+
+Na prova de conversa, uma geração HTTP controlada produziu a sugestão. A revisão
+em três idiomas/390/1280 não fez escrita; após seleção/edição humanas, perda real
+da resposta/reload/mesmo UUID confirmou uma única agenda pausada, sem tarefa,
+ocorrência ou novo grant. Script no texto permaneceu inerte; nenhum envio externo
+ou chamada paga ocorreu.
