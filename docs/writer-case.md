@@ -114,9 +114,39 @@ Writer/Web foi corretamente recusado antes da correção do importador. Os teste
 de corrupção/limites/segredo do diagnóstico estão em
 [`test_writer_case.py`](../scripts/tests/test_writer_case.py).
 
-Essa execução usou **LibreOfficeDev 26.8.0.0.alpha0**, diferente do alvo 25.2.3, e por
-isso permanece **Entrega Parcial**. O snapshot Debian fixado retornou CONNECT 403
-neste ambiente; repetir o build do kit exige acesso a essa origem autenticada,
-sem trocar pins ou desabilitar assinaturas. Repetir no installed-lab suportado,
-revisão humana e execução pelo adapter/tarefa/ambiente reais permanecem pendentes.
-Não há declaração de VM, handoff, modelo real ou ampliação do catálogo neste teste.
+Essa primeira execução usou **LibreOfficeDev 26.8.0.0.alpha0**, diferente do alvo
+25.2.3. O snapshot Debian fixado estava bloqueado naquele momento; o checkpoint
+abaixo substitui essa limitação de versão e acesso ao snapshot.
+
+## Evidência no Writer suportado — 19/10/2026
+
+O snapshot passou a responder, e a receita existente produziu os alvos
+`verification-image` e `installed-lab`, preservando a base fixada, assinaturas APT
+e hashes de `InRelease`. O `installed-lab` instalou os pacotes numa base mínima com
+`RUN --network=none`; os dois smoke tests também rodaram com `--network none`.
+As dez recusas controladas, o replay do instalador e a geração de PDF pelo usuário
+restrito passaram. Não foi necessário alterar dependências ou pins da receita.
+
+Nesse laboratório, **LibreOffice 25.2.3.2 520(Build:2)** importou a fixture pelo
+filtro `HTML (StarWriter)`, salvou ODT, exportou PDF, reabriu/salvou o ODT em outro
+diretório e exportou novamente. Os quatro arquivos pertenciam ao UID10001.
+Os dois pares passaram pelo validador: 32 parágrafos, uma tabela, todos os
+marcadores e valores presentes e PDF de uma página. A versão foi observada pelo
+comando do app; a CLI de validação continua sem inferir versão por metadados.
+
+| Arquivo inicial | Bytes | SHA256 |
+| --- | ---: | --- |
+| ODT | 27.726 | `a4d293a776381d739426aeacb527524c3628dc568987333083b6a00a2f8fc93e` |
+| PDF | 46.392 | `fcccb0b51880ff561ccb253ecc42573178b1139ee3f05d52878771f1ec32f36b` |
+
+As duas renderizações foram inspecionadas pelo agente e são idênticas: título,
+tabela, contas, comparação, recomendação e limites ficaram legíveis, sem corte
+ou sobreposição visíveis. Isso é evidência de laboratório para revisão, não
+revisão humana aceita. Perfis e documentos gerados permanecem privados e fora
+do controle de versão.
+
+A issue continua **Entrega Parcial**: revisão humana, execução pelo adapter/tarefa
+Bees e ambiente real ainda estão pendentes. O download do ISO completo permaneceu
+bloqueado por proxy 403 em `cdimage.debian.org`; isso não impediu o teste do payload
+autenticado já construído. Não há declaração de VM, handoff, modelo real ou
+ampliação do catálogo neste teste.
