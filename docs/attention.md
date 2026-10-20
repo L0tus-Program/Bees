@@ -106,6 +106,18 @@ gravar um resumo idempotente na conversa, conforme a definição humana da rotin
 Isso não acrescenta preferências globais de avisos de rotinas/conexões; esses
 recortes continuam pendentes em BEES-022.3.
 
+A execução manual confirmada usa a mesma tarefa vinculada e a mesma regra de
+resumo por ocorrência. `always` permite o resumo terminal; `failures` omite o
+resumo de conclusão; `none` omite esses resumos. A escolha não apaga histórico,
+aprovações pendentes ou resultado desconhecido do painel **Atenção**. Reconciliar
+ou consultar a mesma ocorrência não publica outro resumo. Ocorrências diferentes
+continuam sendo fatos distintos: ainda não há classificação semântica de “sem
+mudança relevante” entre resultados.
+
+Uma sugestão de rotina na conversa é texto para revisão. Abrir o rascunho e salvar
+uma agenda pausada não conclui uma tarefa nem produz aviso de execução. O vínculo
+com a mensagem original serve à rastreabilidade; não é uma aprovação de ferramenta.
+
 Não há backfill: migração 12 preserva eventos e tarefas legados e começa a projetar
 novos fatos. Não inventa alertas antigos nem depende de GET para inicialização.
 Atualizar exige API/worker/escritores parados, backup e decisão operacional; o worker
