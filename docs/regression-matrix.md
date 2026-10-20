@@ -54,6 +54,16 @@ contêm os casos positivos e negativos existentes; não são novos executores de
 
 ## CI remota já confirmada por metadados
 
+A etapa inicial **Validar guarda nativa de arquivos no Windows** carrega
+`pytest_annotations`, assim como as suítes Windows seguintes. Se um teste falhar,
+o check recebe arquivo/função, linha e ordinal do caso; não recebe traceback,
+parâmetros, caminhos privados ou conteúdo do erro. Os testes existentes em
+[test_pytest_annotations.py](../scripts/tests/test_pytest_annotations.py) executam
+uma falha real em subprocesso e verificam saída1 e sanitização. O plugin não muda
+as guardas, os prazos, o ownership ou a seleção de casos, nem converte falha em sucesso.
+Essa identificação não substitui o log privado completo ou comprova a causa da falha;
+uma tentativa anterior sem o plugin continua sem esse diagnóstico retroativo.
+
 Consulta read-only via `gh run view --json ...` confirmou o run
 [38951214754](https://github.com/L0tus-Program/Bees/actions/runs/38951214754), evento
 `pull_request`, head **`a0eb7a3c6076d5783b0df97cdd30e0d3ae39da1c`** da
