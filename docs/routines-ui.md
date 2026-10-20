@@ -11,7 +11,7 @@ horário, marque **Permitir tarefas automáticas quando esta agenda for ativada*
 revise os limites e salve; a revisão fica pausada até outra confirmação em
 **Ativar agenda**. O worker continua com a aba fechada. O próximo horário vem da
 API; indisponibilidade, tolerância e sobreposição determinam o que pode executar.
-Não há execução manual, instalação ou concessão implícita.
+A execução manual tem confirmação própria; não há instalação ou concessão implícita.
 
 ## Criar, revisar e controlar
 
@@ -43,6 +43,23 @@ revisão imutável, preservando seus campos e entradas. Escolher outra skill usa
 explicitamente sua versão atual e seu ambiente declarado. O destino atual é a
 conversa da abelha; uma conversa já fixada na definição também pode ser
 conservada. A API continua responsável por validar o escopo da conversa.
+
+## Execução manual
+
+**Executar uma vez** oferece uma revisão antes de **Confirmar uma tarefa agora**.
+Mostra entradas, skill/revisão, destino, recurso atual e os mesmos limites do ciclo.
+A tarefa pode consumir o modelo; não ativa a agenda nem muda seu próximo horário.
+O botão exige worker compatível e recurso disponível. Uma definição humana
+preparatória ou pausada também pode ser executada; canceladas/legadas sem definição
+não recebem esse controle. A tarefa abre com sua origem manual e decisões próprias.
+
+Se a resposta se perder, outras mutações ficam bloqueadas. O UUID/CAS mínimo é
+preservado na aba, sem entradas privadas. Reload não reenvia. **Consultar recibo
+do mesmo pedido** recupera a criação original, inclusive após conclusão, mudança
+na rotina ou indisponibilidade. Ausência de recibo permite outro clique explícito
+em **Reenviar o mesmo pedido manual**. O servidor conserva uma tarefa por intenção.
+Registro adulterado nunca é enviado: a interface pede conferir o histórico antes
+de descartar somente o registro local, sem cancelar uma tarefa existente.
 
 ## Conflitos e resposta incerta
 
@@ -113,6 +130,14 @@ O histórico exibiu espera, origem e conclusão; houve um resumo local opcional.
 Chromium pt-BR/en/es390/1280 também verificou perda real de resposta após commit
 e recuperação com o mesmo UUID. O provider HTTP era controlado, sem chamadas pagas.
 
-A #71 permanece **Entrega Parcial**: execução manual, propostas de agenda pela
+A #71 permanece **Entrega Parcial**: propostas de agenda pela
 conversa e aceite humano amplo de atenção/qualidade continuam pendentes. VM,
 apps, máquina pessoal e seleção por LLM real não foram comprovados por essa prova.
+
+Na prova manual com Chromium/API e worker CLI padrão, os três idiomas em390/1280
+passaram por revisão sem escrita. Uma única confirmação perdeu realmente a resposta
+após commit; reload não fez POST e a consulta do recibo abriu a tarefa original.
+Com a aba fechada e reinício durante aprovação, houve duas gerações HTTP controladas,
+um único início POSIX, uma ocorrência concluída e um aviso. A definição permaneceu
+pausada na revisão1, sem alterar a próxima execução; zero chamadas pagas. Essas
+provas não representam LLM real ou execução em VM/apps/máquina pessoal.

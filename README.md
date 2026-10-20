@@ -122,7 +122,8 @@ permissões atuais. Consulte [procedimentos reutilizáveis](docs/skills.md).
 
 O [histórico de entregas](docs/delivery-history.md) localiza resultados e versões
 antigas com consulta local paginada. As [rotinas](docs/routines.md) têm contratos
-de agenda e ocorrência persistidos e execução programada explícita pelo worker,
+de agenda e ocorrência persistidos, execução programada pelo worker e execução
+manual com confirmação, UUID/CAS e recibo consultável,
 com revisão/entradas/recurso fixos e permissões atuais. A API de
 [portabilidade](docs/portability.md) gera exportações privadas verificadas sem
 credenciais operacionais; a [restauração](docs/restoration.md) publica somente

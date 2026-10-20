@@ -70,7 +70,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
     {(monitor.error || error) && <button type="button" className="text-button" onClick={refresh}>{t('refresh')}</button>}
     {task && <>
       <p className="task-state" role="status">{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</p>
-      {task.routine_execution && <p className="routine-task-origin">{routines('taskOrigin', { name: task.routine_execution.name, revision: task.routine_execution.revision })} · <TaskTime value={task.routine_execution.scheduled_at} /></p>}
+      {task.routine_execution && <p className="routine-task-origin">{routines('taskOrigin', { name: task.routine_execution.name, revision: task.routine_execution.revision })}{task.routine_execution.trigger === 'manual' && <> · {routines('manualOrigin')}</>} · <TaskTime value={task.routine_execution.scheduled_at} /></p>}
       {unknown && <p className="transfer-notice">{t(unknownKind === 'tool' ? 'toolUnknownWarning' : unknownKind === 'mixed' ? 'mixedUnknownWarning' : 'unknownWarning')}</p>}
       {task.partial && !unknown && <p className="transfer-notice">{tools('partial')}</p>}
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}

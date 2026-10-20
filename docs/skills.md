@@ -79,7 +79,7 @@ Testes SQLite/provider controlado/processo POSIX cobrem duas entradas com result
 distintos, restart, criação concorrente, replay, entradas inválidas, edição,
 desabilitação/revoke antes do efeito e regra salva de outro snapshot. Isso não
 substitui a escolha de ferramenta por LLM real ou o aceite humano da qualidade.
-O [scheduler de rotinas](routines.md) usa esse mesmo
+O [scheduler e a execução manual de rotinas](routines.md) usam esse mesmo
 ciclo no recorte disponível, com ativação programada explícita.
 
 ## Criar a partir de um processo
