@@ -66,7 +66,7 @@ A verificação ocorre antes de cada efeito novo e dentro da mesma transação q
 Retomar libera novas operações; nada que foi recusado é reenviado por isso:
 - tarefas na fila voltam a ser reivindicadas, com políticas, aprovações e limites de consumo reavaliados. Isso inclui as tarefas devolvidas à fila pela parada; para não executá-las, pause ou cancele cada uma antes de retomar;
 - tarefas pausadas, canceladas ou com resultado desconhecido continuam aguardando decisão humana;
-- aprovações consumidas não voltam a valer; uma aprovação concedida e ainda não consumida continua válida dentro do seu prazo de 15 minutos;
+- aprovações consumidas não voltam a valer; decisões textuais ainda válidas conservam seu prazo. A aprovação de recurso também depende da geração e do snapshot atuais: parar/retomar pode invalidá-la antes do efeito;
 - uma mensagem de chat recusada precisa ser enviada de novo pela pessoa.
 
 ## Limites deste checkpoint
