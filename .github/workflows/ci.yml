@@ -41,6 +41,9 @@ jobs:
           if (Test-Path packages/core/tests/test_executor_transport.py) {
             $targets += 'packages/core/tests/test_executor_transport.py'
           }
+          if (Test-Path scripts/tests/test_writer_case.py) {
+            $targets += 'scripts/tests/test_writer_case.py'
+          }
           uv run --locked python scripts/run-ci-tests.py -p pytest_annotations @targets
       - name: Testar no Windows com dono padrão da conta
         if: runner.os == 'Windows'
