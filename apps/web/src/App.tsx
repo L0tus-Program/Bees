@@ -29,6 +29,9 @@ export function App() {
   }, [dataOpen])
   useEffect(() => {
     if (resource.state === 'ready' && resource.data.configured) setupAuthorization.clear()
+    if (resource.state === 'ready' && !resource.data.authenticated) {
+      try { clearExportState() } catch { /* Unavailable tab storage is never used as authentication. */ }
+    }
   }, [resource])
   useEffect(() => {
     const expired = () => { setError(null); setDataOpen(false); setDataBusy(false); try { clearExportState() } catch { /* Storage may be unavailable; no server copy is changed. */ } reload() }

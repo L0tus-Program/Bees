@@ -77,6 +77,12 @@ describe('explicit private export workflow', () => {
     expect(restoreExportState()).toEqual({ status: 'pending', previous: receipt }); await reopen()
     expect(container.textContent).toContain('Última cópia confirmada'); expect(button(portabilityResources['pt-BR'].download).disabled).toBe(false); expect(fetcher).toHaveBeenCalledTimes(1)
   })
+  it('clears the prior reference on creation401 instead of restoring it after session expiry', async () => {
+    rememberExportReceipt(receipt); const fetcher = vi.fn().mockResolvedValue(Response.json({ error: { code: 'session_required' } }, { status: 401 })); vi.stubGlobal('fetch', fetcher)
+    await render(); await consent(); await click(portabilityResources['pt-BR'].create)
+    expect(fetcher).toHaveBeenCalledOnce(); expect(restoreExportState()).toEqual({ status: 'empty' }); expect(container.querySelector('.export-receipt')).toBeNull()
+    expect(container.querySelector('input')!.checked).toBe(false)
+  })
   it('blocks creation before HTTP when the pending reference cannot be persisted', async () => {
     vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => { throw new Error('blocked') } })
     const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher); await render(); await consent(); await click(portabilityResources['pt-BR'].create)

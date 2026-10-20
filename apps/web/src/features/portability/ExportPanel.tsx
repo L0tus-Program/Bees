@@ -12,7 +12,7 @@ export default function ExportPanel({ onClose, onBusy }: { onClose: () => void; 
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState<'create' | 'download' | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
-  const [storageWarning, setStorageWarning] = useState(false)
+  const [storageWarning, setStorageWarning] = useState<'confirmed' | 'reference' | null>(null)
   const [sent, setSent] = useState(false)
   const [progress, setProgress] = useState(0)
   const locked = useRef(false), operation = useRef<AbortController | null>(null)
@@ -34,17 +34,20 @@ export default function ExportPanel({ onClose, onBusy }: { onClose: () => void; 
     setConsent(false)
     try {
       try { rememberExportPending(receipt) } catch { throw new ApiError('export_state_unavailable') }
-      setState({ status: 'pending', previous: receipt }); setStorageWarning(false)
+      setState({ status: 'pending', previous: receipt }); setStorageWarning(null)
       const confirmed = await createExport(controller.signal)
       if (controller.signal.aborted) return
       setState({ status: 'ready', receipt: confirmed })
-      try { rememberExportReceipt(confirmed) } catch { setStorageWarning(true) }
+      try { rememberExportReceipt(confirmed) } catch { setStorageWarning('confirmed') }
     } catch (failure) {
       if (!controller.signal.aborted) {
         const problem = asApiError(failure); setError(problem)
-        if (problem.code === 'csrf_missing' || [401, 403, 422].includes(problem.status)) {
+        if (problem.status === 401) {
+          setState({ status: 'empty' })
+          try { clearExportState() } catch { setStorageWarning('reference') }
+        } else if (problem.code === 'csrf_missing' || [403, 422].includes(problem.status)) {
           setState(receipt ? { status: 'ready', receipt } : { status: 'empty' })
-          try { if (receipt) rememberExportReceipt(receipt); else clearExportState() } catch { setStorageWarning(true) }
+          try { if (receipt) rememberExportReceipt(receipt); else clearExportState() } catch { setStorageWarning('reference') }
         }
       }
     } finally { finish(controller) }
@@ -67,7 +70,7 @@ export default function ExportPanel({ onClose, onBusy }: { onClose: () => void; 
   }
   function forget() {
     if (locked.current) return
-    try { clearExportState(); setState({ status: 'empty' }); setError(null); setStorageWarning(false); setSent(false); setConsent(false) }
+    try { clearExportState(); setState({ status: 'empty' }); setError(null); setStorageWarning(null); setSent(false); setConsent(false) }
     catch { setError(new ApiError('export_state_unavailable')) }
   }
   const format = (value: number) => new Intl.NumberFormat(i18n.resolvedLanguage).format(value)
@@ -78,7 +81,7 @@ export default function ExportPanel({ onClose, onBusy }: { onClose: () => void; 
     {message && <p className="form-error" role="alert">{t(message)}</p>}
     {state.status === 'invalid' || state.status === 'unavailable' ? <div><p className="transfer-notice">{t('stateError')}</p><button type="button" className="text-button" onClick={() => { setState(restoreExportState()); setError(null) }}>{t('readLocal')}</button><button type="button" className="text-button" onClick={forget}>{t('forget')}</button></div> : <>
       {state.status === 'pending' && busy !== 'create' && <p className="transfer-notice" role="status">{t('uncertain')}</p>}
-      {storageWarning && <p className="transfer-notice" role="status">{t('storageWarning')}</p>}
+      {storageWarning && <p className="transfer-notice" role="status">{t(storageWarning === 'confirmed' ? 'storageWarning' : 'referenceWarning')}</p>}
       {receipt && <section className="export-receipt" aria-labelledby="export-receipt-heading"><h2 id="export-receipt-heading">{t('confirmed')}</h2><dl><div><dt>{t('size')}</dt><dd>{t('bytes', { value: format(receipt.size_bytes) })}</dd></div><div><dt>{t('rows')}</dt><dd>{format(receipt.rows)}</dd></div><div><dt>{t('blobs')}</dt><dd>{format(receipt.blobs)}</dd></div></dl><details><summary>{t('details')}</summary><p>{t('identifier')}: <code>{receipt.id}</code></p><p>SHA-256: <code>{receipt.sha256}</code></p></details><button type="button" className="button primary" disabled={busy !== null} onClick={() => { void download() }}>{t(busy === 'download' ? 'downloading' : 'download', { percent: progress })}</button>{sent && <p className="form-success" role="status">{t('downloadSent')}</p>}<p className="quiet-note">{t('downloadScope')}</p></section>}
       {busy === 'create' && <p role="status">{t('creating')}</p>}
       <form onSubmit={event => { event.preventDefault(); void create() }}><fieldset disabled={busy !== null}><legend>{t(receipt || state.status === 'pending' ? 'newCopy' : 'createTitle')}</legend><label className="checkbox-field"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)} /><span>{t('consent')}</span></label><p className="quiet-note">{t('newCopyHelp')}</p><button type="submit" className="button secondary" disabled={!consent}>{t('create')}</button></fieldset></form>

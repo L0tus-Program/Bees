@@ -59,7 +59,8 @@ limites não alteram as operações de operador documentadas abaixo.
 A validação da interface usa contratos fechados, streaming limitado, adulteração,
 timeout, armazenamento bloqueado, resposta perdida e reabertura. Chromium com API
 real, em pt-BR/en/es e 390/1280 px, verificou download, foco/teclado, temas claro/escuro,
-restart da API e sessão revogada. Três pacotes próprios incluíram duas abelhas e um
+restart da API e sessão revogada. Também conferiu a limpeza após criação recusada
+com 401 e carregamento inicial sem sessão válida. Quatro pacotes próprios incluíram duas abelhas e um
 blob aceito, com nove downloads conferidos; as 35 tabelas canônicas permaneceram
 idênticas, sem tarefas ou chamadas de modelo. É uma prova com dados de teste, sem
 aceite de continuação por modelo/ambiente real.
