@@ -16,6 +16,7 @@ export interface DeliverableResults { items: DeliverableItem[]; partial: boolean
 export interface TaskRun { id: string; status: TaskStatus; provider: string; model: string; started_at: string | null; finished_at: string | null; error_code: string | null; result: TaskResult | null }
 export interface TaskRecord {
   tool_approvals_available?: boolean; model_approvals_available?: boolean
+  max_calls?: number; max_active_seconds?: number; partial?: boolean
   id: string; agent_id: string; conversation_id: string | null; title: string; objective: string; expected_result: string
   status: TaskStatus; revision: number; created_at: string; updated_at: string; active_run_id: string | null
   control_requested: 'pause' | 'cancel' | null; available_controls: TaskControl[]; latest_run: TaskRun | null
@@ -65,6 +66,7 @@ export function isTask(value: unknown): value is TaskRecord {
   return record(value) && ['id', 'agent_id', 'title', 'objective', 'expected_result'].every((key) => typeof value[key] === 'string')
     && nullableString(value.conversation_id) && nullableString(value.active_run_id) && isStatus(value.status)
     && (value.tool_approvals_available === undefined || typeof value.tool_approvals_available === 'boolean') && (value.model_approvals_available === undefined || typeof value.model_approvals_available === 'boolean')
+    && (value.max_calls === undefined || count(value.max_calls) && value.max_calls > 0) && (value.max_active_seconds === undefined || count(value.max_active_seconds) && value.max_active_seconds > 0) && (value.partial === undefined || typeof value.partial === 'boolean')
     && Number.isInteger(value.revision) && (value.revision as number) > 0 && dateString(value.created_at) && dateString(value.updated_at)
     && [null, 'pause', 'cancel'].includes(value.control_requested as null | string)
     && Array.isArray(value.available_controls) && value.available_controls.every((control) => taskControls.includes(control))

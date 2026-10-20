@@ -134,7 +134,7 @@ class OllamaAdapter(HTTPAdapter):
                         arguments=function["arguments"],
                     )
                 )
-            validate_calls(calls, request.tools)
+            validate_calls(calls, request.tools, proposals=self._tool_proposals)
             done_reason = data.get("done_reason", "stop")
             if calls and done_reason not in ("stop", "tool_calls"):
                 # Não promover uma saída truncada a chamada completa de ferramenta.

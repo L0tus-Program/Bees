@@ -77,7 +77,8 @@ describe('resource consent and recovery', () => {
   it('blocks first send if browser storage cannot retain the exact request', async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json(source)); vi.stubGlobal('fetch', fetcher)
     await render(); await click('Revisar texto e alcance'); await settle(); await click('Permitir uma vez')
-    vi.spyOn(sessionStorage, 'setItem').mockImplementation(() => { throw new Error('storage unavailable') })
+    const storage = sessionStorage
+    vi.stubGlobal('sessionStorage', { getItem: (name: string) => storage.getItem(name), removeItem: (name: string) => storage.removeItem(name), clear: () => storage.clear(), setItem: () => { throw new Error('storage unavailable') } })
     await click('Confirmar decisão')
     expect(container.textContent).toContain('Não foi possível preservar'); expect(fetcher).toHaveBeenCalledTimes(1)
   })

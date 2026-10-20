@@ -8,10 +8,23 @@ from pydantic import Field, ValidationError
 
 from bees_api.auth import require_session
 from bees_api.onboarding import Input
-from bees_api.worker_status import worker_status
+from bees_api.worker_status import HEARTBEAT_KEY, worker_status
+from bees_core.executor_transport.contracts import TransportError
+from bees_core.providers.errors import ProviderError
+from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
 from bees_core.storage.store import NotFoundError
-from bees_core.tasks import TaskCommand, TaskInput, TaskService
+from bees_core.tasks import (
+    TaskCommand,
+    TaskError,
+    TaskInput,
+    TaskService,
+    request_digest,
+    submission_digest,
+)
+from bees_core.tool_cycle import MAX_TOOL_CALLS, ToolTaskInput, ToolTaskService
+from bees_core.tool_runtime import available_runtime
+from bees_core.tools import ToolError
 
 _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1/agents", tags=["tasks"])
@@ -77,7 +90,7 @@ def _view(detail) -> dict:
     controls = [] if terminal else ["cancel"]
     if task.status in ("paused", "waiting_approval", "waiting_resource"):
         controls.append("resume")
-        if task.metadata.get("execution_kind") == "resource_tool_task":
+        if task.metadata.get("execution_kind") in (TASK_KIND, MODEL_TASK_KIND):
             controls.append("redirect")
     elif not terminal:
         controls.extend(["pause", "redirect"])
@@ -112,8 +125,12 @@ def _view(detail) -> dict:
             else None
         ),
         "available_controls": controls,
-        "tool_approvals_available": task.metadata.get("execution_kind") == "resource_tool_task",
-        "model_approvals_available": task.metadata.get("execution_kind") != "resource_tool_task",
+        "tool_approvals_available": task.metadata.get("execution_kind")
+        in (TASK_KIND, MODEL_TASK_KIND),
+        "model_approvals_available": task.metadata.get("execution_kind") != TASK_KIND,
+        "partial": run is not None
+        and task.status == "paused"
+        and run.checkpoint.get("partial") is True,
         "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
         "unknown_model_calls": detail.unknown_model_calls,
         "unknown_tool_actions": detail.unknown_tool_actions,
@@ -233,3 +250,69 @@ def control_task(
         ) from None
     task = service.command(agent_id, task_id, command)
     return _view(service.detail(agent_id, task.id))
+
+
+def _tool_task_capabilities(request, agent_id):
+    with request.app.state.store.transaction(write=False) as unit:
+        agent = unit.agents.get(agent_id)
+        if agent is None:
+            raise NotFoundError("Abelha não encontrada.")
+    heartbeat = request.app.state.store.get_cache(HEARTBEAT_KEY)
+    if (
+        not worker_status(request.app.state.store)["available"]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("tool_cycle_version")) is not int
+        or heartbeat["tool_cycle_version"] != 1
+    ):
+        return False, "worker_unavailable"
+    try:
+        available_runtime(request.app.state.database, agent_id)
+    except TransportError:
+        return False, "resource_unavailable"
+    except TaskError, ToolError, ProviderError:
+        return False, "tool_unavailable"
+    return True, None
+
+
+@router.get("/{agent_id}/tool-task-capabilities")
+def tool_task_capabilities(agent_id: UUID, request: Request, session: _SESSION):
+    available, reason = _tool_task_capabilities(request, agent_id)
+    return {
+        "available": available,
+        "reason": reason,
+        "tool_name": "normalize_text",
+        "max_calls": 4,
+        "max_active_seconds": 120,
+        "max_actions": MAX_TOOL_CALLS,
+    }
+
+
+@router.post("/{agent_id}/tool-tasks", status_code=201)
+def create_tool_task(agent_id: UUID, body: ToolTaskInput, request: Request, session: _SESSION):
+    store = request.app.state.store
+    with store.transaction(write=False) as unit:
+        prior = unit.tasks.find_submission(body.client_request_id)
+    if prior is not None:
+        if (
+            prior.agent_id != agent_id
+            or prior.metadata.get("execution_kind") != MODEL_TASK_KIND
+            or prior.metadata.get("submission_hash") != submission_digest(body)
+        ):
+            raise TaskError("idempotency_conflict")
+        task = prior
+    else:
+        available, _ = _tool_task_capabilities(request, agent_id)
+        if not available:
+            raise TaskError("unsupported_capability")
+        try:
+            resource, plugin_id = available_runtime(request.app.state.database, agent_id)
+            task = ToolTaskService(request.app.state.database, resource, plugin_id).create(
+                agent_id, body
+            )
+        except TransportError, ToolError:
+            raise TaskError("unsupported_capability") from None
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }

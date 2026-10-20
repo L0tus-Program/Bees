@@ -96,6 +96,47 @@ class Resolver:
         return SecretStr("TEST-SECRET")
 
 
+@pytest.mark.parametrize("kind", ["openai_compatible", "ollama"])
+@pytest.mark.parametrize("tool_name", ["lookup", "unknown_tool"])
+def test_trusted_proposal_mode_preserves_invalid_proposal_for_closed_coordinator(kind, tool_name):
+    # Argumentos inválidos e nomes não oferecidos permanecem somente propostas.
+    function = {"name": tool_name, "arguments": {"authority": "not a grant"}}
+    if kind == "openai_compatible":
+        function["arguments"] = json.dumps(function["arguments"])
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {"id": "proposal_1", "type": "function", "function": function}
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+    else:
+        payload = {
+            "message": {"role": "assistant", "content": "", "tool_calls": [{"function": function}]},
+            "done": True,
+            "done_reason": "tool_calls",
+        }
+    seen = []
+    strict = create_adapter(kind, transport=httpx.MockTransport(handler(kind, payload, seen)))
+    with pytest.raises(ProviderError) as failure:
+        asyncio.run(strict.complete(config(kind), request(tools=True)))
+    assert failure.value.code == "invalid_response"
+    proposed = create_adapter(
+        kind, transport=httpx.MockTransport(handler(kind, payload, seen)), tool_proposals=True
+    )
+    response = asyncio.run(proposed.complete(config(kind), request(tools=True)))
+    assert response.message.tool_calls[0].name == tool_name
+    assert response.message.tool_calls[0].arguments == {"authority": "not a grant"}
+    assert "tool_proposals" not in json.loads(seen[-1].content)
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize("kind", ["openai_compatible", "ollama"])
 async def test_text_contract_normalized_on_both_backends(kind: str) -> None:

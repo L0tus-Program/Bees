@@ -23,6 +23,7 @@ function mergeDetail(incoming: Detail, previous: Detail) { return previous.task.
 export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: AgentSummary; taskId: string; onRefresh: () => void; onClose: () => void }) {
   const agentId = agent.id
   const { t, i18n } = useTranslation('tasks')
+  const { t: tools } = useTranslation('toolTasks')
   const load = useCallback((signal: AbortSignal) => getTask(agentId, taskId, signal), [agentId, taskId])
   const monitor = useTaskPolling(load, mergeDetail)
   const [busy, setBusy] = useState(false)
@@ -68,6 +69,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
     {task && <>
       <p className="task-state" role="status">{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</p>
       {unknown && <p className="transfer-notice">{t(unknownKind === 'tool' ? 'toolUnknownWarning' : unknownKind === 'mixed' ? 'mixedUnknownWarning' : 'unknownWarning')}</p>}
+      {task.partial && !unknown && <p className="transfer-notice">{tools('partial')}</p>}
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}

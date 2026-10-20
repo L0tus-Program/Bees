@@ -1,7 +1,7 @@
 const pt = {
   navigation: 'Ferramentas', title: 'Ferramentas da colmeia',
   description: 'Instale uma ferramenta, habilite na colmeia e escolha quais abelhas podem usá-la.',
-  scope: 'Neste momento, você pode preparar ferramentas de texto local. O uso automático nas tarefas será integrado nas próximas etapas.',
+  scope: 'Prepare a transformação local de texto e conceda seu uso à abelha. Tarefas que permitem essa opção podem receber propostas do modelo; cada operação segue Autonomia e pode exigir sua revisão.',
   independence: 'Instalar ou habilitar uma ferramenta não concede acesso às abelhas. As regras de Autonomia continuam valendo antes de cada uso.',
   catalog: 'Disponíveis para instalar', installed: 'Instaladas nesta colmeia',
   empty: 'Nenhuma ferramenta instalada.', emptyHelp: 'Comece pelas opções do catálogo abaixo.',
@@ -39,7 +39,7 @@ const pt = {
 
 const en: Record<keyof typeof pt, string> = {
   navigation: 'Tools', title: 'Hive tools', description: 'Install a tool, enable it in the hive and choose which bees can use it.',
-  scope: 'For now, you can prepare local text tools. Automatic use in tasks will be integrated in upcoming stages.',
+  scope: 'Prepare local text transformation and grant its use to a bee. Tasks that enable this option can receive model proposals; each operation follows Autonomy and may require your review.',
   independence: 'Installing or enabling a tool does not grant access to bees. Autonomy rules still apply before each use.',
   catalog: 'Available to install', installed: 'Installed in this hive', empty: 'No tools installed.', emptyHelp: 'Start with the catalog options below.', catalogEmpty: 'This installation’s catalog is empty.',
   install: 'Install', installedLabel: 'Already installed', installing: 'Installing…', enabled: 'Enabled in the hive', disabled: 'Disabled in the hive', enable: 'Enable in hive', disable: 'Disable in hive',
@@ -58,7 +58,7 @@ const en: Record<keyof typeof pt, string> = {
 
 const es: Record<keyof typeof pt, string> = {
   navigation: 'Herramientas', title: 'Herramientas de la colmena', description: 'Instala una herramienta, actívala en la colmena y elige qué abejas pueden usarla.',
-  scope: 'Por ahora, puedes preparar herramientas de texto local. El uso automático en tareas se integrará en las próximas etapas.', independence: 'Instalar o activar una herramienta no concede acceso a las abejas. Las reglas de Autonomía siguen aplicándose antes de cada uso.',
+  scope: 'Prepara la transformación local de texto y concede su uso a la abeja. Las tareas que permiten esta opción pueden recibir propuestas del modelo; cada operación sigue Autonomía y puede requerir tu revisión.', independence: 'Instalar o activar una herramienta no concede acceso a las abejas. Las reglas de Autonomía siguen aplicándose antes de cada uso.',
   catalog: 'Disponibles para instalar', installed: 'Instaladas en esta colmena', empty: 'No hay herramientas instaladas.', emptyHelp: 'Empieza con las opciones del catálogo abajo.', catalogEmpty: 'El catálogo de esta instalación está vacío.',
   install: 'Instalar', installedLabel: 'Ya instalada', installing: 'Instalando…', enabled: 'Activada en la colmena', disabled: 'Desactivada en la colmena', enable: 'Activar en la colmena', disable: 'Desactivar en la colmena',
   enableImpact: 'La herramienta quedará activada en esta colmena. Cada abeja aún necesita su propia concesión para usarla.', disableImpact: 'Los nuevos usos quedarán no disponibles para todas las abejas. Las concesiones se conservan; una acción ya iniciada no se deshace.',

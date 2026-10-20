@@ -10,7 +10,7 @@ Na aba **Ferramentas** da abelha, instale uma extensão do catálogo local. Uma 
 
 Manifestos JSON são uma opção avançada. Eles descrevem ferramentas conhecidas pelo registro confiável; não carregam módulos, executáveis, URLs ou credenciais. Instalações têm manifesto imutável e revisão. Uma versão diferente recebe instalação própria e não herda acesso da anterior. Os contratos publicados incluem versão, entradas/saídas, capacidade e executor suportado.
 
-O catálogo atual referencia `builtin:text.normalize@1`. A operação transforma somente o texto fornecido em memória; não lê arquivos nem usa rede. Gerenciar o contrato não ativa chamadas automáticas pelo modelo: chat e tarefas ainda seguem seu fluxo textual. A implementação de loop de ferramentas e a integração com ambientes reais serão comprovadas nos checkpoints desses executores.
+O catálogo atual referencia `builtin:text.normalize@1`. A operação transforma somente o texto fornecido em memória; não lê arquivos nem usa rede. Gerenciar o contrato não ativa chamadas automáticas pelo modelo. Chat e tarefas comuns seguem o fluxo textual; o [modo opcional de transformação local](tool-cycle.md) permite propostas limitadas quando recurso, modelo e concessão estão disponíveis.
 
 ## Autoridade e execução
 

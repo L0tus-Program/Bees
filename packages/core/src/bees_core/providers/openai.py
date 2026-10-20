@@ -109,7 +109,7 @@ class OpenAICompatibleAdapter(HTTPAdapter):
                         arguments=decode_json(value["function"]["arguments"].encode("utf-8")),
                     )
                 )
-            validate_calls(calls, request.tools)
+            validate_calls(calls, request.tools, proposals=self._tool_proposals)
             old_ids = {call.id for item in request.messages for call in item.tool_calls}
             if any(call.id in old_ids for call in calls):
                 raise ValueError()

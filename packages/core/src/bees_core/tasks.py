@@ -176,6 +176,7 @@ class TaskService:
         if existing is not None:
             if (
                 existing.agent_id != agent_id
+                or existing.metadata.get("execution_kind", "text_task") != "text_task"
                 or existing.metadata.get("submission_hash") != digest
                 or (
                     metadata is not None
@@ -316,6 +317,16 @@ class TaskService:
             )
             uow.task_commands.create(command)
             checkpoint = dict(run.checkpoint)
+            if (
+                value.kind in ("resume", "cancel")
+                and task.metadata.get("execution_kind") == "model_tool_task"
+            ):
+                from bees_core.tool_cycle import supersede_pending
+
+                supersede_pending(uow, task, run)
+                checkpoint.pop("tool_cycle", None)
+                if value.kind == "resume":
+                    checkpoint["partial"] = False
             updates = {"control_revision": task.control_revision + 1}
             run_updates = {}
             replace_run = False
