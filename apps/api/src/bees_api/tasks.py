@@ -77,6 +77,8 @@ def _view(detail) -> dict:
     controls = [] if terminal else ["cancel"]
     if task.status in ("paused", "waiting_approval", "waiting_resource"):
         controls.append("resume")
+        if task.metadata.get("execution_kind") == "resource_tool_task":
+            controls.append("redirect")
     elif not terminal:
         controls.extend(["pause", "redirect"])
     result = None
@@ -110,6 +112,8 @@ def _view(detail) -> dict:
             else None
         ),
         "available_controls": controls,
+        "tool_approvals_available": task.metadata.get("execution_kind") == "resource_tool_task",
+        "model_approvals_available": task.metadata.get("execution_kind") != "resource_tool_task",
         "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
         "unknown_model_calls": detail.unknown_model_calls,
         "unknown_tool_actions": detail.unknown_tool_actions,

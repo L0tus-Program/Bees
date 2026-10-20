@@ -179,12 +179,19 @@ class AttentionService:
 
             approval = unit.approvals.get(row[4])
             task = unit.tasks.get(row[3])
+            action = unit.actions.get(approval.action_id) if approval else None
+            if action is not None and action.metadata.get("approval_kind") == "resource_tool":
+                from bees_core.resource_tools import ResourceToolService
+
+                service = ResourceToolService(self.database)
+            else:
+                service = ApprovalService(self.database)
             requires = (
                 approval is not None
                 and approval.status == "pending"
                 and task is not None
                 and task.status == "waiting_approval"
-                and ApprovalService(self.database).validity(unit, approval) is None
+                and service.validity(unit, approval) is None
             )
         return AttentionItem(
             id=row[1],

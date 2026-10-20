@@ -179,6 +179,19 @@ class TextTransformParameters(BaseModel):
     input_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class ResourceTextParameters(TextTransformParameters):
+    """Recurso/versão/concessão exatos; não recebe identidade dos argumentos do modelo."""
+
+    installation_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    plugin_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    plugin_revision: int = Field(strict=True, ge=1)
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    grant_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    grant_revision: int = Field(strict=True, ge=1)
+    agent_revision: int = Field(strict=True, ge=1)
+    tool_version: Literal["1"]
+
+
 @dataclass(frozen=True)
 class ToolActionDescriptor:
     """Contrato confiável, não uma extensão carregada de conteúdo externo."""
@@ -272,6 +285,14 @@ DEFAULT_REGISTRY = ToolRegistry(
             requires_resource=True,
             requires_identity=True,
         ),
+        ToolActionDescriptor(
+            tool_name="text.normalize",
+            action="transform_resource",
+            parameters_model=ResourceTextParameters,
+            default_effect="ask",
+            requires_resource=True,
+            requires_identity=True,
+        ),
     )
 )
 
@@ -326,7 +347,12 @@ def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int
             getattr(scope, field) is None
             for field in ("tool_name", "action", "environment_id", "resource", "identity")
         )
-        or set(scope.parameters) != {"model"}
+        or set(scope.parameters)
+        != (
+            set(ResourceTextParameters.model_fields)
+            if scope.tool_name == "text.normalize" and scope.action == "transform_resource"
+            else {"model"}
+        )
         or hashlib.sha256(_canonical(policy.scope).encode()).hexdigest() != grant.get("scope_hash")
     ):
         return set()
@@ -346,6 +372,14 @@ def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int
         or any(type(revision) is not int or revision < 1 for _, revision in exceptions)
     ):
         return set()
+    if scope.action == "transform_resource":
+        action = unit.actions.get(approval.action_id)
+        if (
+            action is None
+            or action.metadata.get("approval_kind") != "resource_tool"
+            or approval.scope != policy.scope
+        ):
+            return set()
     return exceptions
 
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { asApiError } from '../../api/client'
@@ -15,6 +15,8 @@ import { ActionHistory } from './ActionHistory'
 import { UnknownAcknowledgment } from './UnknownAcknowledgment'
 import { TaskArtifacts } from '../artifacts/TaskArtifacts'
 import { TaskDeliverables } from './TaskDeliverables'
+
+const ResourceApprovalPanel = lazy(() => import('../approvals/ResourceApprovalPanel'))
 
 function mergeDetail(incoming: Detail, previous: Detail) { return previous.task.revision > incoming.task.revision ? previous : incoming }
 
@@ -76,12 +78,13 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
       {!unknown && task.latest_run?.error_code && <p className="transfer-notice">{i18n.exists(`errors.${task.latest_run.error_code}`, { ns: 'product' }) ? i18n.t(`errors.${task.latest_run.error_code}`, { ns: 'product' }) : t('runFailed')}</p>}
       {['policy_denied', 'policy_approval_required', 'invalid_policy'].includes(task.latest_run?.error_code ?? '') && <p className="quiet-note">{t('policyHelp')}</p>}
-      <ApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} />
+      {task.model_approvals_available !== false && <ApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} />}
+      {task.tool_approvals_available && <Suspense fallback={<LoadingNotice />}><ResourceApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} /></Suspense>}
       <div className="task-actions">{task.available_controls.map((action) => <button key={action} type="button" className={`button ${action === 'cancel' ? 'secondary destructive-text' : 'secondary'}`} disabled={busy || task.control_requested === action || taskControlBlocked(task, action)} onClick={() => choose(action)}>{t(`controls.${action}`)}</button>)}</div>
       {intent && task.available_controls.includes(intent) && <form className="task-command" onSubmit={confirm}>
         <fieldset disabled={busy}>
           {intent === 'cancel' && <p className="transfer-notice">{t('cancelImpact')}</p>}
-          {intent === 'resume' && (task.publication_pending ? <p className="transfer-notice">{t('deliverables.resumePublishes')}</p> : <p className="transfer-notice">{t('resumeTarget', { model: agent.provider_config?.model ?? '—' })}<br /><small>{agent.provider_config?.endpoint}</small></p>)}
+          {intent === 'resume' && (task.publication_pending ? <p className="transfer-notice">{t('deliverables.resumePublishes')}</p> : task.model_approvals_available === false ? <p className="transfer-notice">{t('resourceResume')}</p> : <p className="transfer-notice">{t('resumeTarget', { model: agent.provider_config?.model ?? '—' })}<br /><small>{agent.provider_config?.endpoint}</small></p>)}
           {intent === 'redirect' && <label className="field" htmlFor="task-redirect"><span>{t('redirectInstruction')}</span><textarea id="task-redirect" rows={3} value={instruction} onChange={(event) => setInstruction(event.target.value)} required maxLength={12000} /><small>{t('redirectHelp')}</small></label>}
           {intent === 'resume' && unknown && <UnknownAcknowledgment kind={unknownKind!} checked={acknowledged} onChange={(checked) => setAcknowledgment({ snapshot: acknowledgmentKey!, checked })} />}
           <div className="task-actions"><button type="button" className="text-button" onClick={() => setIntent(null)}>{t('back')}</button><button type="submit" className={`button ${intent === 'cancel' ? 'danger' : 'primary'}`} disabled={taskControlBlocked(task, intent) || (intent === 'redirect' && !instruction.trim()) || (intent === 'resume' && unknown && !acknowledged)}>{t(busy ? 'sending' : 'confirm')}</button></div>

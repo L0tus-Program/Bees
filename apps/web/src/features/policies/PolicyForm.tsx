@@ -6,7 +6,8 @@ import { createPolicy, updatePolicy } from '../../api/policies'
 import type { PolicyEffect, PolicyRecord } from '../../api/policies'
 import type { AgentSummary } from '../../api/onboarding'
 import { ErrorNotice } from '../../components/Feedback'
-import { editableGenerationPolicy, generationScope, policyRequestIdentity } from './state'
+import { editablePolicy, editableResourcePolicy, generationScope, policyRequestIdentity } from './state'
+import { ResourcePolicyScope } from './ResourcePolicyScope'
 
 export function PolicyForm({ agent, policy, onSaved, onCancel, onReload }: { agent: AgentSummary; policy: PolicyRecord | null; onSaved: () => void; onCancel: () => void; onReload: () => void }) {
   const { t } = useTranslation('policies')
@@ -21,7 +22,8 @@ export function PolicyForm({ agent, policy, onSaved, onCancel, onReload }: { age
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { heading.current?.focus(); return () => controller.current?.abort() }, [])
   const conflict = error?.status === 409
-  const selectedScope = scope === 'saved' && policy && editableGenerationPolicy(policy, agent.id) ? policy.scope : generationScope(agent.provider_config, scope === 'current' && !!agent.provider_config)
+  const resource = policy !== null && editableResourcePolicy(policy, agent.id)
+  const selectedScope = scope === 'saved' && policy && editablePolicy(policy, agent.id) ? policy.scope : generationScope(agent.provider_config, scope === 'current' && !!agent.provider_config)
   async function submit(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault(); if (busy || conflict || (scope === 'current' && !agent.provider_config)) return
     const abort = new AbortController(); controller.current = abort; setBusy(true); setError(null)
@@ -39,9 +41,9 @@ export function PolicyForm({ agent, policy, onSaved, onCancel, onReload }: { age
     <fieldset disabled={busy}>
       <label className="field" htmlFor="policy-effect"><span>{t('effect')}</span><select id="policy-effect" value={effect} onChange={(event) => setEffect(event.target.value as PolicyEffect)}>{(['allow', 'ask', 'deny'] as const).map((choice) => <option key={choice} value={choice}>{t(choice)}</option>)}</select></label>
       {effect === 'ask' && <p className="quiet-note">{t('askHelp')}</p>}
-      <label className="field" htmlFor="policy-scope"><span>{t('scope')}</span><select id="policy-scope" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)}>{policy && <option value="saved">{t('savedScope')}</option>}<option value="current" disabled={!agent.provider_config}>{t('currentConnection')}</option><option value="all">{t('allGeneration')}</option></select></label>
-      {!agent.provider_config && <p className="quiet-note">{t('noModel')}</p>}
-      <div className="policy-target">{selectedScope.resource && <p><strong>{t('connection')}</strong><code>{selectedScope.resource}</code></p>}{typeof selectedScope.parameters?.model === 'string' && <p><strong>{t('model')}</strong><span>{selectedScope.parameters.model}</span></p>}{!selectedScope.resource && !selectedScope.parameters?.model && <p>{t('allGeneration')}</p>}</div>
+      <label className="field" htmlFor="policy-scope"><span>{t('scope')}</span><select id="policy-scope" value={scope} disabled={resource} onChange={(event) => setScope(event.target.value as typeof scope)}>{policy && <option value="saved">{t('savedScope')}</option>}{!resource && <><option value="current" disabled={!agent.provider_config}>{t('currentConnection')}</option><option value="all">{t('allGeneration')}</option></>}</select></label>
+      {!resource && !agent.provider_config && <p className="quiet-note">{t('noModel')}</p>}
+      {resource ? <ResourcePolicyScope scope={selectedScope} /> : <div className="policy-target">{selectedScope.resource && <p><strong>{t('connection')}</strong><code>{selectedScope.resource}</code></p>}{typeof selectedScope.parameters?.model === 'string' && <p><strong>{t('model')}</strong><span>{selectedScope.parameters.model}</span></p>}{!selectedScope.resource && !selectedScope.parameters?.model && <p>{t('allGeneration')}</p>}</div>}
       <label className="field" htmlFor="policy-name"><span>{t('name')} <small>{t('optional')}</small></span><input id="policy-name" maxLength={200} value={name} onChange={(event) => setName(event.target.value)} /></label>
       <label className="field" htmlFor="policy-reason"><span>{t('reason')} <small>{t('optional')}</small></span><textarea id="policy-reason" rows={2} maxLength={2000} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
     </fieldset>
