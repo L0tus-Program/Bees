@@ -15,6 +15,7 @@ export interface DeliverableItem {
 export interface DeliverableResults { items: DeliverableItem[]; partial: boolean; missing_data: string[] }
 export interface TaskRun { id: string; status: TaskStatus; provider: string; model: string; started_at: string | null; finished_at: string | null; error_code: string | null; result: TaskResult | null }
 export interface TaskRecord {
+  skill_execution?: { skill_id: string; version: number; snapshot_hash: string }
   tool_approvals_available?: boolean; model_approvals_available?: boolean
   max_calls?: number; max_active_seconds?: number; partial?: boolean
   id: string; agent_id: string; conversation_id: string | null; title: string; objective: string; expected_result: string
@@ -75,6 +76,7 @@ export function isTask(value: unknown): value is TaskRecord {
     && typeof value.unknown_requires_ack === 'boolean' && value.unknown_requires_ack === (value.unknown_model_calls + value.unknown_tool_actions > 0)
     && (value.deliverables === undefined || kindList(value.deliverables)) && (value.deliverable_results === undefined || isDeliverableResults(value.deliverable_results))
     && (value.publication_pending === undefined || typeof value.publication_pending === 'boolean')
+    && (value.skill_execution === undefined || (record(value.skill_execution) && typeof value.skill_execution.skill_id === 'string' && /^[0-9a-f-]{36}$/.test(value.skill_execution.skill_id) && Number.isSafeInteger(value.skill_execution.version) && Number(value.skill_execution.version) >= 1 && typeof value.skill_execution.snapshot_hash === 'string' && /^[0-9a-f]{64}$/.test(value.skill_execution.snapshot_hash)))
 }
 function isActionSummary(value: unknown): value is ActionSummary {
   return record(value) && ['id', 'run_id', 'tool_name'].every((key) => typeof value[key] === 'string' && (value[key] as string).length > 0)

@@ -116,8 +116,9 @@ A futura VM da abelha exige KVM/libvirt no Linux ou Hyper-V suportado no Windows
 ## Verificação
 
 A aba **Skills** oferece uma biblioteca de procedimentos com revisões imutáveis,
-importação/exportação e habilitação humana. A execução de skills em tarefas continua
-em BEES-020.3. Consulte [procedimentos reutilizáveis](docs/skills.md).
+importação/exportação e habilitação humana. A reexecução em tarefa fixa revisão e
+entradas e reutiliza o ciclo limitado de texto/`text.normalize`, com recurso e
+permissões atuais. Consulte [procedimentos reutilizáveis](docs/skills.md).
 
 O [histórico de entregas](docs/delivery-history.md) localiza resultados e versões
 antigas com consulta local paginada. As [rotinas](docs/routines.md) têm contratos

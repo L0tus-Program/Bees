@@ -6,6 +6,11 @@ ele não inicia tarefa, modelo, ferramenta, mensagem externa ou máquina virtual
 O scheduler/worker de BEES-021.2 (#70) e a interface de BEES-021.3 (#71) consomem
 este contrato separadamente.
 
+A [reexecução limitada de skill](skills.md#reexecutar-em-tarefa-nova) já fornece
+criação transacional de tarefa com revisão/entradas fixas para o recorte textual
+disponível. Isso é um componente para o scheduler; ativar uma agenda ainda não
+despacha tarefas automaticamente neste checkpoint.
+
 ## Definição humana e identidade
 
 Uma rotina operacional declara nome, instruções, frequência, horário, fuso IANA,

@@ -13,7 +13,7 @@ function canonical(value: unknown): string {
   if (typeof value === 'object' && value !== null) return '{' + Object.entries(value).sort(([a], [b]) => a < b ? -1 : 1).map(([key, item]) => JSON.stringify(key) + ':' + canonical(item)).join(',') + '}'
   return JSON.stringify(value)
 }
-async function digest(value: unknown) {
+export async function digest(value: unknown) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(value)))), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 export function checkedToolTaskIntent(value: unknown, agentId: string): ToolTaskIntent {

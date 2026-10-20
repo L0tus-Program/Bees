@@ -47,10 +47,11 @@ export function checkedResourceApproval(value: unknown, agentId: string, taskId:
     || !exact(value.target, targetKeys) || value.target.adapter !== 'local_process_text' || value.target.identity !== 'bees_user' || value.target.agent_id !== agentId
     || !nonNil(value.target.installation_id) || !nonNil(value.target.resource_id) || value.target.environment_id !== value.target.resource_id
     || !exact(value.scope, ['tool_name', 'action', 'environment_id', 'resource', 'identity', 'parameters']) || value.scope.tool_name !== 'text.normalize' || value.scope.action !== 'transform_resource' || value.scope.identity !== 'bees_user'
-    || value.scope.environment_id !== value.target.resource_id || value.scope.resource !== `resource:${value.target.resource_id}` || !exact(value.scope.parameters, parameterKeys)) throw new ApiError('invalid_response')
+    || value.scope.environment_id !== value.target.resource_id || value.scope.resource !== `resource:${value.target.resource_id}` || !(exact(value.scope.parameters, parameterKeys) || exact(value.scope.parameters, [...parameterKeys, 'skill_execution_hash']))) throw new ApiError('invalid_response')
   const parameters = value.scope.parameters
   if (parameters.operation !== value.operation || parameters.input_hash !== value.input_hash || parameters.installation_id !== value.target.installation_id || parameters.tool_version !== '1'
-    || !nonNil(parameters.plugin_id) || !nonNil(parameters.grant_id) || !hash(parameters.manifest_hash) || !positive(parameters.plugin_revision) || !positive(parameters.grant_revision) || !positive(parameters.agent_revision)) throw new ApiError('invalid_response')
+    || !nonNil(parameters.plugin_id) || !nonNil(parameters.grant_id) || !hash(parameters.manifest_hash) || !positive(parameters.plugin_revision) || !positive(parameters.grant_revision) || !positive(parameters.agent_revision)
+    || 'skill_execution_hash' in parameters && !hash(parameters.skill_execution_hash)) throw new ApiError('invalid_response')
   return value as unknown as ResourceApproval
 }
 function base(agentId: string) {

@@ -13,6 +13,8 @@ from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import ProviderError
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
+from bees_core.skill_context import SkillTaskInput
+from bees_core.skill_tasks import SkillTaskService, replay_skill_task
 from bees_core.storage.store import NotFoundError
 from bees_core.tasks import (
     TaskCommand,
@@ -25,6 +27,7 @@ from bees_core.tasks import (
 from bees_core.tool_cycle import MAX_TOOL_CALLS, ToolTaskInput, ToolTaskService
 from bees_core.tool_runtime import available_runtime
 from bees_core.tools import ToolError
+from bees_core.tools import digest as context_digest
 
 _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1/agents", tags=["tasks"])
@@ -160,7 +163,17 @@ def _view(detail) -> dict:
             "code": run.checkpoint.get("progress", task.status) if run else task.status,
             "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
         },
-    }
+    } | (
+        {
+            "skill_execution": {
+                "skill_id": task.metadata["skill_execution"]["skill_id"],
+                "version": task.metadata["skill_execution"]["version"],
+                "snapshot_hash": task.metadata["skill_execution_hash"],
+            }
+        }
+        if "skill_execution" in task.metadata
+        else {}
+    )
 
 
 @router.get("/{agent_id}/tasks")
@@ -296,6 +309,7 @@ def create_tool_task(agent_id: UUID, body: ToolTaskInput, request: Request, sess
         if (
             prior.agent_id != agent_id
             or prior.metadata.get("execution_kind") != MODEL_TASK_KIND
+            or "skill_request_hash" in prior.metadata
             or prior.metadata.get("submission_hash") != submission_digest(body)
         ):
             raise TaskError("idempotency_conflict")
@@ -316,3 +330,38 @@ def create_tool_task(agent_id: UUID, body: ToolTaskInput, request: Request, sess
         "client_request_id": str(body.client_request_id),
         "request_hash": request_digest(body),
     }
+
+
+@router.post("/{agent_id}/skill-tasks", status_code=201)
+def create_skill_task(agent_id: UUID, body: SkillTaskInput, request: Request, session: _SESSION):
+    with request.app.state.store.transaction(write=False) as unit:
+        task = replay_skill_task(unit, agent_id, body)
+    if task is None:
+        available, _ = _tool_task_capabilities(request, agent_id)
+        if not available:
+            raise TaskError("unsupported_capability")
+        try:
+            resource, plugin_id = available_runtime(request.app.state.database, agent_id)
+            task = SkillTaskService(request.app.state.database, resource, plugin_id).create(
+                agent_id, body
+            )
+        except TransportError, ToolError:
+            raise TaskError("unsupported_capability") from None
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }
+
+
+@router.get("/{agent_id}/tasks/{task_id}/skill-context")
+def skill_task_context(agent_id: UUID, task_id: UUID, request: Request, session: _SESSION):
+    with request.app.state.store.transaction(write=False) as unit:
+        task = TaskService._task(unit, agent_id, task_id)
+        context = task.metadata.get("skill_execution")
+        if not isinstance(context, dict):
+            raise NotFoundError("Esta tarefa não tem revisão de skill.")
+        if context_digest(context) != task.metadata.get("skill_execution_hash"):
+            raise TaskError("skill_unavailable")
+        # Consulta explícita da pessoa: não depende de habilitação atual ou runtime.
+        return {"snapshot": context, "snapshot_hash": task.metadata["skill_execution_hash"]}
