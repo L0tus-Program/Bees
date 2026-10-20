@@ -25,6 +25,12 @@ Os detalhes exibem um recorte limitado do histórico. Os contadores e bloqueios 
 unknown consultam o conjunto relevante, inclusive registros fora desse recorte.
 Não use o tamanho da lista como autorização para continuar.
 
+O histórico de ferramentas apresenta uma explicação por estado em português,
+inglês e espanhol. Uma intenção de autorização utilizada aponta para a ação
+concreta; somente essa ação registra o resultado do efeito. O aviso de unknown
+continua explicando a incerteza depois do reconhecimento humano. Essas explicações
+são consultas: não acrescentam botões de execução, concessão ou reconciliação.
+
 ## Conter e preservar
 
 1. Confirme **Parar tudo** quando precisar impedir novos despachos. Consulte
