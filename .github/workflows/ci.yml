@@ -30,7 +30,7 @@ jobs:
         run: uv run --locked pytest
       - name: Validar guarda nativa de arquivos no Windows
         if: runner.os == 'Windows'
-        run: uv run --locked python scripts/run-ci-tests.py -q -s --durations=5 apps/host/tests/test_provisioning_backend.py -k "readonly_native_hardware_guard or native_powershell_prepared_go"
+        run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations -q -s --durations=5 apps/host/tests/test_provisioning_backend.py -k "readonly_native_hardware_guard or native_powershell_prepared_go"
       - name: Validar corpus de pesquisa no Windows
         if: runner.os == 'Windows'
         run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations packages/core/tests/test_research.py
