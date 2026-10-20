@@ -72,6 +72,10 @@ Uma resposta concluída enquanto a tarefa está pausada pode ser aproveitada ao 
 
 ## Operação
 
+Para resposta perdida, resultado desconhecido ou manutenção após interrupção, siga
+o [roteiro de recuperação operacional](recovery.md). Ele separa consulta, decisão
+humana, quiescência/backup e retomada, preservando journals e efeitos anteriores.
+
 O Compose sobe API/interface e `worker` como processos separados, com o mesmo estado e cofre. Ambos usam usuário restrito, filesystem somente leitura e volumes explícitos. O worker compartilha o namespace de rede da API para preservar o endereço loopback de Ollama. Seu healthcheck verifica um heartbeat derivado; não afirma que tarefas concluíram.
 
 Na instalação nativa, inicie a API primeiro e depois, com as mesmas variáveis/configuração:

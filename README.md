@@ -164,6 +164,7 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 - [Consumo e limites](docs/budgets.md): registro de consumo, limite de tokens por abelha e incerteza.
 - [Atividade](docs/activity.md): timeline por tarefa/execução, snapshots e operações em voo ou desconhecidas.
 - [Parada global](docs/safety.md): parar e retomar todas as gerações, tarefas, ferramentas e provisionamento.
+- [Recuperação operacional](docs/recovery.md): preservar evidências, consultar resultados e decidir retomada após falhas ou respostas perdidas.
 - [Atenção](docs/attention.md): avisos duráveis das tarefas textuais, leitura e preferências por abelha.
 - [Artefatos](docs/artifacts.md): versões verificadas, cartões nas tarefas e download autenticado; anexação e revisão permanecem pendentes.
 
