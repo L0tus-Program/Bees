@@ -5,3 +5,7 @@
 .attention-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; margin-top: .85rem; }
 .attention-preferences { display: grid; gap: .6rem; margin: 1rem 0; }
 .attention-preference { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .5rem 0; }
+
+.attention-workspace { display: grid; gap: 1rem; min-width: 0; }
+.attention-scope { overflow-wrap: anywhere; }
+.attention-scope select { max-width: 100%; }

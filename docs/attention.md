@@ -73,6 +73,33 @@ e `requires_attention` podem mudar em GET mantendo a revisão do aviso; essa rev
 acompanha apenas leitura humana. A interface deve aceitar projeções atuais na mesma
 revisão e recusar regressões.
 
+## Visualização por conversa
+
+O seletor **Avisos por conversa** oferece as conversas próprias por título e data,
+com carregamento explícito de mais opções. Cada tarefa tem uma conversa de execução;
+esse vínculo canônico define o filtro. Texto do modelo, conversa de origem de uma
+delegação ou metadata livre não substituem esse vínculo. **Todas as conversas da
+abelha** conserva a visualização anterior. Reabrir o painel começa nesse escopo.
+
+A lista, a paginação e a contagem de não lidos usam a mesma conversa. Um cursor de
+outra conversa é recusado no modo filtrado. Consultar uma conversa inexistente ou
+de outra abelha retorna 404; a leitura de um aviso também verifica esse vínculo
+antes do replay. A resposta filtrada identifica `conversation_id`; sem filtro,
+o contrato de resposta anterior é preservado.
+
+Trocar o filtro abre uma nova consulta e descarta respostas atrasadas do escopo
+anterior. Falha de consulta permanece erro, sem converter uma lista antiga em
+resultado da nova conversa. Enquanto uma alteração humana estiver em curso ou
+sem confirmação, ou os detalhes da tarefa estiverem abertos, o seletor fica
+bloqueado para conservar o contexto. Recuperar uma leitura usa o mesmo UUID e a
+mesma conversa. Preferências de silêncio continuam valendo para a abelha inteira;
+a interface informa esse alcance mesmo na visualização filtrada.
+
+O catálogo de conversas só retorna ID, título limitado e data de criação. Ele usa
+páginas limitadas por posição, com deduplicação na interface caso uma conversa nova
+desloque a página seguinte. A paginação dos avisos continua por sequência exclusiva.
+Nenhuma consulta cria fatos, tarefas, mensagens, concessões ou chamadas de modelo.
+
 ## API humana
 
 Rotas exigem sessão; PUT também exige Host/Origin/CSRF e JSON fechado:
@@ -80,8 +107,11 @@ Rotas exigem sessão; PUT também exige Host/Origin/CSRF e JSON fechado:
 | Rota | Contrato |
 | --- | --- |
 | `GET /api/v1/agents/{agent_id}/attention?limit=50&before={seq}` | `{items, next_before, unread_count}`; de 1 a 100 itens, sequência decrescente. |
+| `GET /api/v1/agents/{agent_id}/attention?conversation_id={id}&before={seq}` | Mesmos campos e `conversation_id`; lista e contagem limitadas à conversa própria. |
+| `GET /api/v1/agents/{agent_id}/attention/conversations?limit=50&offset=0` | `{agent_id,items:[{id,title,created_at}],next_offset}`; catálogo próprio limitado, sem mensagens ou metadata. |
 | `GET /api/v1/agents/{agent_id}/attention/preferences` | `{agent_id, items:[{kind,enabled,revision}]}`. |
 | `PUT /api/v1/agents/{agent_id}/attention/{item_id}/read` | Corpo `{client_request_id,expected_revision,read}`; retorna item atual. |
+| `PUT /api/v1/agents/{agent_id}/attention/{item_id}/read?conversation_id={id}` | Mesmo comando; exige aviso da conversa selecionada antes de consultar o replay. |
 | `PUT /api/v1/agents/{agent_id}/attention/preferences/{kind}` | Corpo `{client_request_id,expected_revision,enabled}`; retorna preferência atual. Revisão zero cria a preferência. |
 
 Cada item contém somente `id`, `agent_id`, `task_id`, `task_title`, `approval_id`,
@@ -135,3 +165,22 @@ falhas em runs distintos, unknown sem repetição, decisão/expiração/revisão
 rollback de projeção, CAS concorrente, replay/isolamento, GET sem escrita, constraints,
 paginação e upgrade 11→12 com backup/integridade/FKs. Nenhuma geração paga, mensagem
 externa ou migração do banco pessoal é necessária para esses testes.
+
+Os testes do filtro acrescentam contagem por conversa, cursor fora do escopo,
+inserção entre páginas, reabertura, catálogo próprio limitado, metadata de origem
+forjada e replay de leitura em conversa errada. API/ASGI autenticada verifica
+compatibilidade sem filtro, sessão, CSRF e contratos fechados. React/DOM verifica
+os três idiomas, resposta atrasada, erro sem falso vazio, leitura incerta com o
+mesmo pedido, bloqueio ao abrir detalhes e catálogo com páginas deslocadas.
+Uma instalação privada com a interface compilada passou por 12 verificações em
+Chromium: português, inglês e espanhol em 390/1280 px, paginação real de 50+2 avisos,
+catálogo de 50+9 conversas, conversa vazia e isolamento. Uma leitura confirmada no
+servidor teve a resposta descartada; após reiniciar a API, repetir o mesmo UUID,
+corpo e conversa recuperou um único comando. HTTP recusou a conversa de outra
+abelha antes do replay. Erro de consulta não exibiu cartões antigos ou falso vazio.
+Reload preservou os fatos e unknown continuou pedindo atenção depois de lido.
+
+A comparação canônica conservou 12 tabelas de negócio, com somente duas alterações
+humanas de leitura e seus eventos. A preparação usou uma falha de transporte
+controlada para produzir unknown; a navegação não iniciou chamadas de modelo,
+tarefas ou efeitos externos. Essa prova não representa aceite com modelo ou VM reais.

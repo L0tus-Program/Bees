@@ -57,6 +57,22 @@ class AttentionPage(_Contract):
     unread_count: int
 
 
+class ConversationAttentionPage(AttentionPage):
+    conversation_id: UUID
+
+
+class AttentionConversation(_Contract):
+    id: UUID
+    title: str = Field(max_length=200)
+    created_at: datetime
+
+
+class AttentionConversations(_Contract):
+    agent_id: UUID
+    items: list[AttentionConversation]
+    next_offset: int | None
+
+
 class AttentionPreference(_Contract):
     kind: AttentionKind
     enabled: bool
@@ -170,6 +186,39 @@ class AttentionService:
             raise NotFoundError("Abelha não encontrada.")
         return agent_id, unit.tasks._context.connection
 
+    @staticmethod
+    def _conversation(unit, agent_id, conversation_id):
+        if conversation_id is None:
+            return None
+        conversation_id = UUID(str(conversation_id))
+        conversation = unit.conversations.get(conversation_id)
+        if conversation is None or conversation.agent_id != agent_id:
+            raise NotFoundError("Conversa não encontrada nesta abelha.")
+        return conversation_id
+
+    def conversations(self, agent_id: UUID, *, limit=50, offset=0) -> AttentionConversations:
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("Página deve ter entre 1 e 100 itens.")
+        if type(offset) is not int or not 0 <= offset <= 2**63 - 1:
+            raise ValueError("Posição inválida.")
+        with self.store.transaction(write=False) as unit:
+            agent_id, connection = self._owned(unit, agent_id)
+            rows = list(
+                connection.execute(
+                    "SELECT id,title,created_at FROM conversations WHERE agent_id=? "
+                    "ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
+                    (str(agent_id), limit + 1, offset),
+                )
+            )
+            return AttentionConversations(
+                agent_id=agent_id,
+                items=[
+                    AttentionConversation(id=row[0], title=row[1][:200], created_at=row[2])
+                    for row in rows[:limit]
+                ],
+                next_offset=offset + limit if len(rows) > limit else None,
+            )
+
     def _item(self, unit, row) -> AttentionItem:
         requires = True
         if row[5] == "approval_required":
@@ -207,15 +256,38 @@ class AttentionService:
             muted=not bool(row[9]),
         )
 
-    def list(self, agent_id: UUID, *, limit: int = 50, before: int | None = None) -> AttentionPage:
+    def list(
+        self,
+        agent_id: UUID,
+        *,
+        limit: int = 50,
+        before: int | None = None,
+        conversation_id: UUID | None = None,
+    ) -> AttentionPage | ConversationAttentionPage:
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("Página deve ter entre 1 e 100 itens.")
         if before is not None and (type(before) is not int or not 1 <= before <= 2**63 - 1):
             raise ValueError("Cursor inválido.")
         with self.store.transaction(write=False) as unit:
             agent_id, connection = self._owned(unit, agent_id)
+            conversation_id = self._conversation(unit, agent_id, conversation_id)
             where = "WHERE i.agent_id=? "
             parameters = [str(agent_id)]
+            if conversation_id is not None:
+                where += "AND t.conversation_id=? "
+                parameters.append(str(conversation_id))
+                if (
+                    before is not None
+                    and connection.execute(
+                        "SELECT 1 FROM attention_items i JOIN tasks t ON t.id=i.task_id "
+                        + where
+                        + "AND i.seq=?",
+                        (*parameters, before),
+                    ).get
+                    is None
+                ):
+                    raise NotFoundError("Página não encontrada nesta conversa.")
+            scope_where, scope_parameters = where, tuple(parameters)
             if before is not None:
                 where += "AND i.seq<? "
                 parameters.append(before)
@@ -226,25 +298,33 @@ class AttentionService:
                 )
             )
             count = connection.execute(
-                "SELECT count(*) FROM attention_items i LEFT JOIN attention_preferences p "
-                "ON p.agent_id=i.agent_id AND p.kind=i.kind WHERE i.agent_id=? "
-                "AND i.is_read=0 AND COALESCE(p.enabled,1)=1 AND i.kind<>'approval_required'",
-                (str(agent_id),),
+                "SELECT count(*) FROM attention_items i JOIN tasks t ON t.id=i.task_id "
+                "LEFT JOIN attention_preferences p ON p.agent_id=i.agent_id AND p.kind=i.kind "
+                + scope_where
+                + "AND i.is_read=0 AND COALESCE(p.enabled,1)=1 AND i.kind<>'approval_required'",
+                scope_parameters,
             ).get
             # Apenas decisões pendentes entram neste conjunto; o histórico grande
             # de conclusões/falhas é contado diretamente pelo SQLite.
             candidates = connection.execute(
-                _SELECT + "JOIN approvals a ON a.id=i.approval_id "
-                "WHERE i.agent_id=? AND i.is_read=0 "
+                _SELECT
+                + "JOIN approvals a ON a.id=i.approval_id "
+                + scope_where
+                + "AND i.is_read=0 "
                 "AND COALESCE(p.enabled,1)=1 AND a.status='pending' "
                 "AND t.status='waiting_approval'",
-                (str(agent_id),),
+                scope_parameters,
             )
             count += sum(self._item(unit, row).requires_attention for row in candidates)
-            return AttentionPage(
+            page = dict(
                 items=[self._item(unit, row) for row in rows[:limit]],
                 next_before=rows[limit - 1][0] if len(rows) > limit else None,
                 unread_count=count,
+            )
+            return (
+                ConversationAttentionPage(**page, conversation_id=conversation_id)
+                if conversation_id is not None
+                else AttentionPage(**page)
             )
 
     def preferences(self, agent_id: UUID) -> dict:
@@ -306,12 +386,24 @@ class AttentionService:
             ),
         )
 
-    def set_read(self, agent_id: UUID, item_id: UUID, value: ReadInput) -> AttentionItem:
+    def set_read(
+        self,
+        agent_id: UUID,
+        item_id: UUID,
+        value: ReadInput,
+        *,
+        conversation_id: UUID | None = None,
+    ) -> AttentionItem:
         value = ReadInput.model_validate(value.model_dump())
         with self.store.transaction(actor="user", source="attention_read") as unit:
             agent_id, connection = self._owned(unit, agent_id)
+            conversation_id = self._conversation(unit, agent_id, conversation_id)
+            scope = " AND t.conversation_id=?" if conversation_id is not None else ""
+            parameters = (str(agent_id), str(item_id)) + (
+                (str(conversation_id),) if conversation_id is not None else ()
+            )
             row = connection.execute(
-                _SELECT + "WHERE i.agent_id=? AND i.id=?", (str(agent_id), str(item_id))
+                _SELECT + "WHERE i.agent_id=? AND i.id=?" + scope, parameters
             ).fetchone()
             if row is None:
                 raise NotFoundError("Aviso não encontrado nesta abelha.")
