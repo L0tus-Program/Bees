@@ -191,6 +191,7 @@ class ResourceTextParameters(TextTransformParameters):
     agent_revision: int = Field(strict=True, ge=1)
     tool_version: Literal["1"]
     skill_execution_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    routine_scope_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -352,9 +353,11 @@ def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int
         != (
             set(ResourceTextParameters.model_fields)
             - (
-                {"skill_execution_hash"}
-                if "skill_execution_hash" not in scope.parameters
-                else set()
+                {
+                    name
+                    for name in ("skill_execution_hash", "routine_scope_hash")
+                    if name not in scope.parameters
+                }
             )
             if scope.tool_name == "text.normalize" and scope.action == "transform_resource"
             else {"model"}

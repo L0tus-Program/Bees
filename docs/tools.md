@@ -16,7 +16,12 @@ O catálogo atual referencia `builtin:text.normalize@1`. A operação transforma
 
 O serviço separa os argumentos da ferramenta dos dados de autoridade: agente, ambiente, identidade, destino e vínculo de execução. Argumentos externos não escolhem permissões nem modificam políticas. O registro confiável define executor, capacidade e modelos de validação; um manifesto declarativo não pode ampliar esses contratos.
 
-Antes de preparar uma ação, o serviço verifica instalação, ferramenta e concessão. Antes do despacho, relê suas revisões e a política atual. Uma intenção alterada ou um contrato desabilitado não usa a autorização anterior. Perguntar mantém a chamada sem execução; não existe aprovação implícita por texto ou concessão. Aprovações BEES-009 continuam limitadas às tarefas de geração textual até a integração com executores reais.
+Antes de preparar uma ação, o serviço verifica instalação, ferramenta e concessão.
+Antes do despacho, relê revisões e política. Intenção alterada ou contrato desabilitado
+não usa a autorização anterior. Perguntar conserva a chamada sem execução; não há
+aprovação implícita por texto. A [decisão própria do recurso POSIX](resource-tool-approvals.md)
+e o [ciclo limitado](tool-cycle.md) também atendem skills e rotinas programadas. A agenda
+fixa recurso/versão e não herda grants; troca exige revisão humana, sem substituir executor.
 
 Cada chamada conserva correlação e journal de ação. Replay de resultado confirmado devolve o estado conhecido; uma chamada iniciada de resultado incerto não é repetida. Falha de saída ou interrupção após início conserva a incerteza. Consulta ou replay não marca como encerrada uma ação ainda em voo.
 
@@ -45,7 +50,11 @@ Habilitação e concessão usam CAS; após conflito ou resposta perdida, consult
 
 Schema 4 adiciona instalações e concessões canônicas. A migração exige API e worker parados e conserva os dados anteriores; inicialização cria backup antes de migrar. O launcher Windows interrompe a versão anterior ao detectar imagem nova. Consulte [persistência](persistence.md) e [containers](containers.md); não substitua banco ou volumes para atualizar.
 
-Referência OD-02: registro explícito e fronteira validação → política → despacho. A implementação é própria; nenhum código do Open Dots foi incorporado. Esta fundação não prova isolamento de máquinas, execução de código arbitrário ou uso de ferramentas por um LLM real. A coordenação do builtin prepara os controles de tarefas para os executores; transporte remoto, aprovações concretas de ferramentas, agenda e coordenação dos ambientes reais continuam pendentes.
+Referência OD-02: registro explícito e fronteira validação → política → despacho.
+A implementação é própria; nenhum código do Open Dots foi incorporado. O recorte
+POSIX tem processo/journal reais, aprovação própria e [agenda pelo worker](routines.md).
+Isso não comprova VM, shell arbitrário ou seleção por LLM real. Transporte remoto,
+apps e coordenação dos demais ambientes permanecem pendentes.
 
 ## Validação do checkpoint
 

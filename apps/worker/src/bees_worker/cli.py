@@ -11,6 +11,7 @@ from bees_api.worker_status import HEARTBEAT_KEY, HEARTBEAT_TTL, worker_status
 from bees_core.artifacts import ArtifactStore
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.vault import FernetBackend, FileSecretVault
+from bees_core.routine_scheduler import RoutineScheduler
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore
 from bees_core.tool_runtime import ToolQueueWorker as TaskWorker
@@ -52,7 +53,11 @@ async def serve(settings: Settings) -> None:
         while True:
             store.put_cache(
                 HEARTBEAT_KEY,
-                {"last_seen": datetime.now(UTC).isoformat(), "tool_cycle_version": 1},
+                {
+                    "last_seen": datetime.now(UTC).isoformat(),
+                    "tool_cycle_version": 1,
+                    "routine_scheduler_version": 1,
+                },
                 ttl_seconds=HEARTBEAT_TTL,
             )
             await asyncio.sleep(3)
@@ -60,6 +65,7 @@ async def serve(settings: Settings) -> None:
     async with asyncio.TaskGroup() as group:
         group.create_task(heartbeat())
         group.create_task(worker.run_forever())
+        group.create_task(RoutineScheduler(database).run_forever())
 
 
 def main() -> None:

@@ -52,11 +52,28 @@ function queries(current: Routine[] = [routine], history: RoutineOccurrence[] = 
 }
 
 describe('human routine definitions', () => {
+  it('requires an explicit scheduled choice, then reviews before saving a paused revision', async () => {
+    const supported = { ...skill, enabled_version: skill.current_version, current: { ...skill.current, definition: { ...skill.current.definition, resources: { environment: 'none' as const, tools: [] } } } }
+    const onReview = vi.fn()
+    await render(<RoutineEditor initial={{ definition: { ...definition, environment: 'none' }, source: supported.current.definition }} skills={[supported]} conversationId={conversationId} disabled={false} onReview={onReview} onCancel={() => {}} />)
+    const choice = container.querySelector('input[type=checkbox]') as HTMLInputElement
+    expect(choice.checked).toBe(false); expect(choice.disabled).toBe(false)
+    expect(container.textContent).toContain(routineResources['pt-BR'].executeHelp)
+    await click(choice); expect(onReview).not.toHaveBeenCalled()
+    await submit(); expect(onReview.mock.calls[0][0].execution_mode).toBe('scheduled')
+  })
+  it('reports an available scheduler only after the read-only runtime check', async () => {
+    const fallback = queries()
+    const fetcher = vi.fn(async (url: string, options: RequestInit) => url.endsWith('/routines/runtime') ? Response.json({ available: true, reason: null, version: 1, max_calls: 4, max_active_seconds: 120 }) : fallback(url, options))
+    vi.stubGlobal('fetch', fetcher); await render()
+    expect(container.textContent).toContain(routineResources['pt-BR'].runtimeReady)
+    expect(fetcher.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+  })
   it('loads canonical next/history using reads only and explicitly identifies scheduler unavailability', async () => {
     const fetcher = queries([activeRoutine]); vi.stubGlobal('fetch', fetcher)
     await render()
-    expect(container.textContent).toContain('O agendador automático ainda está em preparação')
-    expect(container.textContent).toContain('Elegível para agendador futuro')
+    expect(container.textContent).toContain(routineResources['pt-BR'].unavailable)
+    expect(container.textContent).toContain(routineResources['pt-BR'].prepareOnly)
     expect(container.querySelector('time')?.dateTime).toBe(activeRoutine.next_run_at)
     expect(container.querySelector('time')?.textContent).toContain('09:00')
     expect(container.querySelector('time')?.textContent).toContain('America/Sao_Paulo')
@@ -121,10 +138,10 @@ describe('human routine definitions', () => {
       if (options.method === 'PUT') { current = { ...activeRoutine, revision: 2 }; return Response.json(current) }
       return Response.json([current])
     }); vi.stubGlobal('fetch', fetcher)
-    await render(); await click(button('Preparar agenda futura'))
-    expect(container.textContent).toContain('O agendador automático ainda não está disponível')
+    await render(); await click(button('Ativar agenda'))
+    expect(container.textContent).toContain(routineResources['pt-BR'].eligibleEffect)
     await click(button('Confirmar este pedido'))
-    expect(container.textContent).toContain('Elegível para agendador futuro')
+    expect(container.textContent).toContain(routineResources['pt-BR'].prepareOnly)
     expect(fetcher.mock.calls.filter(([, options]) => options.method !== 'GET')).toHaveLength(1)
     expect(fetcher.mock.calls.every(([url]) => !url.includes('/tasks'))).toBe(true)
   })
@@ -210,7 +227,7 @@ describe('human routine definitions', () => {
       await act(async () => { await i18n.changeLanguage(language) })
       const onReview = vi.fn()
       await render(<RoutineEditor key={language} initial={{ definition: { ...definition, schedule: { frequency: 'weekly', time: '09:00', weekdays: [0, 4] } }, source: skill.current.definition }} skills={[skill]} conversationId={conversationId} disabled={false} onReview={onReview} onCancel={() => {}} />)
-      expect(container.querySelectorAll('input[type=checkbox]')).toHaveLength(7)
+      expect(container.querySelectorAll('.routine-days input[type=checkbox]')).toHaveLength(7)
       expect(container.querySelectorAll('input[type=checkbox]:checked')).toHaveLength(2)
       for (const input of container.querySelectorAll('input,textarea,select')) expect(input.closest('label')).not.toBeNull()
       await submit(); expect(onReview).toHaveBeenCalledOnce()

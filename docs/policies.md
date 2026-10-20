@@ -24,7 +24,11 @@ Alterar uma regra não executa automaticamente uma tarefa parada: use **Retomar*
 
 ## Fronteira de execução
 
-`PolicyService` usa um registro explícito de ferramentas/ações, criado por código confiável. O registro operacional inicial contém apenas `model.generate`. Ação desconhecida, parâmetros incompatíveis, agente inativo ou regra inválida produzem negativa. Novos adaptadores devem declarar contrato, versão, efeito padrão e requisitos de autoridade; registrar um nome não comprova capacidade nem isolamento.
+`PolicyService` usa um registro explícito criado por código confiável: `model.generate`,
+`text.normalize.transform` em memória e `text.normalize.transform_resource` no recurso
+próprio. Ação desconhecida, parâmetros incompatíveis, agente inativo ou regra inválida
+produzem negativa. Adaptadores declaram contrato, versão, efeito padrão e autoridade;
+registrar um nome não comprova capacidade nem isolamento.
 
 O executor monta agente, ambiente, recurso/destino e identidade fora dos argumentos do modelo. Parâmetros da ação são validados por contrato antes da avaliação. O escopo aceita igualdades exatas por ferramenta, ação, ambiente, recurso, identidade e valores completos dos parâmetros, respeitando tipos. Não é um filtro de caminho nem uma garantia de confinamento de shell/desktop.
 
@@ -50,4 +54,10 @@ Testes usam SQLite e HTTP controlado, sem chave ou geração real de LLM. Cobrem
 
 O checkpoint de 05/10/2026 aprovou 612 casos Python no Windows, 161 de frontend e 201 no alvo Linux, com 24/4 skips de plataforma. Ruff, ESLint, typecheck/build e imagens Docker passaram. O Compose descartável comprovou espera/bloqueio sem geração, revogação seguida de retomada, regras/resultado/cofre após restart/recreate e proteção CSRF. A interface comprovou cadastro, recuperação após reload, edição e revogação confirmada, usando somente conta e servidor de protocolo de teste.
 
-BEES-008 permanece em andamento para comprovar a aplicação online no executor de ferramentas/ambientes reais. BEES-009 entrega perguntas concretas para tarefas, aprovação única vinculada a ação/snapshot/revisão e edição pela conversa; Retomar continua sem conceder essa autorização. Rotinas ainda não executam e usarão a mesma avaliação antes de cada efeito quando implementadas. Aceite com modelos reais permanece separado em BEES-005.
+BEES-008 permanece em andamento para os demais executores/ambientes reais. BEES-009
+entrega perguntas concretas vinculadas a ação/snapshot/revisão; Retomar não concede
+essa autorização. As [rotinas programadas](routines.md) usam a mesma avaliação por
+geração/efeito no recorte POSIX disponível. Revisão, entradas e recurso ficam fixos;
+editar/pausar a agenda ou revogar acesso bloqueia próximos despachos antigos. Regras
+salvas por decisão própria conservam apenas seu escopo e as revisões ask autorizadas;
+uma nova ask ou deny continua bloqueando o efeito. Aceite com LLM real permanece em BEES-005.
