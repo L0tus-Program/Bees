@@ -80,7 +80,7 @@ def fixture(monkeypatch):
         enrollment = EnrollmentStore.initialize(
             base / "enrollment", bootstrap, binding=binding, cipher=cipher
         )
-        store = SupervisorStore.initialize_for_acquisition(
+        store = SupervisorStore.initialize_for_rejections(
             base / "ledger", installation_id=claim.installation_id, host_id=claim.host_id
         )
         journals = base / "plans"

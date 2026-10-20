@@ -93,7 +93,7 @@ class Supervisor:
         """Um pedido durável, sem retries. Não prova quiescência nem concede nova lease."""
         journal = self.runner.journal
         for row in rows.values():
-            if row["status"] == "confirmed" or row["status"] == "prepared":
+            if row["status"] in {"confirmed", "prepared", "rejected"}:
                 continue
             # /begin usa o UUID durável do pedido como UUID do intent. Também permite
             # reportar a perda da resposta depois de o core já ter gravado o intent.
@@ -134,11 +134,16 @@ class Supervisor:
                 return result
             except BaseException:
                 rows = journal.operations()
+                rejected = any(row["status"] == "rejected" for row in rows.values())
+                uncertain = bool(rows) and (
+                    not rejected
+                    or any(row["status"] not in {"confirmed", "rejected"} for row in rows.values())
+                )
                 for operation, row in rows.items():
-                    if row["status"] != "confirmed":
+                    if row["status"] not in {"confirmed", "rejected"}:
                         journal.unknown(operation)
                 # Quarentena local é confirmada ANTES de tentar o aviso pela rede.
-                self.store.finish(journal.claim.claim_id, "unknown" if rows else "stopped")
+                self.store.finish(journal.claim.claim_id, "unknown" if uncertain else "stopped")
                 try:
                     self._report_unknown(rows)
                 except Exception:
@@ -146,7 +151,7 @@ class Supervisor:
                     # impedir o aviso. O journal/ledger continuam bloqueando repetição.
                     pass
                 raise ProvisionError(
-                    "provision_operation_unknown" if rows else "provision_supervisor_stopped"
+                    "provision_operation_unknown" if uncertain else "provision_supervisor_stopped"
                 ) from None
 
     def reconcile(self):
