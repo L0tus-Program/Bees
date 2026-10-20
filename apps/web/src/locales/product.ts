@@ -1,4 +1,5 @@
 const pt = {
+  appearance: 'Aparência', appearanceSystem: 'Sistema', appearanceLight: 'Clara', appearanceDark: 'Escura', appearanceScope: 'Preferência somente neste navegador para esta instalação. Não altera os dados das abelhas.', appearanceUnsaved: 'Aparência aplicada nesta aba; não foi possível salvar a preferência no navegador.',
   chatDelegationRejected: 'A tentativa de criar uma tarefa foi recusada. Confira as tarefas registradas antes de fazer um novo pedido.',
   chatDelegationRejectedTurn: 'O modelo pediu mais de uma tarefa. Nenhuma foi criada. Faça um pedido por mensagem.',
   chatDelegationRejectedPolicy: 'Uma regra de autonomia impediu esta delegação. Nenhuma tarefa foi criada. Revise a regra antes de fazer outro pedido.',
@@ -145,6 +146,7 @@ const pt = {
 type ProductStrings = { [K in keyof typeof pt]: K extends 'errors' ? Record<keyof typeof pt.errors, string> : string }
 
 const en: ProductStrings = {
+  appearance: 'Appearance', appearanceSystem: 'System', appearanceLight: 'Light', appearanceDark: 'Dark', appearanceScope: 'Preference only in this browser for this installation. Bee data stays unchanged.', appearanceUnsaved: 'Appearance applied in this tab; the browser could not save the preference.',
   chatDelegationRejected: 'The attempt to create a task was rejected. Check recorded tasks before making a new request.',
   chatDelegationRejectedTurn: 'The model requested more than one task. None were created. Make one request per message.',
   chatDelegationRejectedPolicy: 'An autonomy rule prevented this delegation. No task was created. Review the rule before making another request.',
@@ -259,6 +261,7 @@ const en: ProductStrings = {
 }
 
 const es: ProductStrings = {
+  appearance: 'Apariencia', appearanceSystem: 'Sistema', appearanceLight: 'Claro', appearanceDark: 'Oscuro', appearanceScope: 'Preferencia solo en este navegador para esta instalación. No cambia los datos de las abejas.', appearanceUnsaved: 'Apariencia aplicada en esta pestaña; no se pudo guardar la preferencia en el navegador.',
   chatDelegationRejected: 'Se rechazó el intento de crear una tarea. Revisa las tareas registradas antes de hacer otro pedido.',
   chatDelegationRejectedTurn: 'El modelo pidió más de una tarea. No se creó ninguna. Haz un pedido por mensaje.',
   chatDelegationRejectedPolicy: 'Una regla de autonomía impidió esta delegación. No se creó ninguna tarea. Revisa la regla antes de hacer otro pedido.',
