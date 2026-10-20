@@ -115,6 +115,10 @@ A futura VM da abelha exige KVM/libvirt no Linux ou Hyper-V suportado no Windows
 
 ## Verificação
 
+A aba **Skills** oferece uma biblioteca de procedimentos com revisões imutáveis,
+importação/exportação e habilitação humana. A execução de skills em tarefas continua
+em BEES-020.3. Consulte [procedimentos reutilizáveis](docs/skills.md).
+
 Windows PowerShell:
 
 ```powershell
