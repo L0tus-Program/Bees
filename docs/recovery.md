@@ -58,6 +58,30 @@ A leitura não abre/recupera journals privados, toma lease, revalida autoridade,
 libera quarentena, concede ferramenta ou permite redespatch. Inspeção confiável do
 executor e decisões com evidência completa continuam nos aceites de #82/#83.
 
+### Localizar registros fora do histórico resumido
+
+**Registros de ações e autorizações → Consultar primeira página** lista 50 registros
+por vez, com próxima/anterior e retorno explícito à primeira página. Abre os IDs de
+ação/execução, revisão e datas sem consultar parâmetros, resultados, metadados ou
+bindings. Tool names são texto inerte; autorizações usadas e unknown reconhecido
+conservam a explicação de seu estado. Não são acrescentados botões de decisão.
+
+`GET /api/v1/agents/{agent_id}/tasks/{task_id}/recovery/actions` aceita `limit` entre
+1 e 100 (padrão 50) e `after` com o UUID do registro anterior. A referência do cursor
+precisa existir na mesma tarefa/abelha; estrangeira ou inexistente retorna 404,
+sem página vazia fictícia. A ordenação é por criação/ID. Cada página usa uma
+transação query_only própria, com instante/revisão e escopo
+`all_canonical_task_actions`, sempre `executor_evidence: not_inspected`.
+
+As páginas não formam uma fotografia única entre pedidos. Mudanças de estado ou
+novos registros podem exigir atualizar a primeira página; contagem e página têm
+instantes próprios. A interface mostra só a página confirmada, descarta a anterior
+durante a consulta, preserva o cursor solicitado para repetir um GET que falhou e
+ignora resposta de tarefa/revisão antiga. Erro ou cursor inválido não significam
+que o histórico está vazio nem que algum efeito não ocorreu. Esta listagem cobre
+registros de ações/autorizações; os agregados de chamadas de modelo continuam no
+diagnóstico, sem abrir suas solicitações ou respostas privadas.
+
 ## Conter e preservar
 
 1. Confirme **Parar tudo** quando precisar impedir novos despachos. Consulte

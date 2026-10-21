@@ -28,7 +28,7 @@ for (const lang of ['pt-BR', 'en', 'es'] as const) it(`presents ${lang} scope wi
 it('shows complete counters, keeps acknowledged unknown separate and has no execution controls', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(fixture()))); await render(); await click()
   expect(container.querySelectorAll('tbody tr')).toHaveLength(9); expect(container.textContent).toContain('Resultados desconhecidos: 2'); expect(container.textContent).toContain('Com risco reconhecido: 1'); expect(container.textContent).toContain(pt.meaning)
-  expect(container.querySelectorAll('button')).toHaveLength(1); expect(container.querySelector('button')!.textContent).toBe(pt.refresh)
+  expect(container.querySelectorAll('button')).toHaveLength(2); expect(container.querySelector('button')!.textContent).toBe(pt.refresh)
 })
 it('discards prior counters on a failed refresh instead of presenting them as current or empty', async () => {
   const fetcher = vi.fn().mockResolvedValueOnce(Response.json(fixture())).mockRejectedValueOnce(new Error('PRIVATE')); vi.stubGlobal('fetch', fetcher); await render(); await click(); await click()

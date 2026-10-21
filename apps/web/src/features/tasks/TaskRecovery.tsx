@@ -6,6 +6,7 @@ import type { RecoveryInventory } from '../../api/recovery'
 import { actionStatuses } from '../../api/tasks'
 import type { TaskRecord } from '../../api/tasks'
 import './recovery.css'
+import { RecoveryActions } from './RecoveryActions'
 
 export function TaskRecovery({ task, onRefresh }: { task: TaskRecord; onRefresh: () => void }) {
   const { t, i18n } = useTranslation('recovery')
@@ -39,5 +40,6 @@ export function TaskRecovery({ task, onRefresh }: { task: TaskRecord; onRefresh:
       <p className="transfer-notice">{t('meaning')}</p>
     </>}
     <p className="quiet-note">{t('limits')}</p>
+    <RecoveryActions task={task} onRefresh={onRefresh} />
   </section>
 }
