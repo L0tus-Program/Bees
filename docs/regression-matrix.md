@@ -55,7 +55,14 @@ contêm os casos positivos e negativos existentes; não são novos executores de
 ## CI remota já confirmada por metadados
 
 A etapa inicial **Validar guarda nativa de arquivos no Windows** carrega
-`pytest_annotations`, assim como as suítes Windows seguintes. Se um teste falhar,
+`pytest_annotations`, assim como as suítes Windows seguintes.
+O protocolo local também permite três códigos públicos fechados:
+`provision_command_timeout`, `provision_command_invalid` e
+`provision_command_unknown`. Somente uma exceção direta da classe exata
+`ProvisionError`, com um único argumento exatamente nessa lista, recebe esse
+código. Mensagens, subclasses, cadeias de causa e valores arbitrários não são
+publicados. Isso não aumenta prazos, repete testes ou altera seu exit status;
+nem reconstrói a causa de falhas históricas sem log acessível. Se um teste falhar,
 o check recebe arquivo/função, linha e ordinal do caso; não recebe traceback,
 parâmetros, caminhos privados ou conteúdo do erro. Os testes existentes em
 [test_pytest_annotations.py](../scripts/tests/test_pytest_annotations.py) executam
