@@ -9,6 +9,7 @@ import { Dashboard } from './features/dashboard/Dashboard'
 import { useResource } from './hooks/useResource'
 import { setupAuthorization } from './features/auth/setupAuthorization'
 import { AppearanceSelect } from './components/AppearanceSelect'
+import { clearRestorePending } from './features/portability/restoreSession'
 import { clearExportState } from './features/portability/session'
 
 const ExportPanel = lazy(() => import('./features/portability/ExportPanel'))
@@ -30,17 +31,20 @@ export function App() {
   useEffect(() => {
     if (resource.state === 'ready' && resource.data.configured) setupAuthorization.clear()
     if (resource.state === 'ready' && !resource.data.authenticated) {
+      try { clearRestorePending() } catch { /* Private tab storage can be unavailable. */ }
       try { clearExportState() } catch { /* Unavailable tab storage is never used as authentication. */ }
     }
   }, [resource])
   useEffect(() => {
-    const expired = () => { setError(null); setDataOpen(false); setDataBusy(false); try { clearExportState() } catch { /* Storage may be unavailable; no server copy is changed. */ } reload() }
+    const expired = () => { setError(null); setDataOpen(false); setDataBusy(false); try { clearRestorePending() } catch { /* Private tab storage can be unavailable. */ }
+      try { clearExportState() } catch { /* Storage may be unavailable; no server copy is changed. */ } reload() }
     window.addEventListener('bees:session-expired', expired)
     return () => window.removeEventListener('bees:session-expired', expired)
   }, [reload])
 
   async function signOut() {
     setDataOpen(false); setDataBusy(false)
+    try { clearRestorePending() } catch { /* Private tab storage can be unavailable. */ }
     try { clearExportState() } catch { /* Storage may be unavailable. */ }
     setSigningOut(true); setError(null)
     try { await logout() } catch (failure) { setError(asApiError(failure)) }

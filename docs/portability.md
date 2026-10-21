@@ -180,3 +180,7 @@ arquivos reais, conteúdo acentuado, revisões imutáveis, exclusão de credenci
 escrita concorrente, interrupção antes da publicação, limite, blob ausente/corrompido,
 pacotes adulterados e sessão/CSRF/download privado. Não demonstram a restauração da
 #79, recuperação física de VM ou transferência do cofre entre contas.
+
+A interface **Meus dados → Restaurar uma cópia** também permite enviar um ZIP a um
+alias novo e inativo já configurado pelo operador e consultar seu relatório sem
+reenviar. Veja [restauração e respostas perdidas](restoration.md#restaurar-pela-interface).

@@ -34,14 +34,39 @@ Com sessão humana, Host/Origin aceitos e CSRF:
 A autenticação precede a recepção do corpo. O upload tem limite total do verificador
 (por padrão 256 MiB), prazo total de 30 segundos e uma vaga por serviço. Comprimento
 inválido, mídia incorreta, origem hostil, falta de consentimento e excesso são
-recusados. Os demais endpoints conservam o limite global de JSON. A interface de
-seleção/upload é integração posterior; estes endpoints e a composição Python
+recusados. Os demais endpoints conservam o limite global de JSON. A interface autenticada **Meus dados → Restaurar uma cópia** usa estes endpoints. A composição Python
 `RestoreService(verifier, {alias: Path(...)})` já oferecem a operação explícita.
 
 O retorno de sucesso significa **instalação inativa publicada**, não recuperação
 operacional concluída. Se a resposta se perder, consulte o relatório do mesmo alias.
 Um novo POST nunca substitui o diretório já publicado. Não escolha outro destino
 apenas para contornar um resultado incerto.
+
+## Restaurar pela interface
+
+Em **Meus dados → Restaurar uma cópia**, consulte os destinos configurados, escolha
+um alias e consulte seu relatório. Um relatório existente mostra a instalação
+inativa publicada; um destino ocupado não é substituído. Sem relatório e com destino
+disponível, selecione o ZIP (não vazio, até 256 MiB) e marque o consentimento explícito
+antes de enviar. O navegador envia o arquivo completo com sessão e CSRF, sem abrir
+seu conteúdo; o servidor conserva a validação integral e os controles acima.
+
+Durante o envio, seleção e comandos ficam bloqueados. A referência do alias é
+conferida e guardada na aba antes do POST; armazenamento indisponível bloqueia o
+pedido. A interface não guarda o ZIP, conteúdo, credenciais ou CSRF nesse registro.
+Uma resposta perdida conserva o alias e bloqueia outro envio, inclusive após fechar
+o painel ou recarregar. Consulte o relatório **do mesmo alias**. Um 404 não prova
+que a tentativa falhou e não libera o bloqueio de um envio incerto. Se o relatório
+continuar indisponível, o operador precisa conferir o destino e os processos;
+não use outro alias para contornar a incerteza. Uma recusa conhecida anterior à
+publicação exige nova consulta e consentimento antes de uma tentativa corrigida.
+
+Sair ou perder a sessão limpa a referência privada da aba, sem cancelar uma operação
+já recebida nem apagar o destino. Depois de entrar novamente, consulte o relatório
+do alias usado antes de decidir qualquer envio. Reabrir/recarregar nunca envia o
+ZIP automaticamente. O relatório apresenta totais, transformações de segurança,
+IDs/hash e os nove pontos de revisão humana; sua presença não configura identidade,
+reconecta modelo/host, retoma trabalho nem conclui o aceite operacional.
 
 ## O que é preservado e o que precisa de revisão
 
