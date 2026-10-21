@@ -20,7 +20,6 @@ const pt = {
   stateError: 'Não foi possível conferir a referência guardada nesta aba. Consulte de novo ou esqueça a referência local antes de criar outra cópia.',
   readLocal: 'Consultar referência desta aba', forget: 'Esquecer referência desta aba',
   forgetHelp: 'Isso remove somente a referência no navegador. Os arquivos no servidor e as cópias já baixadas são preservados.',
-  restoreScope: 'A restauração usa um destino novo e inativo configurado pelo operador. Este painel não restaura dados nem ativa modelos, rotinas ou ferramentas.',
 }
 const en: typeof pt = {
   navigation: 'My data', title: 'Export installation data', back: 'Back to the hive',
@@ -44,7 +43,6 @@ const en: typeof pt = {
   stateError: 'The reference stored in this tab could not be checked. Read it again or forget the local reference before creating another copy.',
   readLocal: 'Read this tab reference', forget: 'Forget this tab reference',
   forgetHelp: 'This removes only the browser reference. Server files and copies already downloaded are preserved.',
-  restoreScope: 'Restoration uses a new inactive destination configured by the operator. This panel does not restore data or activate models, routines or tools.',
 }
 const es: typeof pt = {
   navigation: 'Mis datos', title: 'Exportar datos de la instalación', back: 'Volver a la colmena',
@@ -68,6 +66,5 @@ const es: typeof pt = {
   stateError: 'No se pudo comprobar la referencia guardada en esta pestaña. Consúltala de nuevo u olvida la referencia local antes de crear otra copia.',
   readLocal: 'Consultar referencia de esta pestaña', forget: 'Olvidar referencia de esta pestaña',
   forgetHelp: 'Solo elimina la referencia del navegador. Se conservan los archivos del servidor y las copias ya descargadas.',
-  restoreScope: 'La restauración usa un destino nuevo e inactivo configurado por el operador. Este panel no restaura datos ni activa modelos, rutinas o herramientas.',
 }
 export const portabilityResources = { 'pt-BR': pt, en, es }

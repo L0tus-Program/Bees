@@ -6,3 +6,8 @@
 .export-receipt dd { margin: .25rem 0 0; }
 .export-receipt code { overflow-wrap: anywhere; }
 .export-receipt details p { margin-block: .6rem; }
+
+@media (max-width: 600px) {
+  .export-panel .form-heading { flex-direction: column; align-items: stretch; }
+  .export-panel .form-heading > button { align-self: flex-start; }
+}
