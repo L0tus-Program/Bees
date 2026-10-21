@@ -2,9 +2,29 @@
 
 import os
 import re
+import sys
 from pathlib import PurePosixPath
 
+import pytest
+
 _CASES = {}
+_PUBLIC_CODES = frozenset(
+    {"provision_command_timeout", "provision_command_invalid", "provision_command_unknown"}
+)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    report = yield
+    # No imports of the host runtime, no exception formatting or cause traversal.
+    module = sys.modules.get("bees_host.provisioning.contracts")
+    error = call.excinfo.value if call.excinfo is not None else None
+    expected = getattr(module, "ProvisionError", None) if module is not None else None
+    if expected is not None and type(error) is expected:
+        arguments = BaseException.args.__get__(error)
+        if len(arguments) == 1 and type(arguments[0]) is str and arguments[0] in _PUBLIC_CODES:
+            report.bees_public_error_code = arguments[0]
+    return report
 
 
 def pytest_collection_modifyitems(items):
@@ -44,4 +64,7 @@ def pytest_runtest_logreport(report):
         metadata += f",file={filename},line={line}"
     case = _CASES.get(report.nodeid)
     suffix = f" (case {case})" if case is not None else ""
+    code = getattr(report, "bees_public_error_code", None)
+    if type(code) is str and code in _PUBLIC_CODES:
+        suffix += f" [code={code}]"
     print(f"\n::error {metadata}::{identifier}{suffix}", flush=True)

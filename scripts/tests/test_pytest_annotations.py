@@ -76,3 +76,69 @@ def test_case_ordinal_never_prints_parameter_or_upstream_line(tmp_path, monkeypa
     output = capsys.readouterr().out
     assert ",line=21::" in output and "(case 1)" in output
     assert "PRIVATE_PARAMETER" not in output and "private/library.py" not in output
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        ("ProvisionError('provision_command_timeout')", "provision_command_timeout"),
+        ("ProvisionError('provision_command_invalid')", "provision_command_invalid"),
+        ("ProvisionError('provision_command_unknown')", "provision_command_unknown"),
+        ("ProvisionError('PRIVATE_FAILURE_CONTENT')", None),
+        ("ProvisionError('provision_command_timeout', 'PRIVATE_FAILURE_CONTENT')", None),
+        ("RuntimeError('provision_command_timeout')", None),
+        ("AuthorityRejectedBeforeEffect('provision_command_timeout')", None),
+    ],
+    ids=["timeout", "invalid", "unknown", "private", "multiple", "different-type", "subclass"],
+)
+def test_public_protocol_codes_are_closed_without_changing_failure_exit(
+    tmp_path, expression, expected
+):
+    test = tmp_path / "test_protocol_annotation.py"
+    test.write_text(
+        "from bees_host.provisioning.contracts import ProvisionError\n"
+        "from bees_host.provisioning.contracts import AuthorityRejectedBeforeEffect\n"
+        "def test_native_protocol_failure():\n    raise " + expression + "\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "pytest_annotations", str(test)],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GITHUB_ACTIONS": "true",
+            "PYTHONPATH": str(Path(__file__).parents[1]),
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 1
+    messages = [line for line in result.stdout.splitlines() if "::error title=" in line]
+    assert len(messages) == 1 and "test_native_protocol_failure" in messages[0]
+    assert "PRIVATE_FAILURE_CONTENT" not in messages[0]
+    if expected:
+        assert "[code=" + expected + "]" in messages[0]
+    else:
+        assert "[code=" not in messages[0]
+
+
+def test_report_cannot_inject_private_or_multiline_code(monkeypatch, capsys):
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    for value in [
+        "PRIVATE_FAILURE_CONTENT",
+        "provision_command_timeout\nPRIVATE_FAILURE_CONTENT",
+        {"private": "PRIVATE_FAILURE_CONTENT"},
+    ]:
+        report = SimpleNamespace(
+            nodeid="scripts/tests/test_public.py::test_fail",
+            failed=True,
+            longrepr=None,
+            location=("unused", 0, "test_fail"),
+            bees_public_error_code=value,
+        )
+        annotations_plugin.pytest_runtest_logreport(report)
+    output = capsys.readouterr().out
+    assert output.count("::error ") == 3 and "[code=" not in output
+    assert "PRIVATE_FAILURE_CONTENT" not in output
