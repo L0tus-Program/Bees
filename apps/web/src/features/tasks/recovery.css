@@ -1,0 +1,8 @@
+.task-recovery { display: grid; gap: .7rem; border-block: 1px solid var(--line, #d8d8c8); padding-block: 1rem; min-width: 0; }
+.task-recovery h4, .task-recovery h5, .task-recovery p { margin: 0; }
+.recovery-table { overflow-x: auto; }
+.recovery-table table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.recovery-table th, .recovery-table td { padding: .5rem .3rem; text-align: start; border-bottom: 1px solid var(--line, #d8d8c8); overflow-wrap: anywhere; }
+.recovery-table td { font-variant-numeric: tabular-nums; }
+.recovery-unknown { display: flex; flex-wrap: wrap; gap: 1rem; }
+.recovery-unknown section { flex: 1 1 12rem; display: grid; gap: .4rem; }

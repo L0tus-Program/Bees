@@ -11,6 +11,7 @@ from bees_api.onboarding import Input
 from bees_api.worker_status import HEARTBEAT_KEY, worker_status
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import ProviderError
+from bees_core.recovery import RecoveryInventory, RecoveryInventoryService
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
 from bees_core.skill_context import SkillTaskInput
@@ -206,6 +207,11 @@ def list_tasks(agent_id: UUID, request: Request, session: _SESSION) -> dict:
         "has_more": len(records) == 100,
         "worker": worker_status(request.app.state.store),
     }
+
+
+@router.get("/{agent_id}/tasks/{task_id}/recovery", response_model=RecoveryInventory)
+def recovery_inventory(agent_id: UUID, task_id: UUID, request: Request, session: _SESSION):
+    return RecoveryInventoryService(request.app.state.database).inspect(agent_id, task_id)
 
 
 @router.get("/{agent_id}/tasks/{task_id}")

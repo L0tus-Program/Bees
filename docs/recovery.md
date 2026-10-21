@@ -31,6 +31,33 @@ concreta; somente essa ação registra o resultado do efeito. O aviso de unknown
 continua explicando a incerteza depois do reconhecimento humano. Essas explicações
 são consultas: não acrescentam botões de execução, concessão ou reconciliação.
 
+## Diagnóstico canônico por tarefa
+
+Nos detalhes, **Diagnóstico da tarefa → Consultar diagnóstico** consulta o inventário completo
+por estado de ações e chamadas de modelo, em todas as execuções. O endpoint humano
+`GET /api/v1/agents/{agent_id}/tasks/{task_id}/recovery` exige sessão e mantém
+isolamento entre abelhas. A resposta fechada contém IDs da tarefa/abelha, revisão e
+estado da tarefa, instante da consulta, total de execuções e contagens por estado.
+Não inclui nomes de ferramentas, parâmetros, respostas, erros brutos, checkpoints,
+metadados, caminhos, owners, referências de credencial ou bindings de executor.
+
+A consulta usa uma única transação SQLite `query_only`. Os agregados não dependem
+dos limites de 100 ações ou 1.000 execuções do detalhe. Conta também registros de
+autorização: um `confirmed` não equivale à contagem de efeitos físicos concluídos.
+Unknown reconhecido continua em unknown, separado de unknown sem reconhecimento.
+Nenhum registro fora da página é esquecido por isso. A interface informa o instante
+e a revisão consultados; uma revisão diferente pede atualizar os detalhes antes de
+mostrar o diagnóstico. Atualizar descarta a projeção anterior enquanto consulta;
+erro não vira histórico vazio. Trocar tarefa/revisão ou fechar aborta a consulta e
+ignora respostas tardias. O painel não consulta automaticamente nem acrescenta
+comandos de retomada/reconciliação.
+
+O escopo é `all_canonical_task_history` e a evidência do executor é explicitamente
+`not_inspected`. Zero registros não comprova ausência de efeitos fora do core.
+A leitura não abre/recupera journals privados, toma lease, revalida autoridade,
+libera quarentena, concede ferramenta ou permite redespatch. Inspeção confiável do
+executor e decisões com evidência completa continuam nos aceites de #82/#83.
+
 ## Conter e preservar
 
 1. Confirme **Parar tudo** quando precisar impedir novos despachos. Consulte
@@ -115,6 +142,6 @@ privada/cofre e reset destrutivo não são caminhos de retomada deste roteiro.
 Esses cenários foram executados nos checkpoints das PRs #135, #136, #139, #142 e
 #146. São provas do recorte nativo com provider controlado, não de qualidade de LLM
 real, VM, aplicativos ou máquina pessoal. RecoveryService composto, inspeção externa
-com identidade/recurso exatos, diagnóstico unificado e matriz física de falhas
+com identidade/recurso exatos, diagnóstico que componha evidência externa e matriz física de falhas
 continuam nos aceites de #82/#83/#84. Um lease vencido ou PID ausente, isoladamente,
 nunca substitui evidência suficiente do executor antigo.
