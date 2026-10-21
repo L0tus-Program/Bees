@@ -8,6 +8,7 @@ import type { TaskControl, TaskDetail as Detail, TaskRecord } from '../../api/ta
 import type { AgentSummary } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { commandIdentity, taskAcknowledgmentKey, taskControlBlocked, taskOutcomeUnknown, taskUnknownKind } from './state'
+import { TaskRecovery } from './TaskRecovery'
 import { TaskTime } from './TaskTime'
 import { useTaskPolling } from './useTaskPolling'
 import { ApprovalPanel } from '../approvals/ApprovalPanel'
@@ -76,6 +77,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
       {task.latest_run?.result && <section className="task-result" aria-labelledby="task-result-heading"><h4 id="task-result-heading">{t('result')}</h4><p>{task.latest_run.result.content}</p><small><TaskTime value={task.latest_run.result.created_at} /> · {t('reviewResult')}</small></section>}
       {task.status === 'completed' && !task.latest_run?.result && <p className="transfer-notice" role="status">{t('resultUnavailable')}</p>}
+      <TaskRecovery key={`recovery:${agentId}:${task.id}:${task.revision}`} task={task} onRefresh={refresh} />
       <TaskDeliverables task={task} />
       <TaskSkillContext key={`skill:${task.id}`} task={task} />
       <TaskArtifacts agentId={agentId} taskId={taskId} />
