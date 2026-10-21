@@ -1,4 +1,10 @@
 const pt = {
+  records: 'Registros de ações e autorizações', first: 'Consultar primeira página', next: 'Próxima página', previous: 'Página anterior', retryPage: 'Repetir consulta desta página', historyLoading: 'Consultando registros…',
+  historyScope: 'Consulte até 50 registros por página, incluindo os que não aparecem no histórico resumido. Cada página tem seu próprio instante de consulta; mudanças e novos registros podem exigir voltar à primeira página. Os registros não inspecionam o executor nem autorizam ações.',
+  historyError: 'Não foi possível confirmar esta página. Ela não será exibida como vazia. Repita a mesma consulta ou volte à primeira página.',
+  pageSnapshot: 'Página {{page}} · {{count}} registros · consultada em {{date}}', emptyPage: 'Nenhum registro nesta página. Isso não comprova ausência de efeitos externos.',
+  recordDetails: 'IDs e revisão do registro', actionId: 'ID da ação', runId: 'ID da execução', recordRevision: 'Revisão do registro',
+
   refreshTask: 'Atualizar detalhes da tarefa', title: 'Diagnóstico da tarefa', read: 'Consultar diagnóstico', refresh: 'Atualizar diagnóstico', loading: 'Consultando diagnóstico…',
   scope: 'Esta consulta conta todos os registros da tarefa, em todas as execuções, inclusive fora das páginas do histórico. Não verifica o executor nem seus registros privados.',
   snapshot: 'Consulta de {{date}} · revisão da tarefa {{revision}} · {{runs}} execuções',
@@ -11,6 +17,12 @@ const pt = {
   failure: 'Não foi possível confirmar este diagnóstico. A ausência de resposta não significa histórico vazio; consulte novamente.',
 }
 const en: typeof pt = {
+  records: 'Action and authorization records', first: 'Check first page', next: 'Next page', previous: 'Previous page', retryPage: 'Retry this page query', historyLoading: 'Checking records…',
+  historyScope: 'Check up to 50 records per page, including records outside the brief history. Each page has its own query time; changes and new records may require returning to the first page. These records do not inspect the executor or authorize actions.',
+  historyError: 'This page could not be confirmed. It will not be displayed as empty. Retry the same query or return to the first page.',
+  pageSnapshot: 'Page {{page}} · {{count}} records · checked {{date}}', emptyPage: 'No records on this page. This does not prove that no external effects occurred.',
+  recordDetails: 'Record IDs and revision', actionId: 'Action ID', runId: 'Run ID', recordRevision: 'Record revision',
+
   refreshTask: 'Refresh task details', title: 'Task diagnosis', read: 'Check diagnosis', refresh: 'Refresh diagnosis', loading: 'Checking diagnosis…',
   scope: 'This query counts all records across all task runs, including records outside history pages. It does not inspect the executor or its private records.',
   snapshot: 'Checked {{date}} · task revision {{revision}} · {{runs}} runs',
@@ -23,6 +35,12 @@ const en: typeof pt = {
   failure: 'This diagnosis could not be confirmed. No response does not mean empty history; check again.',
 }
 const es: typeof pt = {
+  records: 'Registros de acciones y autorizaciones', first: 'Consultar primera página', next: 'Página siguiente', previous: 'Página anterior', retryPage: 'Repetir consulta de esta página', historyLoading: 'Consultando registros…',
+  historyScope: 'Consulta hasta 50 registros por página, incluidos los que quedan fuera del historial resumido. Cada página tiene su propio instante de consulta; los cambios y nuevos registros pueden requerir volver a la primera página. Los registros no inspeccionan el ejecutor ni autorizan acciones.',
+  historyError: 'No se pudo confirmar esta página. No se mostrará como vacía. Repite la misma consulta o vuelve a la primera página.',
+  pageSnapshot: 'Página {{page}} · {{count}} registros · consultada {{date}}', emptyPage: 'Ningún registro en esta página. Esto no demuestra ausencia de efectos externos.',
+  recordDetails: 'IDs y revisión del registro', actionId: 'ID de la acción', runId: 'ID de la ejecución', recordRevision: 'Revisión del registro',
+
   refreshTask: 'Actualizar detalles de la tarea', title: 'Diagnóstico de la tarea', read: 'Consultar diagnóstico', refresh: 'Actualizar diagnóstico', loading: 'Consultando diagnóstico…',
   scope: 'Esta consulta cuenta todos los registros de todas las ejecuciones de la tarea, incluidos los que quedan fuera de las páginas del historial. No inspecciona el ejecutor ni sus registros privados.',
   snapshot: 'Consultado {{date}} · revisión de la tarea {{revision}} · {{runs}} ejecuciones',

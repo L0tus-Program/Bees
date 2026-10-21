@@ -31,3 +31,36 @@ export async function getRecoveryInventory(agentId: string, taskId: string, sign
   if (!uuid(agentId) || !uuid(taskId)) throw new ApiError('invalid_request')
   return checkedRecovery(await request(`/agents/${agentId}/tasks/${taskId}/recovery`, { authenticated: true, signal }), agentId, taskId)
 }
+
+export interface RecoveryAction {
+  id: string; run_id: string; revision: number; tool_name: string; status: typeof actionStatuses[number]
+  created_at: string; updated_at: string; unknown_acknowledged: boolean
+}
+export interface RecoveryActionPage {
+  agent_id: string; task_id: string; task_revision: number; observed_at: string
+  scope: 'all_canonical_task_actions'; executor_evidence: 'not_inspected'
+  items: RecoveryAction[]; has_more: boolean; next_cursor: string | null
+}
+const date = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))
+export function checkedRecoveryActions(value: unknown, agentId: string, taskId: string, limit = 50): RecoveryActionPage {
+  const keys = ['agent_id', 'task_id', 'task_revision', 'observed_at', 'scope', 'executor_evidence', 'items', 'has_more', 'next_cursor']
+  if (!record(value) || Object.keys(value).length !== keys.length || !keys.every(key => key in value)
+    || !uuid(value.agent_id) || value.agent_id !== agentId || !uuid(value.task_id) || value.task_id !== taskId
+    || !integer(value.task_revision) || value.task_revision < 1 || !date(value.observed_at)
+    || value.scope !== 'all_canonical_task_actions' || value.executor_evidence !== 'not_inspected'
+    || !Array.isArray(value.items) || value.items.length > limit || typeof value.has_more !== 'boolean') throw new ApiError('invalid_response')
+  const seen = new Set<string>()
+  for (const item of value.items) {
+    if (!record(item) || Object.keys(item).length !== 8 || !uuid(item.id) || !uuid(item.run_id) || seen.has(item.id)
+      || !integer(item.revision) || item.revision < 1 || typeof item.tool_name !== 'string' || item.tool_name.trim().length === 0 || Array.from(item.tool_name).length > 200
+      || !actionStatuses.includes(item.status as typeof actionStatuses[number]) || !date(item.created_at) || !date(item.updated_at) || typeof item.unknown_acknowledged !== 'boolean') throw new ApiError('invalid_response')
+    seen.add(item.id)
+  }
+  if (value.has_more ? value.items.length !== limit || !uuid(value.next_cursor) || value.next_cursor !== value.items.at(-1)?.id : value.next_cursor !== null) throw new ApiError('invalid_response')
+  return value as unknown as RecoveryActionPage
+}
+export async function getRecoveryActions(agentId: string, taskId: string, after: string | null = null, signal?: AbortSignal): Promise<RecoveryActionPage> {
+  if (!uuid(agentId) || !uuid(taskId) || after !== null && !uuid(after)) throw new ApiError('invalid_request')
+  const query = new URLSearchParams({ limit: '50' }); if (after !== null) query.set('after', after)
+  return checkedRecoveryActions(await request(`/agents/${agentId}/tasks/${taskId}/recovery/actions?${query}`, { authenticated: true, signal }), agentId, taskId)
+}

@@ -6,3 +6,11 @@
 .recovery-table td { font-variant-numeric: tabular-nums; }
 .recovery-unknown { display: flex; flex-wrap: wrap; gap: 1rem; }
 .recovery-unknown section { flex: 1 1 12rem; display: grid; gap: .4rem; }
+
+.recovery-actions { display: grid; gap: .7rem; border-top: 1px solid var(--line, #d8d8c8); padding-top: 1rem; min-width: 0; }
+.recovery-action-records { display: grid; gap: 1rem; padding-inline-start: 1.2rem; margin: 0; }
+.recovery-action-records li { display: grid; gap: .5rem; padding-block: .6rem; border-bottom: 1px solid var(--line, #d8d8c8); min-width: 0; }
+.recovery-action-records h6 { margin: 0; font-size: .95rem; overflow-wrap: anywhere; }
+.recovery-action-records dl { display: grid; gap: .5rem; }
+.recovery-action-records dd { margin: .25rem 0 0; }
+.recovery-action-records code { overflow-wrap: anywhere; }
