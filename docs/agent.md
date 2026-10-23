@@ -66,3 +66,13 @@ As fontes vêm somente de leituras confirmadas nesta tarefa (`web_fetch` e abert
 Uma skill cujos recursos declaram ferramentas do registro (por exemplo `web.search, web.fetch, deliverable.publish` ou `computer.shell.run`) roda no ciclo do agente: somente as ferramentas declaradas são oferecidas ao modelo, e cada ação continua sujeita a concessões, políticas e decisões atuais. O ambiente declarado precisa ser coerente (`own` para `computer.*`, `personal` para `personal.*`).
 
 Rotinas com essas skills usam o modo de execução **agente** (`execution_mode: "agent"`): não fixam recurso, cada ocorrência cria uma tarefa do agente e o resultado é publicado na conversa de destino. Execução manual e agendada compartilham o mesmo caminho; parada global, agenda e limites seguem as regras das [rotinas](routines.md).
+
+## Equipe de abelhas
+
+Com o pacote **Equipe de abelhas** (`bees.team`) concedido e outra abelha ativa, o agente pode:
+
+- `bees_list` — ver nome e propósito das outras abelhas;
+- `bees_ask` — consultar uma abelha especialista (resposta só de texto, com o modelo e o orçamento dela; as consultas ficam numa conversa “Consultas de …” da especialista);
+- `bees_delegate` — **pede aprovação** e cria uma tarefa do agente na outra abelha, que trabalha com as próprias ferramentas, permissões e decisões. O resultado aparece na conversa da especialista e volta à conversa de quem delegou como “Resultado da abelha …” (e, se houver canal vinculado, no Telegram/Discord).
+
+Delegação é idempotente por chamada (sem tarefa duplicada em retomada) e não transfere permissões: cada abelha só usa o que lhe foi concedido.

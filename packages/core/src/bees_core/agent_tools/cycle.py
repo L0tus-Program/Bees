@@ -15,7 +15,7 @@ from pydantic import Field
 
 from bees_core.agent_tools.catalog import by_function
 from bees_core.agent_tools.catalog import spec as get_spec
-from bees_core.agent_tools.runners import Outcome, RunContext, run_control, run_web
+from bees_core.agent_tools.runners import Outcome, RunContext, run_control, run_team, run_web
 from bees_core.agent_tools.service import (
     AGENT_TASK_KIND,
     MAX_EFFECTS,
@@ -444,40 +444,62 @@ class AgentTaskWorker(TaskWorker):
             return
 
     def _deliver_to_chat(self, task_id):
-        """Resultado concluído aparece na conversa de origem, uma única vez."""
+        """Resultado concluído aparece na conversa de origem, uma única vez.
+
+        Tarefa delegada por outra abelha também devolve uma cópia identificada na
+        conversa de quem delegou.
+        """
         try:
             with self.store.transaction(actor="worker", source="agent_chat_result") as unit:
                 task = unit.tasks.get(task_id)
-                origin = task.metadata.get("agent_chat", {}).get("conversation_id")
-                if task.status != "completed" or not origin:
+                if task.status != "completed":
                     return
                 run = unit.runs.latest(task.id)
                 result_id = run.checkpoint.get("result_message_id") if run else None
                 result = unit.messages.get(result_id) if result_id else None
                 if result is None or not result.content:
                     return
-                identity = uuid5(task.id, "bees.agent-chat-result/v1")
-                if unit.messages.get(identity) is not None:
-                    return
-                conversation = unit.conversations.get(UUID(origin))
-                if conversation is None or conversation.agent_id != task.agent_id:
-                    return
-                records = ProviderService._records(unit, conversation.id)
-                message = ProviderService._message(
-                    conversation.id,
-                    ChatMessage(role="assistant", content=result.content),
-                    records,
-                    source="agent_task_result",
-                    metadata={
-                        "agent_task": {
-                            "task_id": str(task.id),
-                            "run_id": str(run.id),
-                            "result_message_id": str(result.id),
-                        }
-                    },
-                ).model_copy(update={"id": identity})
-                unit.messages.create(message)
-                unit.conversations.update(conversation, conversation.revision)
+                origin = task.metadata.get("agent_chat", {}).get("conversation_id")
+                delegated = task.metadata.get("delegated_from") or {}
+                targets = []
+                if origin:
+                    targets.append(
+                        (UUID(origin), task.agent_id, "bees.agent-chat-result/v1", result.content)
+                    )
+                if delegated.get("conversation_id") and delegated.get("agent_id"):
+                    agent = unit.agents.get(task.agent_id)
+                    name = agent.name if agent else ""
+                    targets.append(
+                        (
+                            UUID(delegated["conversation_id"]),
+                            UUID(delegated["agent_id"]),
+                            "bees.delegated-result/v1",
+                            f"Resultado da abelha {name}:\n\n{result.content}",
+                        )
+                    )
+                for conversation_id, owner, namespace, content in targets:
+                    identity = uuid5(task.id, namespace)
+                    if unit.messages.get(identity) is not None:
+                        continue
+                    conversation = unit.conversations.get(conversation_id)
+                    if conversation is None or conversation.agent_id != owner:
+                        continue
+                    records = ProviderService._records(unit, conversation.id)
+                    message = ProviderService._message(
+                        conversation.id,
+                        ChatMessage(role="assistant", content=content),
+                        records,
+                        source="agent_task_result",
+                        metadata={
+                            "agent_task": {
+                                "task_id": str(task.id),
+                                "run_id": str(run.id),
+                                "result_message_id": str(result.id),
+                            }
+                        },
+                    ).model_copy(update={"id": identity})
+                    unit.messages.create(message)
+                    unit.conversations.update(conversation, conversation.revision)
         except Exception:
             # A tarefa continua concluída; a projeção no chat é recuperável pela UI.
             return
@@ -704,6 +726,7 @@ class AgentTaskWorker(TaskWorker):
             web=self.web,
             secrets=self.providers.resolver,
             mcp_transport=self.mcp_transport,
+            provider_transport=self.providers.transport,
         )
         operation = asyncio.ensure_future(runner.run(spec, arguments, context, target))
         claim, outcome = await self._await_effect(claim, operation, spec)
@@ -741,6 +764,8 @@ class AgentTaskWorker(TaskWorker):
     def _runner(self, spec):
         if spec.target == "web":
             return _Runner(run_web)
+        if spec.target == "control_plane" and spec.name.startswith("bees."):
+            return _Runner(run_team)
         if spec.target == "control_plane":
             return _Runner(run_control, sync=True)
         from bees_core.executors import GatewayRunner
