@@ -13,6 +13,7 @@ import { RoutineDescription, RoutineTime } from './RoutineDescription'
 import { clearRoutineIntent, preserveRoutineIntent, restoreRoutineIntent } from './recovery'
 import { TaskDetail } from '../tasks/TaskDetail'
 import { ManualRoutineRun } from './ManualRoutineRun'
+import { RoutineHook } from './RoutineHook'
 import './routines.css'
 
 type Review = { intent: RoutineIntent; definition: RoutineDefinition }
@@ -195,6 +196,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
         {routine.definition && routine.status !== 'cancelled' && <><button type="button" className="button secondary" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, routine.status === 'active' ? 'paused' : 'active') }}>{t(routine.status === 'active' ? 'pause' : 'eligible')}</button><button type="button" className="text-button" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, 'cancelled') }}>{t('cancelRoutine')}</button></>}
         <button type="button" className="text-button" disabled={disabled} onClick={() => { void showHistory(routine) }}>{t('history')}</button>
       </div>
+      {routine.definition && routine.status !== 'cancelled' && <RoutineHook agentId={agent.id} routineId={routine.id} />}
     </li>)}</ul>
     {more && <button type="button" className="button secondary" disabled={disabled} onClick={() => { void load(items.length) }}>{t('more')}</button>}
     {history && <section className="routine-history" aria-labelledby="routine-history-heading"><h3 id="routine-history-heading" tabIndex={-1} ref={historyHeading}>{history.routine.name} · {t('history')}</h3>

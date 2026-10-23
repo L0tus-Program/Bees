@@ -24,3 +24,5 @@
 
 .routine-editor > fieldset { display: grid; gap: .8rem; min-width: 0; }
 .routine-editor .checkbox-label { display: flex; align-items: center; gap: .4rem; }
+.routine-hook { margin-top: 8px; }
+.routine-hook .hook-url { display: grid; gap: 6px; overflow-wrap: anywhere; }

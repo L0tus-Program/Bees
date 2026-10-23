@@ -105,9 +105,12 @@ class AuthBoundaryMiddleware:
             origins = request.headers.getlist("origin")
             origin = origins[0] if len(origins) == 1 else None
             unsafe = scope["method"] not in SAFE_METHODS
-            # A troca do executor é feita por um processo, não por navegador: sem Origin,
-            # sem cookies e autenticada somente pelo convite de uso único.
-            machine = path == "/api/v1/executors/exchange" and not origins
+            # A troca do executor e os webhooks são chamados por processos, não por
+            # navegador: sem Origin, sem cookies e autenticados só pelo segredo próprio.
+            machine = (
+                path == "/api/v1/executors/exchange"
+                or (path.startswith("/api/v1/hooks/") and scope["method"] == "POST")
+            ) and not origins
             if machine:
                 unsafe = False
             if (

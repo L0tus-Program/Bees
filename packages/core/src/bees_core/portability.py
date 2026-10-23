@@ -442,6 +442,7 @@ EXCLUDED = frozenset(
         "provisioning_plans",
         "provisioning_rejections",
         "provisioning_vm_bindings",
+        "routine_hooks",
     ]
 )
 PRIMARY = {

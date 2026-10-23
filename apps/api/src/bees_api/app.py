@@ -47,6 +47,8 @@ from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
 from bees_api.resource_tools import router as resource_tools_router
 from bees_api.restoration import router as restoration_router
+from bees_api.routine_hooks import public as hooks_public_router
+from bees_api.routine_hooks import router as routine_hooks_router
 from bees_api.routines import router as routines_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
@@ -201,6 +203,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(artifacts_router)
     app.include_router(attention_router)
     app.include_router(routines_router)
+    app.include_router(routine_hooks_router)
+    app.include_router(hooks_public_router)
     app.include_router(portability_router)
     app.include_router(delivery_history_router)
     app.include_router(skills_router)
