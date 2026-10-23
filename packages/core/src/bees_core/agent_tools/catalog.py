@@ -142,6 +142,135 @@ class PublishParameters(AgentToolParameters):
     kind: PublishKind
 
 
+# ---------------------------------------------------------------- computador / pessoal
+
+
+def _path(value: str) -> str:
+    value = _text(value, allow_newlines=False)
+    if not value.strip():
+        raise ValueError("Caminho vazio.")
+    return value
+
+
+class PathInput(_Input):
+    path: str = Field(default=".", min_length=1, max_length=1024)
+
+    @field_validator("path")
+    @classmethod
+    def clean(cls, value):
+        return _path(value)
+
+
+class ReadFileInput(PathInput):
+    offset: int = Field(default=0, ge=0, le=1_000_000_000)
+    max_chars: int = Field(default=20000, ge=100, le=100000)
+
+
+class WriteFileInput(PathInput):
+    content: str = Field(max_length=2_000_000)
+    append: bool = False
+
+    @field_validator("content")
+    @classmethod
+    def clean_content(cls, value):
+        return _text(value)
+
+
+class PathParameters(AgentToolParameters):
+    path: str = Field(min_length=1, max_length=1024)
+
+
+class ShellInput(_Input):
+    command: str = Field(min_length=1, max_length=4000)
+    cwd: str = Field(default=".", min_length=1, max_length=1024)
+    timeout_seconds: int = Field(default=120, ge=1, le=600)
+
+    @field_validator("command")
+    @classmethod
+    def clean(cls, value):
+        value = _text(value)
+        if not value.strip():
+            raise ValueError("Comando vazio.")
+        return value
+
+
+class ShellParameters(AgentToolParameters):
+    command: str = Field(min_length=1, max_length=4000)
+
+
+class BrowserOpenInput(_Input):
+    url: str = Field(min_length=8, max_length=2048)
+
+    @field_validator("url")
+    @classmethod
+    def http_url(cls, value):
+        _text(value, allow_newlines=False)
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("URL exige http(s).")
+        return value
+
+
+class BrowserOpenParameters(AgentToolParameters):
+    domain: str = Field(min_length=1, max_length=253)
+
+
+class EmptyInput(_Input):
+    pass
+
+
+class BrowserRefInput(_Input):
+    ref: int = Field(ge=1, le=100000)
+
+
+class BrowserTypeInput(BrowserRefInput):
+    text: str = Field(max_length=4000)
+    submit: bool = False
+
+    @field_validator("text")
+    @classmethod
+    def clean(cls, value):
+        return _text(value)
+
+
+class BrowserKeyInput(_Input):
+    key: Literal[
+        "Enter",
+        "Tab",
+        "Escape",
+        "Backspace",
+        "ArrowDown",
+        "ArrowUp",
+        "ArrowLeft",
+        "ArrowRight",
+        "PageDown",
+        "PageUp",
+        "Home",
+        "End",
+        "Space",
+    ]
+
+
+class BrowserScrollInput(_Input):
+    direction: Literal["up", "down"] = "down"
+
+
+ConvertFormat = Literal["pdf", "docx", "odt", "xlsx", "ods", "csv", "html", "txt"]
+
+
+class ConvertInput(PathInput):
+    format: ConvertFormat
+
+
+class ConvertParameters(AgentToolParameters):
+    path: str = Field(min_length=1, max_length=1024)
+    format: ConvertFormat
+
+
+class PublishPathInput(PathInput):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+
+
 # ---------------------------------------------------------------- registro
 
 
@@ -168,6 +297,8 @@ class ToolSpec:
             return {"domain": (urlsplit(arguments.url).hostname or "").lower()}
         if self.parameters_model is PublishParameters:
             return {"kind": arguments.kind}
+        if self.parameters_model is BrowserOpenParameters:
+            return {"domain": (urlsplit(arguments.url).hostname or "").lower()}
         extra = set(self.parameters_model.model_fields) - set(AgentToolParameters.model_fields)
         return {name: getattr(arguments, name) for name in sorted(extra)}
 
@@ -296,6 +427,336 @@ SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
+COMPUTER = (
+    " Executa no computador Linux próprio da abelha (workspace em ~/workspace; caminhos "
+    "relativos partem dele). Não acessa a máquina pessoal do usuário."
+)
+PERSONAL = (
+    " Executa na máquina pessoal do usuário, somente nas pastas e recursos concedidos a "
+    "esta abelha. Caminhos são relativos às raízes autorizadas (ex.: Documentos/arquivo.txt)."
+)
+
+
+def _executor_specs(prefix: str, function_prefix: str, target: str, note: str) -> tuple:
+    personal = target == "personal"
+    return (
+        ToolSpec(
+            name=f"{prefix}.files.list",
+            function=f"{function_prefix}list_files",
+            action="list",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description="Lista arquivos e pastas de um diretório." + note,
+            schema=_schema({"path": {"type": "string", "maxLength": 1024}}, []),
+            input_model=PathInput,
+            parameters_model=PathParameters,
+            timeout_seconds=30,
+            capabilities=("files.read",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.files.read",
+            function=f"{function_prefix}read_file",
+            action="read",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description=(
+                "Lê um arquivo de texto (ou extrai texto de PDF/DOCX/XLSX quando possível)."
+                + note
+                + UNTRUSTED
+            ),
+            schema=_schema(
+                {
+                    "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "max_chars": {"type": "integer", "minimum": 100, "maximum": 100000},
+                },
+                ["path"],
+            ),
+            input_model=ReadFileInput,
+            parameters_model=PathParameters,
+            timeout_seconds=60,
+            max_result_chars=102000,
+            capabilities=("files.read",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.files.write",
+            function=f"{function_prefix}write_file",
+            action="write",
+            target=target,
+            effect="write",
+            default_effect="ask" if personal else "allow",
+            description="Cria ou sobrescreve (ou acrescenta a) um arquivo de texto." + note,
+            schema=_schema(
+                {
+                    "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "content": {"type": "string", "maxLength": 2000000},
+                    "append": {"type": "boolean"},
+                },
+                ["path", "content"],
+            ),
+            input_model=WriteFileInput,
+            parameters_model=PathParameters,
+            timeout_seconds=60,
+            capabilities=("files.write",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.files.delete",
+            function=f"{function_prefix}delete_file",
+            action="delete",
+            target=target,
+            effect="write",
+            default_effect="ask",
+            description="Remove um arquivo ou pasta vazia." + note,
+            schema=_schema(
+                {"path": {"type": "string", "minLength": 1, "maxLength": 1024}}, ["path"]
+            ),
+            input_model=PathInput,
+            parameters_model=PathParameters,
+            timeout_seconds=30,
+            capabilities=("files.write",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.shell.run",
+            function=f"{function_prefix}shell",
+            action="run",
+            target=target,
+            effect="external",
+            default_effect="ask",
+            description=(
+                "Executa um comando de shell (bash no Linux, PowerShell no Windows) e devolve "
+                "código de saída, stdout e stderr. Use para instalar pacotes do usuário, rodar "
+                "scripts, processar dados e automações." + note
+            ),
+            schema=_schema(
+                {
+                    "command": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "cwd": {"type": "string", "maxLength": 1024},
+                    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 600},
+                },
+                ["command"],
+            ),
+            input_model=ShellInput,
+            parameters_model=ShellParameters,
+            timeout_seconds=620,
+            max_result_chars=40000,
+            capabilities=("shell",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.open",
+            function=f"{function_prefix}browser_open",
+            action="navigate",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description=(
+                "Abre uma URL no navegador próprio (sessões persistentes) e devolve o snapshot "
+                "da página com elementos numerados." + note + UNTRUSTED
+            ),
+            schema=_schema({"url": {"type": "string", "minLength": 8, "maxLength": 2048}}, ["url"]),
+            input_model=BrowserOpenInput,
+            parameters_model=BrowserOpenParameters,
+            timeout_seconds=60,
+            max_result_chars=30000,
+            capabilities=("browser.observe",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.snapshot",
+            function=f"{function_prefix}browser_snapshot",
+            action="observe",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description=(
+                "Devolve URL, título, texto visível e elementos interativos numerados (ref) "
+                "da aba atual." + note + UNTRUSTED
+            ),
+            schema=_schema({}, []),
+            input_model=EmptyInput,
+            timeout_seconds=30,
+            max_result_chars=30000,
+            capabilities=("browser.observe",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.click",
+            function=f"{function_prefix}browser_click",
+            action="click",
+            target=target,
+            effect="external",
+            default_effect="ask",
+            description=(
+                "Clica no elemento numerado (ref) do último snapshot e devolve o novo snapshot."
+                + note
+            ),
+            schema=_schema({"ref": {"type": "integer", "minimum": 1}}, ["ref"]),
+            input_model=BrowserRefInput,
+            timeout_seconds=45,
+            max_result_chars=30000,
+            capabilities=("browser.act",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.type",
+            function=f"{function_prefix}browser_type",
+            action="type",
+            target=target,
+            effect="external",
+            default_effect="ask",
+            description=(
+                "Digita texto no campo numerado (ref); submit=true pressiona Enter. Nunca digite "
+                "senhas: peça ao usuário para assumir o controle." + note
+            ),
+            schema=_schema(
+                {
+                    "ref": {"type": "integer", "minimum": 1},
+                    "text": {"type": "string", "maxLength": 4000},
+                    "submit": {"type": "boolean"},
+                },
+                ["ref", "text"],
+            ),
+            input_model=BrowserTypeInput,
+            timeout_seconds=45,
+            max_result_chars=30000,
+            capabilities=("browser.act",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.press",
+            function=f"{function_prefix}browser_press",
+            action="press",
+            target=target,
+            effect="external",
+            default_effect="ask",
+            description="Pressiona uma tecla na aba atual." + note,
+            schema=_schema(
+                {
+                    "key": {
+                        "type": "string",
+                        "enum": [
+                            "Enter",
+                            "Tab",
+                            "Escape",
+                            "Backspace",
+                            "ArrowDown",
+                            "ArrowUp",
+                            "ArrowLeft",
+                            "ArrowRight",
+                            "PageDown",
+                            "PageUp",
+                            "Home",
+                            "End",
+                            "Space",
+                        ],
+                    }
+                },
+                ["key"],
+            ),
+            input_model=BrowserKeyInput,
+            timeout_seconds=30,
+            max_result_chars=30000,
+            capabilities=("browser.act",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.scroll",
+            function=f"{function_prefix}browser_scroll",
+            action="scroll",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description="Rola a aba atual e devolve o novo snapshot." + note,
+            schema=_schema({"direction": {"type": "string", "enum": ["up", "down"]}}, []),
+            input_model=BrowserScrollInput,
+            timeout_seconds=30,
+            max_result_chars=30000,
+            capabilities=("browser.observe",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.back",
+            function=f"{function_prefix}browser_back",
+            action="back",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description="Volta para a página anterior e devolve o snapshot." + note,
+            schema=_schema({}, []),
+            input_model=EmptyInput,
+            timeout_seconds=30,
+            max_result_chars=30000,
+            capabilities=("browser.observe",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.browser.screenshot",
+            function=f"{function_prefix}browser_screenshot",
+            action="screenshot",
+            target=target,
+            effect="read",
+            default_effect="allow",
+            description=(
+                "Salva uma captura PNG da aba atual em screenshots/ e devolve o caminho." + note
+            ),
+            schema=_schema({}, []),
+            input_model=EmptyInput,
+            timeout_seconds=30,
+            capabilities=("browser.observe",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.office.convert",
+            function=f"{function_prefix}convert_document",
+            action="convert",
+            target=target,
+            effect="write",
+            default_effect="ask" if personal else "allow",
+            description=(
+                "Converte um documento com LibreOffice (ex.: .md/.html/.txt → docx/pdf, "
+                ".csv → xlsx) e devolve o caminho gerado." + note
+            ),
+            schema=_schema(
+                {
+                    "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "format": {
+                        "type": "string",
+                        "enum": ["pdf", "docx", "odt", "xlsx", "ods", "csv", "html", "txt"],
+                    },
+                },
+                ["path", "format"],
+            ),
+            input_model=ConvertInput,
+            parameters_model=ConvertParameters,
+            timeout_seconds=180,
+            capabilities=("office",),
+        ),
+        ToolSpec(
+            name=f"{prefix}.files.publish",
+            function=f"{function_prefix}publish_file",
+            action="publish",
+            target=target,
+            effect="write",
+            default_effect="allow",
+            description=(
+                "Publica um arquivo (PDF, DOCX, XLSX, imagem, texto…) como entrega desta "
+                "tarefa para o usuário baixar." + note
+            ),
+            schema=_schema(
+                {
+                    "path": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "name": {"type": "string", "minLength": 1, "maxLength": 120},
+                },
+                ["path"],
+            ),
+            input_model=PublishPathInput,
+            parameters_model=PathParameters,
+            timeout_seconds=120,
+            capabilities=("artifacts.write",),
+        ),
+    )
+
+
+SPECS = (
+    SPECS
+    + _executor_specs("computer", "computer_", "computer", COMPUTER)
+    + _executor_specs("personal", "personal_", "personal", PERSONAL)
+)
+
+
 _BY_NAME = {spec.name: spec for spec in SPECS}
 _BY_FUNCTION = {spec.function: spec for spec in SPECS}
 
@@ -326,6 +787,18 @@ BUNDLES: tuple[dict, ...] = (
         "name": "Memória e entregas",
         "version": "1.0.0",
         "tools": ("memory.search", "memory.save", "deliverable.publish"),
+    },
+    {
+        "plugin_key": "bees.computer",
+        "name": "Computador próprio da abelha",
+        "version": "1.0.0",
+        "tools": tuple(spec.name for spec in SPECS if spec.target == "computer"),
+    },
+    {
+        "plugin_key": "bees.personal",
+        "name": "Máquina pessoal (conector)",
+        "version": "1.0.0",
+        "tools": tuple(spec.name for spec in SPECS if spec.target == "personal"),
     },
 )
 

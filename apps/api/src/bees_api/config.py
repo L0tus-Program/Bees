@@ -37,6 +37,10 @@ class Settings(BaseModel):
     public_url: str | None = None
     vault_key: SecretStr | None = Field(default=None, repr=False)
     vault_key_file: Path | None = None
+    # Hosts internos aceitos para executores (ex.: serviço "bees" no Compose).
+    executor_hosts: tuple[str, ...] = Field(default=(), max_length=10)
+    # Diretório privado compartilhado com o runtime de computadores (convite local).
+    computer_link_dir: Path | None = None
 
     @field_validator("restoration_destinations")
     @classmethod
@@ -116,6 +120,8 @@ class Settings(BaseModel):
 
     @property
     def allowed_hosts(self) -> list[str]:
-        return ["127.0.0.1", "localhost"] + (
-            [urlsplit(self.public_url).hostname] if self.public_url else []
+        return (
+            ["127.0.0.1", "localhost"]
+            + ([urlsplit(self.public_url).hostname] if self.public_url else [])
+            + list(self.executor_hosts)
         )

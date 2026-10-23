@@ -29,9 +29,9 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     BEES_WEB_DIST=/app/web BEES_DATA_DIR=/var/lib/bees \
     BEES_VAULT_KEY_FILE=/run/bees-secrets/vault.key
 RUN groupadd --gid 10001 bees && useradd --uid 10001 --gid bees --no-create-home bees \
-    && mkdir -p /var/lib/bees /run/bees-secrets \
-    && chown bees:bees /var/lib/bees /run/bees-secrets \
-    && chmod 700 /var/lib/bees /run/bees-secrets
+    && mkdir -p /var/lib/bees /run/bees-secrets /run/bees-computer-link \
+    && chown bees:bees /var/lib/bees /run/bees-secrets /run/bees-computer-link \
+    && chmod 700 /var/lib/bees /run/bees-secrets && chmod 750 /run/bees-computer-link
 WORKDIR /app
 COPY --from=python-build /app/.venv /app/.venv
 COPY --from=web /build/dist /app/web

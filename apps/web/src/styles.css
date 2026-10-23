@@ -610,3 +610,18 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .agent-approval-preview { max-height: 240px; overflow: auto; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--theme-input, #fff); padding: 8px; border-radius: 6px; }
 .agent-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .agent-approval small { color: var(--muted); }
+
+/* Computador da abelha e conector pessoal. */
+.computer-workspace { display: grid; gap: 14px; }
+.computer-runtime, .computer-card, .computer-empty, .connector-card, .connector-invite { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; }
+.computer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.status-online { color: var(--accent); font-weight: 600; }
+.status-offline { color: var(--muted); }
+.screen-viewer { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #111; }
+.screen-viewer-bar { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 13px; background: var(--theme-surface, #fffef9); }
+.screen-viewer-canvas { width: 100%; aspect-ratio: 16 / 10; min-height: 220px; }
+.personal-connectors { display: grid; gap: 10px; margin-top: 8px; }
+.connector-grant fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.invite-token { overflow-wrap: anywhere; font-size: 13px; }
+.connector-invite pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.success-notice { color: var(--accent); }

@@ -291,7 +291,7 @@ def test_migration_17_to_18_preserves_prior_skills_and_creates_no_origins(tmp_pa
             agent.id, CreateSkill(client_request_id=uuid4(), definition=definition())
         )
     db.initialize()
-    assert db.schema_version() == 18
+    assert db.schema_version() == 19
     service = SkillService(db)
     assert service.get(agent.id, saved.id) == saved
     assert service.process_origin(agent.id, saved.id, 1) is None
@@ -353,7 +353,7 @@ def test_closed_v1_schema17_package_still_restores_without_invented_origin(state
         == "inactive"
     )
     destination = Database(target / "bees.sqlite3")
-    assert destination.require_current_schema() == 18
+    assert destination.require_current_schema() == 19
     with destination.transaction(write=False) as connection:
         assert connection.execute("SELECT count(*) FROM skill_process_origins").get == 0
     assert (target / "source.zip").read_bytes() == archive.read_bytes()

@@ -33,6 +33,10 @@ const SkillsPanel = lazy(async () => {
   return { default: module.SkillsPanel }
 })
 
+const ComputerWorkspace = lazy(async () => {
+  const module = await import('../computer/ComputerWorkspace')
+  return { default: module.ComputerWorkspace }
+})
 const EnvironmentPanel = lazy(async () => {
   const module = await import('../environments/EnvironmentPanel')
   return { default: module.EnvironmentPanel }
@@ -92,7 +96,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {view === 'usage' && <ActivityPanel key={selected.id} agent={selected} onPreferences={() => setView('attention')} />}
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}
           {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /></Suspense>}
-          {view === 'computer' && <Suspense fallback={<LoadingNotice />}><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
+          {view === 'computer' && <Suspense fallback={<LoadingNotice />}><ComputerWorkspace key={`computer-${selected.id}`} agentId={selected.id} /><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && (selected.provider_config && selected.conversation_id ? <Chat key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id }} /> : <div className="surface legacy-agent"><h2>{t('modelNotConfigured')}</h2><p>{bee('legacyConfigure')}</p><button className="button primary" type="button" onClick={() => setView('model')}>{bee('configureModel')}</button></div>)}
           <div className="next-step-note"><span aria-hidden="true">↗</span><p><strong>{t('nextStepTitle')}</strong>{t('nextStepDescription')}</p></div>

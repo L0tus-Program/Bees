@@ -414,7 +414,12 @@ COLUMNS = {
 EXCLUDED = frozenset(
     [
         "cache_entries",
+        "computers",
         "execution_leases",
+        "executor_commands",
+        "executor_grants",
+        "executor_invites",
+        "executors",
         "host_jobs",
         "host_link_commands",
         "host_link_installation",
