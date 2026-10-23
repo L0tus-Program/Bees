@@ -95,6 +95,9 @@ def main():
             assert catalog.status_code == 200
             assert {item["id"] for item in catalog.json()["providers"]} == {
                 "openai",
+                "anthropic",
+                "xai",
+                "groq",
                 "openrouter",
                 "gemini",
                 "ollama",
