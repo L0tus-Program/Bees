@@ -14,7 +14,7 @@ import { PolicyPanel } from '../policies/PolicyPanel'
 import { ActivityPanel } from '../activity/ActivityPanel'
 import { rememberWorkspace, restoreWorkspace } from '../activity/context'
 import type { WorkspaceView } from '../activity/context'
-import { EnvironmentSummary } from '../environments/EnvironmentSummary'
+import { ComputerSummary } from '../computer/ComputerSummary'
 import { SafetyControl } from '../safety/SafetyControl'
 import { AttentionPanel } from '../attention/AttentionPanel'
 
@@ -80,7 +80,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {data.has_more && <p className="quiet-note">{t('limitedAgents')}</p>}
           <div className="bee-list">{data.agents.map((agent) => <button type="button" key={agent.id} className={`bee-select ${agent.id === selected.id ? 'selected' : ''}`} aria-pressed={agent.id === selected.id} onClick={() => { setSelectedId(agent.id); setView('conversation'); setNotice(null) }}><img src="/bee.svg" alt="" width="32" height="32" /><span><strong>{agent.name}</strong><small>{agent.purpose}</small>{agent.status !== 'active' && <small>{bee(`status_${agent.status}`)}</small>}</span></button>)}</div>
           <section className="model-summary" aria-labelledby="model-summary-heading"><h2 className="section-label" id="model-summary-heading">{t('connectedModel')}</h2>{selected.provider_config ? <><strong>{selected.provider_config.model}</strong><span className="provider-label">{t(selected.provider_config.kind === 'ollama' ? 'localProvider' : 'remoteProvider')}</span><code>{selected.provider_config.endpoint}</code><p>{t('connectionSaved')}</p></> : <p>{t('modelNotConfigured')}</p>}</section>
-          <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><EnvironmentSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /><div className="environment-card"><h3>{t('personalComputer')}</h3><span>{t('preparing')}</span><p>{t('personalComputerDescription')}</p></div><p className="quiet-note">{t('environmentScope')}</p></section>
+          <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><ComputerSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /></section>
         </aside>
         <div className="conversation-column">
           <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'deliveries', 'skills', 'routines', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'routines' ? routines('navigation') : item === 'deliveries' ? deliveries('navigation') : item === 'skills' ? skills('navigation') : item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>

@@ -74,8 +74,8 @@ export async function authStatus(signal?: AbortSignal): Promise<AuthStatus> {
   return value as unknown as AuthStatus
 }
 
-export async function authenticate(body: { bootstrap_token: string; name: string; password: string } | { password: string }, signal?: AbortSignal) {
-  await request('bootstrap_token' in body ? '/auth/setup' : '/auth/login', { body, signal })
+export async function authenticate(body: { bootstrap_token: string; name: string; password: string } | { recovery_token: string; password: string } | { password: string }, signal?: AbortSignal) {
+  await request('bootstrap_token' in body ? '/auth/setup' : 'recovery_token' in body ? '/auth/recover' : '/auth/login', { body, signal })
 }
 
 export async function logout() {

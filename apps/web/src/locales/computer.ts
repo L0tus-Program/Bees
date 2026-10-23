@@ -1,5 +1,6 @@
 const pt = {
   label: 'Computador próprio',
+  summaryLoading: 'Verificando…', summaryError: 'Estado indisponível agora.', summaryOpen: 'Abrir computadores', summaryConnectors: '{{online}} de {{count}} conectados', summaryNoConnector: 'Nenhuma máquina pessoal conectada.',
   title: 'Computador da abelha',
   scope: 'Um computador Linux exclusivo da abelha, com desktop, navegador Chromium com sessões persistentes, terminal e LibreOffice. Não acessa seus arquivos pessoais nem a rede local. Você pode ver a tela, assumir o controle (por exemplo, para fazer login) e devolvê-lo.',
   runtime: 'Runtime de computadores',
@@ -44,6 +45,7 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
+  summaryLoading: 'Checking…', summaryError: 'Status unavailable right now.', summaryOpen: 'Open computers', summaryConnectors: '{{online}} of {{count}} connected', summaryNoConnector: 'No personal machine connected.',
   label: 'Own computer', title: 'Bee computer',
   scope: 'A Linux computer exclusive to the bee, with desktop, Chromium with persistent sessions, terminal and LibreOffice. It does not access your personal files or local network. You can watch the screen, take control (for example to log in) and give it back.',
   runtime: 'Computer runtime', runtimeOnline: 'connected', runtimeOffline: 'paired, disconnected', runtimeUnpaired: 'not paired',
@@ -71,6 +73,7 @@ const en: Translations = {
   inviteInstructions: 'On your machine, install the connector and run the command below (single-use invite):', inviteExpires: 'Expires at {{time}}.',
 }
 const es: Translations = {
+  summaryLoading: 'Comprobando…', summaryError: 'Estado no disponible ahora.', summaryOpen: 'Abrir ordenadores', summaryConnectors: '{{online}} de {{count}} conectados', summaryNoConnector: 'Ninguna máquina personal conectada.',
   label: 'Ordenador propio', title: 'Ordenador de la abeja',
   scope: 'Un ordenador Linux exclusivo de la abeja, con escritorio, Chromium con sesiones persistentes, terminal y LibreOffice. No accede a tus archivos personales ni a la red local. Puedes ver la pantalla, tomar el control (por ejemplo para iniciar sesión) y devolverlo.',
   runtime: 'Runtime de ordenadores', runtimeOnline: 'conectado', runtimeOffline: 'emparejado, desconectado', runtimeUnpaired: 'no emparejado',
