@@ -643,3 +643,8 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .channels-panel .row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .channels-panel .inline-select { display: flex; gap: 6px; align-items: center; }
 .channel-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; }
+.voice-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.voice-controls .quiet-note { flex-basis: 100%; }
+.read-aloud { margin-top: 4px; font-size: 13px; }
+.template-picker { display: grid; gap: 6px; margin-bottom: 8px; }
+.file-import { cursor: pointer; justify-self: start; }

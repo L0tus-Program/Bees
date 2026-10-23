@@ -31,6 +31,7 @@ def test_health_without_frontend(tmp_path: Path) -> None:
 def test_spa_does_not_hide_api_or_asset_errors(tmp_path: Path) -> None:
     (tmp_path / "index.html").write_text("<html>Bees de teste</html>", encoding="utf-8")
     (tmp_path / "app.js").write_text("console.log('teste');", encoding="utf-8")
+    (tmp_path / "manifest.webmanifest").write_text('{"name": "Bees"}', encoding="utf-8")
     with TestClient(
         create_app(Settings(web_dist=tmp_path, data_dir=tmp_path / "state")),
         base_url="http://127.0.0.1:8000",
@@ -40,6 +41,8 @@ def test_spa_does_not_hide_api_or_asset_errors(tmp_path: Path) -> None:
         javascript_type = client.get("/app.js").headers["content-type"].split(";", 1)[0]
         assert javascript_type in {"text/javascript", "application/javascript"}
         assert client.get("/missing.js").status_code == 404
+        manifest = client.get("/manifest.webmanifest")
+        assert manifest.headers["content-type"].startswith("application/manifest+json")
         assert client.get("/api/v1/health").headers["content-type"] == "application/json"
         for path in ("/api", "/api/unknown", "/api/v1/unknown"):
             response = client.get(path)

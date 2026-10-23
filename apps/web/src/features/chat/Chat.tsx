@@ -18,6 +18,8 @@ import { isAttachmentSelection } from '../artifacts/mutations'
 import type { ArtifactRecord } from '../artifacts/api'
 import { enableRecommendedTools, getAgentCapabilities, sendAgentMessage } from '../../api/agent'
 import type { AgentCapabilities } from '../../api/agent'
+import { useDictation } from '../voice/useDictation'
+import { canSpeak, readVoicePreference, speak, writeVoicePreference } from '../voice/speech'
 
 export function Chat({ agent }: { agent: AgentSummary & { conversation_id: string } }) {
   const { t } = useTranslation('product')
@@ -25,6 +27,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
   const { t: approvals } = useTranslation('approvals')
   const { t: artifacts } = useTranslation('artifacts')
   const { t: agentText } = useTranslation('agent')
+  const { t: voice, i18n } = useTranslation('voice')
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
   const [agentMode, setAgentMode] = useState<boolean | null>(null)
   const [research, setResearch] = useState(false)
@@ -59,6 +62,22 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
   const attachmentConsent = fileConsentRevision === agent.revision && selectedFiles.length > 0
   const filesAllowed = selectedFiles.length === 0 || filesReady && attachmentConsent && !!agent.provider_config && isAttachmentSelection(selectedFiles, agent.id, agent.conversation_id)
   useEffect(() => () => controller.current?.abort(), [])
+  const draftRef = useRef(draft)
+  useEffect(() => { draftRef.current = draft }, [draft])
+  const dictation = useDictation(i18n.resolvedLanguage ?? 'pt-BR', (text) => {
+    if (!text) return
+    const current = draftRef.current
+    updateComposer({ type: 'draft', value: current ? `${current.trimEnd()} ${text}` : text })
+  })
+  const [voiceReplies, setVoiceReplies] = useState(readVoicePreference)
+  const spoken = useRef<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (resource.state !== 'ready') return
+    const last = [...resource.data.messages].reverse().find((item) => item.role === 'assistant' && item.content)
+    // Na primeira carga só marca o ponto de partida; lê apenas respostas novas.
+    if (spoken.current !== undefined && voiceReplies && last && last.id !== spoken.current) speak(last.content ?? '', i18n.resolvedLanguage ?? 'pt-BR')
+    spoken.current = last?.id ?? null
+  }, [resource, voiceReplies, i18n.resolvedLanguage])
   function refresh() { reload(); setRefreshVersion((value) => value + 1) }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -131,6 +150,13 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
         {capabilities && !capabilities.tool_calls_supported && <p className="quiet-note">{agentText('noToolModel')}</p>}
         {useAgent ? null : supportsDelegation ? <label className="checkbox-field"><input type="checkbox" checked={allowDelegation} onChange={(event) => updateComposer({ type: 'consent', value: event.target.checked })} disabled={busy || agent.status !== 'active'} /><span>{t('chatAllowDelegation')}<small>{t('chatAllowDelegationHelp')}</small></span></label> : <p className="quiet-note">{t('chatDelegationUnavailable')}</p>}
         <label className="checkbox-field"><input type="checkbox" checked={allowRoutineProposal} onChange={(event) => setAllowRoutineProposal(event.target.checked)} disabled={busy || agent.status !== 'active'} /><span>{t('chatRoutineProposal')}<small>{t('chatRoutineProposalHelp')}</small></span></label>
+        {(dictation.supported || canSpeak()) && <div className="voice-controls">
+          {dictation.supported && <button type="button" className="button secondary" aria-pressed={dictation.listening} disabled={busy || agent.status !== 'active'} onClick={() => { if (dictation.listening) { dictation.stop() } else { dictation.start() } }}>{voice(dictation.listening ? 'stopDictation' : 'dictate')}</button>}
+          {dictation.listening && <small role="status">{dictation.interim || voice('listening')}</small>}
+          {dictation.error && <small className="transfer-notice">{voice(`error_${dictation.error}`, { defaultValue: voice('error_generic') })}</small>}
+          {canSpeak() && <label className="checkbox-field"><input type="checkbox" checked={voiceReplies} onChange={(event) => { setVoiceReplies(event.target.checked); writeVoicePreference(event.target.checked) }} /><span>{voice('voiceReplies')}<small>{voice('voiceRepliesHelp')}</small></span></label>}
+          {dictation.supported && <small className="quiet-note">{voice('dictationHelp')}</small>}
+        </div>}
         <div className="composer-actions"><small id="chat-help">{t('chatCost')}</small><button className="button primary" type="submit" disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active' || !filesAllowed}>{t(busy ? 'sending' : 'send')}</button></div>
       </form>
     </section>
