@@ -66,8 +66,10 @@ class AuthBoundaryMiddleware:
         allowed_origins: tuple[str, ...],
         secure_cookie: bool,
         health_authorities: tuple[str, ...],
+        executor_authorities: tuple[str, ...] = (),
     ) -> None:
         self.app = app
+        self.executor_authorities = frozenset(executor_authorities)
         self.origins = frozenset(allowed_origins)
         self.authorities = frozenset(urlsplit(origin).netloc.lower() for origin in allowed_origins)
         self.secure_cookie = secure_cookie
@@ -87,6 +89,9 @@ class AuthBoundaryMiddleware:
         valid_authorities = (
             self.authorities | self.health_authorities if health_read else self.authorities
         )
+        if path == "/api/v1/executors/exchange" or health_read:
+            # Executores internos (Compose) usam o nome do serviço; nenhuma rota humana.
+            valid_authorities = valid_authorities | self.executor_authorities
         if len(hosts) != 1 or hosts[0].lower() not in valid_authorities:
             await _error("host_rejected", "Host não permitido.", 400)(scope, receive, send)
             return
@@ -94,6 +99,11 @@ class AuthBoundaryMiddleware:
             origins = request.headers.getlist("origin")
             origin = origins[0] if len(origins) == 1 else None
             unsafe = scope["method"] not in SAFE_METHODS
+            # A troca do executor é feita por um processo, não por navegador: sem Origin,
+            # sem cookies e autenticada somente pelo convite de uso único.
+            machine = path == "/api/v1/executors/exchange" and not origins
+            if machine:
+                unsafe = False
             if (
                 len(origins) > 1
                 or (origins and origin not in self.origins)
@@ -230,6 +240,7 @@ def install_auth(
     allowed_origins: tuple[str, ...],
     secure_cookie: bool = False,
     health_authorities: tuple[str, ...] = (),
+    executor_authorities: tuple[str, ...] = (),
 ) -> None:
     if not allowed_origins:
         raise ValueError("Origens explícitas são obrigatórias.")
@@ -252,6 +263,7 @@ def install_auth(
         allowed_origins=allowed_origins,
         secure_cookie=secure_cookie,
         health_authorities=health_authorities,
+        executor_authorities=executor_authorities,
     )
     app.include_router(router)
 

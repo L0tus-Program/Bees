@@ -1,4 +1,6 @@
-# Computador próprio da abelha
+# Computador próprio da abelha (VM)
+
+> O computador em container já utilizável está em [computer.md](computer.md). Este documento cobre o caminho VM (Hyper-V/libvirt), que usa o mesmo executor e continua dependendo de provas físicas.
 
 BEES-011 começa com pedidos persistentes e diagnóstico de instalação. **Este checkpoint não cria uma VM e não permite que a abelha use navegador, terminal ou apps.** O catálogo descreve o alvo Linux com Chromium e LibreOffice; não comprova imagem instalada, isolamento ou disponibilidade.
 

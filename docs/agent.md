@@ -1,11 +1,11 @@
 # Agente com ferramentas
 
-A abelha pode executar pedidos com ferramentas reais: pesquisar na web, ler páginas, consultar e salvar memória e publicar arquivos de entrega. Computador próprio e máquina pessoal acrescentam arquivos, terminal, navegador e apps quando conectados ([computador](environments.md) e conector pessoal). A decisão de arquitetura está na [ADR 0003](adr/0003-agent-tools.md).
+A abelha pode executar pedidos com ferramentas reais: pesquisar na web, ler páginas, consultar e salvar memória e publicar arquivos de entrega. Computador próprio e máquina pessoal acrescentam arquivos, terminal, navegador e apps quando conectados ([computador](computer.md) e [conector pessoal](connector.md)). A decisão de arquitetura está na [ADR 0003](adr/0003-agent-tools.md).
 
 ## Uso
 
 1. Configure um modelo com suporte declarado a chamadas de ferramenta.
-2. No chat, clique **Ativar ferramentas recomendadas** (uma vez por abelha). Isso instala, habilita e concede os pacotes `bees.web` e `bees.workspace`. A aba **Ferramentas** permite revogar cada ferramenta.
+2. No chat, clique **Ativar ferramentas recomendadas** (uma vez por abelha). Isso instala, habilita e concede os pacotes `bees.web`, `bees.workspace`, `bees.computer` e `bees.personal`; as ferramentas de computador e máquina pessoal só aparecem para o modelo quando o computador está pronto ou o conector foi concedido. A aba **Ferramentas** permite revogar cada ferramenta.
 3. Escolha **Agente com ferramentas** e envie o pedido. Um cartão mostra o andamento, os passos executados e as decisões pendentes; o resultado final aparece como resposta da abelha na conversa.
 
 Também é possível criar uma tarefa do agente sem chat: `POST /api/v1/agents/{agent}/agent-tasks`.

@@ -26,6 +26,20 @@ from bees_core.storage.store import IntegrityError, NotFoundError, StateStore
 
 # Formatos produzidos por código confiável neste recorte; anexação externa é BEES-018.2.
 MEDIA_TYPES = frozenset({"text/plain", "text/markdown", "text/csv", "application/json"})
+# Arquivos produzidos por executores (documentos, planilhas, imagens). Assinatura
+# conferida; nunca entram como texto no contexto do modelo.
+_ZIP = b"PK\x03\x04"
+BINARY_MEDIA_TYPES = {
+    "application/pdf": (b"%PDF-",),
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (_ZIP,),
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (_ZIP,),
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": (_ZIP,),
+    "application/vnd.oasis.opendocument.text": (_ZIP,),
+    "application/vnd.oasis.opendocument.spreadsheet": (_ZIP,),
+    "application/zip": (_ZIP,),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+}
 DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 KEY_PREFIX = "blob/v1/"
 _CHUNK = 1024 * 1024
@@ -105,10 +119,20 @@ def _constant(value):
 
 
 def validate_content(media_type: str, content: bytes, max_bytes: int) -> tuple[str, int]:
-    if media_type not in MEDIA_TYPES:
+    if media_type not in MEDIA_TYPES and media_type not in BINARY_MEDIA_TYPES:
         raise ArtifactError("artifact_media_type_unsupported")
     if not isinstance(content, bytes) or len(content) > max_bytes:
         raise ArtifactError("artifact_too_large")
+    if media_type in BINARY_MEDIA_TYPES:
+        signatures = BINARY_MEDIA_TYPES[media_type]
+        if signatures is None:
+            try:
+                content.decode("utf-8", errors="strict")
+            except ValueError:
+                raise ArtifactError("artifact_content_invalid") from None
+        elif not content or not any(content.startswith(sign) for sign in signatures):
+            raise ArtifactError("artifact_content_invalid")
+        return hashlib.sha256(content).hexdigest(), len(content)
     try:
         text = content.decode("utf-8", errors="strict")
         if "\x00" in text:

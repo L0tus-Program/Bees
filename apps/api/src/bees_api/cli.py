@@ -102,6 +102,12 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
             vault_key=os.environ.get("BEES_VAULT_KEY"),
             vault_key_file=args.vault_key_file,
             restoration_destinations=destinations,
+            executor_hosts=tuple(
+                host.strip()
+                for host in os.environ.get("BEES_EXECUTOR_HOSTS", "").split(",")
+                if host.strip()
+            ),
+            computer_link_dir=os.environ.get("BEES_COMPUTER_LINK_DIR") or None,
         )
     except ValidationError:
         parser.error(

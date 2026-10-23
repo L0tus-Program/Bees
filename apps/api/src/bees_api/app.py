@@ -29,6 +29,7 @@ from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
 from bees_api.delivery_history import router as delivery_history_router
 from bees_api.environments import router as environments_router
+from bees_api.executors import router as executors_router
 from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
@@ -48,9 +49,12 @@ from bees_api.safety import RequestSafetyMiddleware
 from bees_api.skills import router as skills_router
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
+from bees_api.views import ViewHub
+from bees_api.views import router as views_router
 from bees_core.approvals import ApprovalError
 from bees_core.artifacts import ArtifactError, ArtifactStore
 from bees_core.environments import EnvironmentError
+from bees_core.executors import ExecutorError
 from bees_core.policies import PolicyError
 from bees_core.portability import ExportService
 from bees_core.providers.errors import ProviderError
@@ -126,6 +130,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.resolver = build_secret_resolver(application.state.vault)
         application.state.providers = ProviderService(database, application.state.resolver)
         application.state.receipts = Receipts()
+        application.state.settings = config
+        application.state.view_hub = ViewHub()
         application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
         application.state.artifact_upload_slots = BoundedSemaphore(2)
         application.state.restoration = (
@@ -158,6 +164,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allowed_origins=config.allowed_origins,
         secure_cookie=config.secure_cookie,
         health_authorities=(f"127.0.0.1:{config.port}", f"localhost:{config.port}"),
+        executor_authorities=tuple(
+            f"{host}:{config.port}".lower() for host in config.executor_hosts
+        )
+        + (f"127.0.0.1:{config.port}", f"localhost:{config.port}"),
     )
     app.add_middleware(RequestSafetyMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
@@ -168,6 +178,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tasks_router)
     app.include_router(agent_router)
     app.include_router(agent_approvals_router)
+    app.include_router(executors_router)
+    app.include_router(views_router)
     app.include_router(activity_router)
     app.include_router(artifacts_router)
     app.include_router(attention_router)
@@ -290,6 +302,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": error.code, "message": "Atualize a decisão e confira seu escopo."}},
             status_code=422 if error.code == "invalid_approval" else 409,
+        )
+
+    @app.exception_handler(ExecutorError)
+    async def executor_error(request: Request, error: ExecutorError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Confira o executor e atualize a tela."}},
+            status_code=401
+            if error.code in ("executor_invite_invalid", "executor_credentials_invalid")
+            else 409,
         )
 
     @app.exception_handler(ToolError)
