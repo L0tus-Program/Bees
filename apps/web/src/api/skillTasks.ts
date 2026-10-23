@@ -53,3 +53,15 @@ export async function getSkillContext(agentId: string, taskId: string, binding: 
     || !Object.values(result.snapshot.inputs).every((value) => typeof value === 'string')) throw new ApiError('invalid_response')
   return { definition: result.snapshot.definition, inputs: result.snapshot.inputs as Record<string, string>, version: binding.version }
 }
+
+// Skill com ferramentas do registro (pesquisa, computador, máquina pessoal) roda no agente.
+export function agentSkill(skill: Skill) {
+  const tools = skill.current.definition.resources.tools
+  return skill.enabled_version === skill.current_version && tools.length > 0 && !tools.includes('text.normalize')
+}
+export interface AgentSkillBody { client_request_id: string; skill_id: string; skill_version: number; inputs: Record<string, string>; max_calls?: number; max_active_seconds?: number }
+export async function createAgentSkillTask(agentId: string, body: AgentSkillBody, signal?: AbortSignal): Promise<TaskRecord> {
+  const result = await request(`/agents/${encodeURIComponent(agentId)}/agent-skill-tasks`, { body, authenticated: true, signal, timeoutMs: 20000 })
+  if (!record(result) || !isTask(result.task) || result.task.agent_id !== agentId || result.client_request_id !== body.client_request_id) throw new ApiError('invalid_response')
+  return result.task
+}

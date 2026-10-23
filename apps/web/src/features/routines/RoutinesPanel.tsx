@@ -186,7 +186,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     <ul className="routine-list">{items.map((routine) => <li key={routine.id}>
       <h3>{routine.name}</h3><p>{t('revision', { revision: routine.revision })} · {t(routine.status)}</p>
       {routine.origin === 'legacy' && <p>{t('legacy')}</p>}
-      {routine.definition && <p>{t(routine.definition.execution_mode === 'scheduled' ? 'scheduledExecution' : 'prepareOnly')}</p>}
+      {routine.definition && <p>{t(routine.definition.execution_mode === 'agent' ? 'agentExecution' : routine.definition.execution_mode === 'scheduled' ? 'scheduledExecution' : 'prepareOnly')}</p>}
       <p>{t('next')}: {routine.next_run_at ? <RoutineTime value={routine.next_run_at} timezone={routine.timezone} /> : t('noNext')}</p>
       {routine.definition && <p>{t(routine.definition.schedule.frequency)} · {routine.definition.schedule.time} ({routine.timezone}) · {t(`notification_${routine.definition.notification}`)}</p>}
       <div className="routine-actions">

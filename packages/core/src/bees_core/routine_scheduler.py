@@ -15,7 +15,7 @@ from bees_core.providers.errors import ProviderError
 from bees_core.routine_context import validate_routine_task
 from bees_core.routines import RoutineService, _stamp, _utc
 from bees_core.skill_context import SkillTaskInput
-from bees_core.skill_tasks import SkillTaskService
+from bees_core.skill_tasks import AgentSkillTaskService, SkillTaskService
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
 from bees_core.tasks import TaskError
 from bees_core.tool_runtime import available_runtime
@@ -94,6 +94,16 @@ class RoutineScheduler:
             raise RevisionConflict("Ocorrência mudou antes da recusa.")
         self._notice(unit, occurrence, definition, "skipped", reason)
 
+    @staticmethod
+    def _agent_mode(unit, occurrence_id) -> bool:
+        row = unit.agents._context.connection.execute(
+            "SELECT json_extract(d.definition_json,'$.execution_mode') FROM routine_occurrences o "
+            "JOIN routine_definitions d ON d.routine_id=o.routine_id "
+            "AND d.revision=o.routine_revision WHERE o.id=?",
+            (str(occurrence_id),),
+        ).fetchone()
+        return bool(row) and row[0] == "agent"
+
     def dispatch(self, occurrence_id, *, now=None):
         now = _utc(now or self.clock())
         # Abrir somente o recurso já preparado; nenhuma instalação/grant é criada.
@@ -110,13 +120,19 @@ class RoutineScheduler:
                 return False
             agent_id = UUID(row[-1])
         capability_error = None
-        try:
-            resource, plugin_id = available_runtime(self.store.database, agent_id)
-            tasks = SkillTaskService(self.store.database, resource, plugin_id)
-        except TransportError:
-            capability_error = "resource_unavailable"
-        except TaskError, ToolError, ProviderError:
-            capability_error = "tool_unavailable"
+        with self.store.transaction(write=False) as unit:
+            agent_mode = self._agent_mode(unit, occurrence_id)
+        resource = plugin_id = None
+        if agent_mode:
+            tasks = AgentSkillTaskService(self.store.database)
+        else:
+            try:
+                resource, plugin_id = available_runtime(self.store.database, agent_id)
+                tasks = SkillTaskService(self.store.database, resource, plugin_id)
+            except TransportError:
+                capability_error = "resource_unavailable"
+            except TaskError, ToolError, ProviderError:
+                capability_error = "tool_unavailable"
         with self.store.transaction(actor="worker", source="routine_dispatch") as unit:
             connection = unit.agents._context.connection
             row = connection.execute(
@@ -132,7 +148,9 @@ class RoutineScheduler:
             if routine.status != "active" or routine.revision != occurrence.routine_revision:
                 self._skip(unit, occurrence, definition, "routine_changed", now)
                 return True
-            if definition.execution_mode != "scheduled":
+            if definition.execution_mode not in ("scheduled", "agent") or (
+                (definition.execution_mode == "agent") != agent_mode
+            ):
                 self._skip(unit, occurrence, definition, "execution_not_enabled", now)
                 return True
             if unit.safety.state().status != "running":
@@ -144,8 +162,8 @@ class RoutineScheduler:
                 self._skip(unit, occurrence, definition, capability_error, now)
                 return True
             pinned = definition.runtime_binding
-            plugin = unit.plugins.get(plugin_id)
-            if (
+            plugin = unit.plugins.get(plugin_id) if plugin_id else None
+            if not agent_mode and (
                 pinned is None
                 or str(pinned.resource_id) != resource.identity.resource_id
                 or str(pinned.installation_id) != resource.identity.installation_id
@@ -261,7 +279,8 @@ class RoutineScheduler:
                     " ON c.routine_id=r.id AND c.routine_revision=r.revision "
                     "JOIN routine_definitions d ON d.routine_id=r.id AND d.revision=r.revision "
                     "WHERE r.status='active' AND "
-                    "json_extract(d.definition_json,'$.execution_mode')='scheduled' AND "
+                    "json_extract(d.definition_json,'$.execution_mode') "
+                    "IN ('scheduled','agent') AND "
                     "c.next_run_at<=? "
                     "ORDER BY c.next_run_at,r.id LIMIT ?",
                     (_stamp(now), self.batch_size),
@@ -285,7 +304,8 @@ class RoutineScheduler:
                     "SELECT o.* FROM routine_occurrences o JOIN routine_definitions d "
                     "ON d.routine_id=o.routine_id AND d.revision=o.routine_revision "
                     "WHERE o.status='skipped' AND "
-                    "json_extract(d.definition_json,'$.execution_mode')='scheduled' AND "
+                    "json_extract(d.definition_json,'$.execution_mode') "
+                    "IN ('scheduled','agent') AND "
                     "json_extract(d.definition_json,'$.notification')<>'none' AND NOT EXISTS "
                     "(SELECT 1 FROM messages m WHERE m.source='routine_notification' "
                     "AND json_extract(m.metadata_json,'$.occurrence_id')=o.id) "
@@ -306,7 +326,8 @@ class RoutineScheduler:
                     "JOIN routine_definitions d ON d.routine_id=o.routine_id AND "
                     "d.revision=o.routine_revision "
                     "WHERE o.status='pending' AND "
-                    "json_extract(d.definition_json,'$.execution_mode')='scheduled' ORDER BY "
+                    "json_extract(d.definition_json,'$.execution_mode') "
+                    "IN ('scheduled','agent') ORDER BY "
                     "o.scheduled_at,o.id LIMIT ?",
                     (self.batch_size,),
                 )

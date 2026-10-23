@@ -4,7 +4,7 @@ import { digest } from './toolTasks'
 import type { Routine, RoutineOccurrence } from './routines'
 
 export interface ManualRoutineIntent { agentId: string; routineId: string; body: { client_request_id: string; expected_revision: number } }
-export interface ManualRoutineReceipt { client_request_id: string; request_hash: string; agent_id: string; routine_id: string; routine_revision: number; runtime_binding: { installation_id: string; resource_id: string; plugin_id: string; manifest_hash: string; tool_version: '1' }; occurrence: RoutineOccurrence }
+export interface ManualRoutineReceipt { client_request_id: string; request_hash: string; agent_id: string; routine_id: string; routine_revision: number; runtime_binding: { installation_id: string; resource_id: string; plugin_id: string; manifest_hash: string; tool_version: '1' } | null; occurrence: RoutineOccurrence }
 const identity = (value: unknown): value is string => uuid(value) && value === value.toLowerCase() && value !== '00000000-0000-0000-0000-000000000000'
 export function checkedManualIntent(value: unknown, agentId: string): ManualRoutineIntent {
   if (!exact(value, ['agentId', 'routineId', 'body']) || !identity(agentId) || value.agentId !== agentId || !identity(value.routineId)
@@ -18,7 +18,7 @@ export function manualRoutineIntent(routine: Routine): ManualRoutineIntent {
 async function checkedReceipt(value: unknown, intent: ManualRoutineIntent): Promise<ManualRoutineReceipt> {
   if (!exact(value, ['client_request_id', 'request_hash', 'agent_id', 'routine_id', 'routine_revision', 'runtime_binding', 'occurrence']) || value.client_request_id !== intent.body.client_request_id || value.request_hash !== await digest(intent.body)
     || value.agent_id !== intent.agentId || value.routine_id !== intent.routineId || value.routine_revision !== intent.body.expected_revision
-    || !exact(value.runtime_binding, ['installation_id', 'resource_id', 'plugin_id', 'manifest_hash', 'tool_version']) || !identity(value.runtime_binding.installation_id) || !identity(value.runtime_binding.resource_id) || !identity(value.runtime_binding.plugin_id) || typeof value.runtime_binding.manifest_hash !== 'string' || !/^[0-9a-f]{64}$/.test(value.runtime_binding.manifest_hash) || value.runtime_binding.tool_version !== '1'
+    || (value.runtime_binding !== null && (!exact(value.runtime_binding, ['installation_id', 'resource_id', 'plugin_id', 'manifest_hash', 'tool_version']) || !identity(value.runtime_binding.installation_id) || !identity(value.runtime_binding.resource_id) || !identity(value.runtime_binding.plugin_id) || typeof value.runtime_binding.manifest_hash !== 'string' || !/^[0-9a-f]{64}$/.test(value.runtime_binding.manifest_hash) || value.runtime_binding.tool_version !== '1'))
     || !exact(value.occurrence, ['id', 'routine_id', 'routine_revision', 'scheduled_at', 'window_end', 'status', 'reason', 'task_id', 'revision', 'created_at', 'updated_at', 'metadata'])
     || !identity(value.occurrence.id) || value.occurrence.routine_id !== intent.routineId || value.occurrence.routine_revision !== intent.body.expected_revision || !identity(value.occurrence.task_id)
     || value.occurrence.status !== 'running' || value.occurrence.reason !== 'task_created' || value.occurrence.revision !== 2 || !timestamp(value.occurrence.scheduled_at) || !timestamp(value.occurrence.window_end) || instant(value.occurrence.scheduled_at) !== instant(value.occurrence.window_end)

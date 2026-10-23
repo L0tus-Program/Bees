@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import type { TaskRecord } from '../../api/tasks'
 import { taskOutcomeUnknown, taskUnknownKind } from '../tasks/state'
 import { AgentApprovals } from '../agent/AgentApprovals'
-import { AgentSteps } from '../agent/AgentSteps'
+import { AgentSteps, ResearchSummary } from '../agent/AgentSteps'
 
 export function DelegationCard({ task, selected, onSelect, onChanged }: { task: TaskRecord; selected: boolean; onSelect: () => void; onChanged?: () => void }) {
   const { t } = useTranslation('product')
@@ -19,6 +19,7 @@ export function DelegationCard({ task, selected, onSelect, onChanged }: { task: 
     {task.action_in_flight && <p className="transfer-notice">{tasks('actionInFlightHelp')}</p>}
     {agentTask && ['queued', 'running'].includes(task.status) && <p className="chat-pending" role="status">{agent('working')}</p>}
     {agentTask && <AgentSteps task={task} />}
+    {agentTask && task.research && <ResearchSummary task={task} />}
     {agentTask && task.status === 'waiting_approval' && <AgentApprovals agentId={task.agent_id} taskId={task.id} onChanged={onChanged} refreshKey={task.revision} />}
     {!agentTask && task.status === 'waiting_approval' && <p className="quiet-note">{t('chatDelegationApproval')}</p>}
     {task.status === 'failed' && !unknown && <p className="transfer-notice">{tasks('runFailed')}</p>}

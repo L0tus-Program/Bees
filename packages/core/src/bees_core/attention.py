@@ -233,6 +233,10 @@ class AttentionService:
                 from bees_core.resource_tools import ResourceToolService
 
                 service = ResourceToolService(self.database)
+            elif action is not None and action.metadata.get("approval_kind") == "agent_tool":
+                from bees_core.agent_tools.service import AgentToolService
+
+                service = AgentToolService(self.database)
             else:
                 service = ApprovalService(self.database)
             requires = (

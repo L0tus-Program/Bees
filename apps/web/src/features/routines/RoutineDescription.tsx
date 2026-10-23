@@ -17,7 +17,7 @@ export function RoutineDescription({ definition }: { definition: RoutineDefiniti
       <dt>{t('environment')}</dt><dd>{t(`environment_${definition.environment}`)}</dd>
       <dt>{t('destination')}</dt><dd><code>{definition.destination.conversation_id}</code></dd>
       <dt>{t('notification')}</dt><dd>{t(`notification_${definition.notification}`)}</dd>
-      <dt>{t('execution')}</dt><dd>{t(definition.execution_mode === 'scheduled' ? 'scheduledExecution' : 'prepareOnly')}</dd>
+      <dt>{t('execution')}</dt><dd>{t(definition.execution_mode === 'agent' ? 'agentExecution' : definition.execution_mode === 'scheduled' ? 'scheduledExecution' : 'prepareOnly')}</dd>
       {definition.execution_mode === 'scheduled' && <><dt>{t('runtimeContract')}</dt><dd>{t(definition.runtime_binding ? 'runtimePinned' : 'runtimeSelect')}</dd></>}
     </dl>
     {Object.entries(definition.inputs).length > 0 && <><h4>{t('inputs')}</h4><dl>{Object.entries(definition.inputs).map(([name, input]) => <div key={name}><dt>{name}</dt><dd>{input}</dd></div>)}</dl></>}

@@ -20,6 +20,7 @@ export interface TaskRecord {
   tool_approvals_available?: boolean; model_approvals_available?: boolean
   execution_kind?: string; agent_approvals_available?: boolean; agent_chat_conversation_id?: string | null
   agent_steps?: { tool: string; status: string | null; code: string | null; at: string }[]
+  research?: { pending?: boolean; sources_read?: number; links_cited?: number; links_verified?: number; unverified_links?: string[]; no_citations?: boolean; artifacts?: { kind: string; artifact_id: string; name: string }[] } | null
   max_calls?: number; max_active_seconds?: number; partial?: boolean
   id: string; agent_id: string; conversation_id: string | null; title: string; objective: string; expected_result: string
   status: TaskStatus; revision: number; created_at: string; updated_at: string; active_run_id: string | null

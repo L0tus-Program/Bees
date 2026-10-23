@@ -6,6 +6,8 @@ import type { Skill, SkillDefinition } from '../../api/skills'
 
 export interface RoutineEditorState { definition: RoutineDefinition; source: SkillDefinition; previous?: Routine }
 function supportsSchedule(source: SkillDefinition) { return source.resources.environment === 'none' && source.resources.tools.length === 0 || source.resources.environment === 'own' && source.resources.tools.length === 1 && source.resources.tools[0] === 'text.normalize' }
+// Skill com ferramentas do registro roda no agente (sem recurso fixado; decisões por ação).
+function agentSkillDefinition(source: SkillDefinition) { return source.resources.tools.length > 0 && !source.resources.tools.includes('text.normalize') }
 
 export function RoutineEditor({ initial, skills, conversationId, disabled, onReview, onCancel }: {
   initial: RoutineEditorState; skills: Skill[]; conversationId: string | null; disabled: boolean
@@ -17,14 +19,17 @@ export function RoutineEditor({ initial, skills, conversationId, disabled, onRev
   useEffect(() => { heading.current?.focus() }, [])
   const [source, setSource] = useState(initial.source)
   const selected = `${value.skill_id}:${value.skill_version}`
-  const canSchedule = supportsSchedule(source)
+  const isAgent = agentSkillDefinition(source)
+  const canSchedule = supportsSchedule(source) || isAgent
+  const runMode = isAgent ? 'agent' : 'scheduled'
   const pinnedMissing = !skills.some((skill) => `${skill.id}:${skill.current_version}` === selected)
   function chooseSkill(key: string) {
     const skill = skills.find((item) => `${item.id}:${item.current_version}` === key)
     if (!skill) return
     setSource(skill.current.definition)
     setValue({ ...value, skill_id: skill.id, skill_version: skill.current_version, environment: skill.current.definition.resources.environment,
-      execution_mode: supportsSchedule(skill.current.definition) ? value.execution_mode ?? 'prepare' : 'prepare',
+      execution_mode: agentSkillDefinition(skill.current.definition) ? (value.execution_mode && value.execution_mode !== 'prepare' ? 'agent' : 'prepare') : supportsSchedule(skill.current.definition) && value.execution_mode !== 'agent' ? value.execution_mode ?? 'prepare' : 'prepare',
+      runtime_binding: agentSkillDefinition(skill.current.definition) ? null : value.runtime_binding,
       inputs: Object.fromEntries(skill.current.definition.inputs.map((input) => [input.name, value.inputs[input.name] ?? ''])) })
   }
   function submit(event: FormEvent) {
@@ -55,7 +60,7 @@ export function RoutineEditor({ initial, skills, conversationId, disabled, onRev
         {value.destination.conversation_id !== conversationId && <option value={value.destination.conversation_id}>{t('savedConversation')}</option>}
       </select></label>
       <label className="field">{t('notification')}<select value={value.notification} onChange={(event) => setValue({ ...value, notification: event.target.value as RoutineDefinition['notification'] })}>{(['always', 'failures', 'none'] as const).map((condition) => <option key={condition} value={condition}>{t(`notification_${condition}`)}</option>)}</select></label>
-      <label className="checkbox-label"><input type="checkbox" disabled={!canSchedule} checked={value.execution_mode === 'scheduled'} onChange={(event) => setValue({ ...value, execution_mode: event.target.checked ? 'scheduled' : 'prepare' })} /><span>{t('executeScheduled')}</span></label><p className="quiet-note">{t('executeHelp')}</p>
+      <label className="checkbox-label"><input type="checkbox" disabled={!canSchedule} checked={value.execution_mode === runMode} onChange={(event) => setValue({ ...value, execution_mode: event.target.checked ? runMode : 'prepare', ...(isAgent ? { runtime_binding: null } : {}) })} /><span>{t('executeScheduled')}</span></label><p className="quiet-note">{t('executeHelp')}</p>
       {value.execution_mode === 'scheduled' && <p className="quiet-note">{t(value.runtime_binding ? 'runtimePinned' : 'runtimeSelect')}</p>}{value.execution_mode === 'scheduled' && value.runtime_binding && <button type="button" className="text-button" onClick={selectCurrentResource}>{t('selectCurrentResource')}</button>}
       <p className="quiet-note">{t('policy')}</p>
       <div className="routine-actions"><button type="submit" className="button primary">{t('review')}</button><button type="button" className="button secondary" onClick={onCancel}>{t('cancelEdit')}</button></div>

@@ -71,7 +71,9 @@ class RoutineDefinition(Contract):
     misfire_policy: Literal["skip"] = "skip"
     overlap_policy: Literal["skip"] = "skip"
     # Definições anteriores eram somente preparatórias; upgrade não ativa execução.
-    execution_mode: Literal["prepare", "scheduled"] = "prepare"
+    # "agent": skill com ferramentas do registro, sem recurso fixado; política reavaliada
+    # a cada ação e decisões humanas próprias de cada efeito.
+    execution_mode: Literal["prepare", "scheduled", "agent"] = "prepare"
     runtime_binding: RoutineRuntimeBinding | None = None
 
     @field_validator("timezone")
@@ -309,6 +311,17 @@ class RoutineService:
             raise ValueError("Entradas precisam satisfazer a revisão fixa da skill.")
         if definition.environment != revision.definition.resources.environment:
             raise ValueError("Ambiente precisa corresponder ao declarado pela skill.")
+        if definition.execution_mode == "agent":
+            from bees_core.skill_context import SkillTaskInput, agent_supported
+
+            if not agent_supported(revision.definition) or definition.runtime_binding is not None:
+                raise ValueError("A execução do agente exige skill com ferramentas do registro.")
+            SkillTaskInput(
+                client_request_id=UUID(int=1),
+                skill_id=definition.skill_id,
+                skill_version=definition.skill_version,
+                inputs=definition.inputs,
+            )
         if definition.execution_mode == "scheduled":
             from bees_core.skill_context import SkillTaskInput, supported
 

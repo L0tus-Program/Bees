@@ -2,6 +2,12 @@ const pt = {
   modeLabel: 'Modo da mensagem',
   modeAgent: 'Agente com ferramentas',
   modeChat: 'Somente conversa',
+  modeResearch: 'Pesquisa com fontes',
+  modeResearchHelp: 'A abelha pesquisa e lê fontes na web, cita as URLs e entrega relatório (Markdown) e evidências (JSON) com a verificação dos links.',
+  researchPending: 'O relatório de pesquisa será publicado quando a resposta concluir.',
+  researchCheck: 'Fontes lidas: {{read}} · links citados: {{cited}} · conferidos: {{verified}}',
+  researchNoCitations: 'A resposta não cita fontes; confira antes de usar.',
+  researchUnverified: '{{count}} link(s) citado(s) sem leitura nesta tarefa',
   modeAgentHelp: 'A abelha pode pesquisar na web, usar a memória, publicar arquivos e, quando conectados, usar o computador próprio e a máquina pessoal. Ações sensíveis pedem sua decisão. Pode consumir créditos.',
   modeChatHelp: 'Resposta direta do modelo, sem ferramentas.',
   enableTitle: 'Ative as ferramentas da abelha',
@@ -30,7 +36,7 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
-  modeLabel: 'Message mode', modeAgent: 'Agent with tools', modeChat: 'Chat only',
+  modeLabel: 'Message mode', modeAgent: 'Agent with tools', modeChat: 'Chat only', modeResearch: 'Research with sources', modeResearchHelp: 'The bee searches and reads web sources, cites URLs and delivers a report (Markdown) and evidence (JSON) with link verification.', researchPending: 'The research report will be published when the answer completes.', researchCheck: 'Sources read: {{read}} · links cited: {{cited}} · verified: {{verified}}', researchNoCitations: 'The answer cites no sources; check before using it.', researchUnverified: '{{count}} cited link(s) not read in this task',
   modeAgentHelp: 'The bee can search the web, use memory, publish files and, when connected, use its own computer and your personal machine. Sensitive actions ask for your decision. May consume credits.',
   modeChatHelp: 'Direct model answer, without tools.',
   enableTitle: 'Enable the bee’s tools', enableHelp: 'Installs and grants the recommended packages (web research, memory and deliverables) to this bee. You can review or revoke each tool in the Tools tab.',
@@ -48,7 +54,7 @@ const en: Translations = {
 
 }
 const es: Translations = {
-  modeLabel: 'Modo del mensaje', modeAgent: 'Agente con herramientas', modeChat: 'Solo conversación',
+  modeLabel: 'Modo del mensaje', modeAgent: 'Agente con herramientas', modeChat: 'Solo conversación', modeResearch: 'Investigación con fuentes', modeResearchHelp: 'La abeja busca y lee fuentes web, cita las URL y entrega un informe (Markdown) y evidencias (JSON) con la verificación de enlaces.', researchPending: 'El informe de investigación se publicará cuando la respuesta concluya.', researchCheck: 'Fuentes leídas: {{read}} · enlaces citados: {{cited}} · verificados: {{verified}}', researchNoCitations: 'La respuesta no cita fuentes; revisa antes de usarla.', researchUnverified: '{{count}} enlace(s) citado(s) sin lectura en esta tarea',
   modeAgentHelp: 'La abeja puede buscar en la web, usar la memoria, publicar archivos y, cuando estén conectados, usar su propio ordenador y tu máquina personal. Las acciones sensibles piden tu decisión. Puede consumir créditos.',
   modeChatHelp: 'Respuesta directa del modelo, sin herramientas.',
   enableTitle: 'Activa las herramientas de la abeja', enableHelp: 'Instala y concede los paquetes recomendados (búsqueda web, memoria y entregas) a esta abeja. Puedes revisar o revocar cada herramienta en la pestaña Herramientas.',

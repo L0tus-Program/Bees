@@ -42,10 +42,30 @@ def validate_inputs(definition, inputs):
         raise TaskError("skill_inputs_invalid")
 
 
+def agent_supported(definition) -> bool:
+    """Skill do agente: somente contratos do registro, coerentes com o ambiente declarado."""
+    from bees_core.agent_tools.catalog import spec as agent_spec
+
+    resource = definition.resources
+    specs = [agent_spec(name) for name in resource.tools]
+    if not specs or any(item is None for item in specs):
+        return False
+    targets = {item.target for item in specs}
+    if "computer" in targets and resource.environment != "own":
+        return False
+    if "personal" in targets and resource.environment != "personal":
+        return False
+    if {"computer", "personal"} <= targets:
+        return False
+    return True
+
+
 def supported(definition):
     resource = definition.resources
-    return (resource.environment == "none" and not resource.tools) or (
-        resource.environment == "own" and resource.tools == ["text.normalize"]
+    return (
+        (resource.environment == "none" and not resource.tools)
+        or (resource.environment == "own" and resource.tools == ["text.normalize"])
+        or agent_supported(definition)
     )
 
 
