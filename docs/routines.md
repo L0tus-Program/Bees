@@ -324,3 +324,13 @@ recuperada após reload com o mesmo UUID/body, precedida de consulta. O estado
 canônico contém uma agenda pausada na revisão1, uma intenção de criação, nenhuma
 tarefa/ocorrência e nenhum grant novo. O hash da mensagem original foi conferido.
 Não há LLM real ou aceite semântico de qualidade inferido dessa prova.
+
+## Gatilho por webhook
+
+Uma rotina pode ser disparada por outro serviço (Zapier, IFTTT, GitHub, formulários, scripts): em **Rotinas → Gatilho por webhook**, **Criar gatilho** gera uma URL secreta `…/api/v1/hooks/bh_…`, mostrada uma única vez. Um `POST` nessa URL (sem cookies, sem `Origin`) cria uma ocorrência pelo mesmo caminho da execução manual — mesma revisão, parada global, recusa de ocorrência em curso, skill fixada e destino.
+
+- O corpo enviado é **ignorado**: dados de terceiros não viram entrada nem instrução.
+- Intervalo mínimo configurável (10 s a 24 h); acima do limite responde `429`.
+- Respostas: `202` aceito (`occurrence_id`, `task_id`), `404` segredo inválido/revogado, `409` recusado (rotina mudou, em curso, parada global), `429` intervalo.
+- **Gerar nova URL** invalida a anterior; **Revogar** desativa na hora. Trate a URL como senha; o servidor precisa estar acessível ao serviço externo (veja `BEES_PUBLIC_URL`).
+- Disparos aparecem no histórico como origem manual com ator `webhook` na auditoria. Gatilhos não entram na exportação.

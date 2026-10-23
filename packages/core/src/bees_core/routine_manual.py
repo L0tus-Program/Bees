@@ -89,7 +89,7 @@ class ManualRoutineService:
                 ),
             )
 
-    def execute(self, agent_id, routine_id, value):
+    def execute(self, agent_id, routine_id, value, *, actor="user", source="routine_manual"):
         value = ManualRoutineInput.model_validate(value.model_dump())
         routine_id = UUID(str(routine_id))
         prior = self.replay(agent_id, routine_id, value)
@@ -107,7 +107,7 @@ class ManualRoutineService:
                 resource, plugin_id = available_runtime(self.store.database, agent_id)
             except TransportError, ProviderError, ToolError, TaskError:
                 raise TaskError("unsupported_capability") from None
-        with self.store.transaction(actor="user", source="routine_manual") as unit:
+        with self.store.transaction(actor=actor, source=source) as unit:
             connection, agent_id = RoutineService._connection(unit, agent_id)
             prior = self._replay(unit, agent_id, routine_id, value)
             if prior is not None:
