@@ -9,6 +9,7 @@ import { ErrorNotice } from '../../components/Feedback'
 import { ModelFields } from '../model/ModelFields'
 import { useModelConnection } from '../model/useModelConnection'
 import { preparedSave } from '../model/preparedSave'
+import { TemplatePicker } from '../templates/TemplatePicker'
 
 export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: Onboarding['vault']; onCreated: (agent: AgentSummary) => void; onCancel?: () => void; onReconcile: () => void }) {
   const { t } = useTranslation('product')
@@ -61,6 +62,7 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
           <div className="number-heading"><span>02</span><h2>{t('givePurpose')}</h2></div>
           <p className="form-introduction">{t('profileDescription')}</p>
           <fieldset disabled={busy}>
+            <TemplatePicker disabled={busy} onApply={(template) => { setName(template.name); setPurpose(template.purpose); setInstructions(template.instructions) }} />
             <label className="field" htmlFor="bee-name"><span>{t('beeName')}</span><input id="bee-name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={100} placeholder={t('beeNamePlaceholder')} autoComplete="off" /></label>
             <label className="field" htmlFor="bee-purpose"><span>{t('purpose')}</span><textarea id="bee-purpose" rows={3} value={purpose} onChange={(event) => setPurpose(event.target.value)} required maxLength={2000} placeholder={t('purposePlaceholder')} /></label>
             <label className="field" htmlFor="bee-instructions"><span>{t('instructions')} <span className="optional">{t('optional')}</span></span><textarea id="bee-instructions" rows={4} value={instructions} onChange={(event) => setInstructions(event.target.value)} maxLength={10000} placeholder={t('instructionsPlaceholder')} /><small>{t('instructionsHelp')}</small></label>

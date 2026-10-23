@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ReadAloud } from '../voice/ReadAloud'
 import { getDelegations } from '../../api/delegations'
 import type { DelegationCollection } from '../../api/delegations'
 import type { AgentSummary, Message } from '../../api/onboarding'
@@ -58,6 +59,7 @@ export function ChatHistory({ agent, messages, refreshVersion, onAgentResult }: 
             <div className="message-meta"><span>{message.role === 'user' ? t('you') : message.role === 'assistant' ? agent.name : t('systemMessage')}</span>{!Number.isNaN(date.getTime()) && <time dateTime={message.created_at}>{new Intl.DateTimeFormat(i18n.resolvedLanguage, { dateStyle: 'short', timeStyle: 'short' }).format(date)}</time>}</div>
             <p>{displayedContent || (proposed ? routines('proposalReceived') : t('noTextContent'))}</p>
             {proposed && <details><summary>{routines('proposalRaw')}</summary><pre>{message.content}</pre></details>}
+            {message.role === 'assistant' && displayedContent && <ReadAloud text={displayedContent} />}
           </article>}
           {proposed && <button type="button" className="button secondary" disabled={proposalLocked} onClick={() => setProposalMessage(message.id)}>{routines('proposalReview')}</button>}
           {rejected.map((item) => <p key={item.tool_call_id} className="transfer-notice" role="status">{t(item.code === 'one_task_per_turn' ? 'chatDelegationRejectedTurn' : item.code === 'pending_task_limit' ? 'chatDelegationRejectedLimit' : item.code === 'invalid_task_arguments' ? 'chatDelegationRejectedArguments' : ['delegation_policy_denied', 'delegation_approval_required'].includes(item.code ?? '') ? 'chatDelegationRejectedPolicy' : 'chatDelegationRejected')}</p>)}

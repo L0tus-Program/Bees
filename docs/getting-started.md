@@ -25,6 +25,9 @@ Para o Ollama na instalação Docker: `docker compose --profile local-model up -
 
 ## 3. Conversar e delegar
 
+Dica: ao criar a abelha, **Começar de um modelo** preenche propósito e instruções (assistente, pesquisa, notícias, redação, documentos, organização). Em **Perfil**, **Exportar como modelo** gera um arquivo `.bee.json` para compartilhar — sem credenciais, memórias ou permissões.
+
+
 - **Conversa:** escreva normalmente. A abelha lembra preferências salvas em **Memórias** e no perfil.
 - **Agente com ferramentas:** no chat, clique **Ativar ferramentas recomendadas** uma vez e escolha o modo **Agente com ferramentas**. A abelha pesquisa na web, lê páginas/PDFs, salva memórias, publica arquivos e usa computadores. Ações sensíveis aparecem como cartões de decisão: **Permitir uma vez**, **Sempre permitir esta ferramenta** ou **Recusar**. Veja [agente](agent.md).
 - **Pesquisa com fontes:** escolha o modo **Pesquisa com fontes**. A resposta cita as fontes lidas e gera `pesquisa.md` e `pesquisa-fontes.json` em **Entregas**, com links não verificados destacados.
@@ -37,6 +40,12 @@ Na aba **Computador**: **Parear runtime** → **Criar computador**. Em segundos 
 ## 5. Conectar sua máquina (opcional)
 
 Em **Computador → Máquina pessoal**, gere um convite e rode o conector na sua máquina com as pastas que quer compartilhar. Você escolhe por abelha: leitura/escrita, terminal e navegador; revogue a qualquer momento. Veja [conector pessoal](connector.md).
+
+## 5b. Celular, voz e canais
+
+- **Instalar como app:** no celular ou no Chrome/Edge, use **Instalar app** / **Adicionar à tela inicial** (requer HTTPS ou `localhost`; veja [servidor com HTTPS](onboarding.md#celular-e-servidor-com-https)). A interface abre em tela cheia; dados continuam no servidor.
+- **Voz:** no chat, **Ditar** transcreve sua fala (reconhecimento do navegador) e **Ler respostas em voz alta** lê novas respostas; cada resposta tem **Ouvir**.
+- **Telegram/Discord:** aba **Canais** conecta um bot para conversar com a abelha fora do navegador ([canais](channels.md)).
 
 ## 6. Automatizar
 

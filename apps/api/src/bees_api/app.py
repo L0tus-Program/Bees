@@ -1,5 +1,6 @@
 """API inicial e distribuição opcional do frontend na mesma origem."""
 
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
@@ -94,6 +95,10 @@ class StorageStatus(BaseModel):
 def is_api_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return normalized == "api" or normalized.startswith("api/")
+
+
+# Manifesto do app instalável (PWA) com o tipo correto mesmo sem /etc/mime.types.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 class SPAStaticFiles(StaticFiles):
