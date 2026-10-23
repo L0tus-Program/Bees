@@ -15,6 +15,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from bees_core.agent_tools.catalog import bundles, manifest_for
+from bees_core.agent_tools.catalog import spec as agent_spec
 from bees_core.models import Action, ExecutionClaim, PluginInstallation, ToolGrant, utc_now
 from bees_core.policies import ActionIntent, PolicyService
 from bees_core.storage.database import Database
@@ -40,9 +42,20 @@ class Contract(BaseModel):
 
 
 class ManifestTool(Contract):
-    tool_name: Literal["text.normalize"]
+    tool_name: str = Field(min_length=1, max_length=100)
     version: Literal["1"]
-    executor: Literal["builtin:text.normalize@1"]
+    executor: str = Field(min_length=1, max_length=120)
+
+    @field_validator("executor")
+    @classmethod
+    def trusted_executor(cls, value, info):
+        # Somente contratos do registro confiável; o manifesto não carrega código.
+        name = info.data.get("tool_name")
+        if name != "text.normalize" and agent_spec(name) is None:
+            raise ValueError("Ferramenta fora do registro confiável.")
+        if value != f"builtin:{name}@1":
+            raise ValueError("Executor incompatível com o registro confiável.")
+        return value
 
 
 class PluginManifest(Contract):
@@ -50,7 +63,7 @@ class PluginManifest(Contract):
     plugin_key: str = Field(min_length=1, max_length=100, pattern=r"^[a-z][a-z0-9_.-]+$")
     name: str = Field(min_length=1, max_length=100)
     version: str = Field(pattern=r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
-    tools: tuple[ManifestTool, ...] = Field(min_length=1, max_length=1)
+    tools: tuple[ManifestTool, ...] = Field(min_length=1, max_length=32)
 
     @field_validator("manifest_version", mode="before")
     @classmethod
@@ -64,6 +77,14 @@ class PluginManifest(Contract):
     def useful_name(cls, value: str) -> str:
         if value != value.strip() or any(ord(c) < 32 for c in value):
             raise ValueError("Nome exige texto sem controles ou espaços externos.")
+        return value
+
+    @field_validator("tools")
+    @classmethod
+    def distinct_tools(cls, value):
+        names = [tool.tool_name for tool in value]
+        if len(set(names)) != len(names):
+            raise ValueError("Ferramenta repetida no manifesto.")
         return value
 
 
@@ -188,7 +209,10 @@ class ToolService:
     @staticmethod
     def catalog() -> list[dict]:
         # Projeção nova em cada consulta: consumidores não mutam o registro confiável.
-        return [CATALOG_MANIFEST.model_dump(mode="json")]
+        return [CATALOG_MANIFEST.model_dump(mode="json")] + [
+            PluginManifest.model_validate(manifest_for(bundle)).model_dump(mode="json")
+            for bundle in bundles()
+        ]
 
     @staticmethod
     def _manifest(plugin: PluginInstallation) -> PluginManifest:
@@ -281,6 +305,7 @@ class ToolService:
                 manifest = self._manifest(plugin)
                 for tool in manifest.tools:
                     grant = unit.tool_grants.find(agent_id, plugin.id, tool.tool_name)
+                    contract = agent_spec(tool.tool_name)
                     rows.append(
                         {
                             "plugin_id": str(plugin.id),
@@ -290,9 +315,19 @@ class ToolService:
                             "plugin_revision": plugin.revision,
                             "tool_name": tool.tool_name,
                             "version": tool.version,
-                            "input_schema": TextInput.model_json_schema(),
-                            "output_schema": TextOutput.model_json_schema(),
-                            "capabilities": ["pure_text"],
+                            "input_schema": contract.schema
+                            if contract
+                            else TextInput.model_json_schema(),
+                            "output_schema": {"type": "object"}
+                            if contract
+                            else TextOutput.model_json_schema(),
+                            "capabilities": list(contract.capabilities)
+                            if contract
+                            else ["pure_text"],
+                            "target": contract.target if contract else "control_plane",
+                            "effect": contract.effect if contract else "read",
+                            "default_policy": contract.default_effect if contract else "ask",
+                            "description": contract.description if contract else "",
                             "grant_id": str(grant.id) if grant else None,
                             "grant_revision": grant.revision if grant else 0,
                             "granted": bool(grant and grant.enabled),

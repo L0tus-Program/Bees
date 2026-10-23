@@ -863,7 +863,8 @@ class Execution:
             "AND json_extract(p.checkpoint_json,'$.publication.status') "
             "IN ('pending','started')) "
             # Resolver propostas já confirmadas não inicia uma geração paga nova.
-            "OR (json_extract(t.metadata_json,'$.execution_kind')='model_tool_task' "
+            "OR (json_extract(t.metadata_json,'$.execution_kind') "
+            "IN ('model_tool_task','agent_task') "
             "AND EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
             "AND json_extract(p.checkpoint_json,'$.tool_cycle.status')='pending'))) "
             "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "

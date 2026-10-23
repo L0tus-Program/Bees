@@ -94,7 +94,7 @@ def _view(detail) -> dict:
     controls = [] if terminal else ["cancel"]
     if task.status in ("paused", "waiting_approval", "waiting_resource"):
         controls.append("resume")
-        if task.metadata.get("execution_kind") in (TASK_KIND, MODEL_TASK_KIND):
+        if task.metadata.get("execution_kind") in (TASK_KIND, MODEL_TASK_KIND, "agent_task"):
             controls.append("redirect")
     elif not terminal:
         controls.extend(["pause", "redirect"])
@@ -133,6 +133,16 @@ def _view(detail) -> dict:
             "tool_approvals_available": task.metadata.get("execution_kind")
             in (TASK_KIND, MODEL_TASK_KIND),
             "model_approvals_available": task.metadata.get("execution_kind") != TASK_KIND,
+            "execution_kind": task.metadata.get("execution_kind", "text_task"),
+            "agent_approvals_available": task.metadata.get("execution_kind") == "agent_task",
+            "agent_steps": [
+                {key: step.get(key) for key in ("tool", "status", "code", "at")}
+                for step in (run.checkpoint.get("agent_steps") or [] if run else [])
+                if isinstance(step, dict)
+            ],
+            "agent_chat_conversation_id": task.metadata.get("agent_chat", {}).get(
+                "conversation_id"
+            ),
             "partial": run is not None
             and task.status == "paused"
             and run.checkpoint.get("partial") is True,

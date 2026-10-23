@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from bees_core.execution import TaskWorker
+from bees_core.agent_tools.cycle import AgentTaskWorker
 from bees_core.executor_transport.client import ProcessTextResource
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.executor_transport.journal import private
@@ -95,7 +95,7 @@ def available_runtime(database, agent_id):
         return resource, plugin.id
 
 
-class ToolQueueWorker(TaskWorker):
+class ToolQueueWorker(AgentTaskWorker):
     """Fila comum escolhe composição pelo modo canônico; não inicializa recursos."""
 
     async def _run_claim(self, claim, generation):

@@ -18,7 +18,7 @@ function mergeDelegations(incoming: DelegationCollection, previous: DelegationCo
   }) }
 }
 
-export function ChatHistory({ agent, messages, refreshVersion }: { agent: AgentSummary & { conversation_id: string }; messages: Message[]; refreshVersion: number }) {
+export function ChatHistory({ agent, messages, refreshVersion, onAgentResult }: { agent: AgentSummary & { conversation_id: string }; messages: Message[]; refreshVersion: number; onAgentResult?: () => void }) {
   const { t, i18n } = useTranslation('product')
   const { t: artifacts } = useTranslation('artifacts')
   const { t: routines } = useTranslation('routines')
@@ -34,11 +34,14 @@ export function ChatHistory({ agent, messages, refreshVersion }: { agent: AgentS
   useEffect(() => { if (previousRefresh.current !== refreshVersion) { previousRefresh.current = refreshVersion; refreshDelegations() } }, [refreshVersion, refreshDelegations])
   const visibleMessages = messages.slice(-200).filter((message) => message.role !== 'tool')
   const delegations = monitor.data?.delegations ?? noDelegations
+  const finished = delegations.filter((item) => item.task.execution_kind === 'agent_task' && item.task.status === 'completed').map((item) => item.id).join(',')
+  const seenFinished = useRef<string | null>(null)
+  useEffect(() => { if (seenFinished.current !== null && seenFinished.current !== finished) onAgentResult?.(); seenFinished.current = finished }, [finished, onAgentResult])
   useEffect(() => { if (listRef.current && followLatest.current) listRef.current.scrollTop = listRef.current.scrollHeight }, [messages, delegations])
   const messageIds = new Set(visibleMessages.map((message) => message.id))
   const attached = (id: string) => delegations.filter((item) => (messageIds.has(item.response_message_id) ? item.response_message_id : item.source_message_id) === id)
   const recovered = delegations.filter((item) => !messageIds.has(item.source_message_id) && !messageIds.has(item.response_message_id))
-  const card = (item: typeof delegations[number]) => <DelegationCard key={item.id} task={item.task} selected={selected === item.id} onSelect={() => setSelected((current) => current === item.id ? null : item.id)} />
+  const card = (item: typeof delegations[number]) => <DelegationCard key={item.id} task={item.task} selected={selected === item.id} onSelect={() => setSelected((current) => current === item.id ? null : item.id)} onChanged={refreshDelegations} />
   return <>
     {monitor.error && <p className="form-error" role="status">{t('chatDelegationReadFailed')} <button type="button" className="text-button" onClick={monitor.refresh}>{t('refreshState')}</button></p>}
     {monitor.data?.has_more && <p className="quiet-note">{t('chatDelegationLimited')}</p>}

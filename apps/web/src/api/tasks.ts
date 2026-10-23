@@ -18,6 +18,8 @@ export interface TaskRecord {
   routine_execution?: { routine_id: string; revision: number; occurrence_id: string; scheduled_at: string; name: string; trigger?: 'manual' }
   skill_execution?: { skill_id: string; version: number; snapshot_hash: string }
   tool_approvals_available?: boolean; model_approvals_available?: boolean
+  execution_kind?: string; agent_approvals_available?: boolean; agent_chat_conversation_id?: string | null
+  agent_steps?: { tool: string; status: string | null; code: string | null; at: string }[]
   max_calls?: number; max_active_seconds?: number; partial?: boolean
   id: string; agent_id: string; conversation_id: string | null; title: string; objective: string; expected_result: string
   status: TaskStatus; revision: number; created_at: string; updated_at: string; active_run_id: string | null

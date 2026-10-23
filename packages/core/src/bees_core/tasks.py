@@ -321,11 +321,14 @@ class TaskService:
             )
             uow.task_commands.create(command)
             checkpoint = dict(run.checkpoint)
-            if (
-                value.kind in ("resume", "cancel")
-                and task.metadata.get("execution_kind") == "model_tool_task"
+            if value.kind in ("resume", "cancel") and task.metadata.get("execution_kind") in (
+                "model_tool_task",
+                "agent_task",
             ):
-                from bees_core.tool_cycle import supersede_pending
+                if task.metadata["execution_kind"] == "agent_task":
+                    from bees_core.agent_tools.cycle import supersede_pending
+                else:
+                    from bees_core.tool_cycle import supersede_pending
 
                 supersede_pending(uow, task, run)
                 checkpoint.pop("tool_cycle", None)
