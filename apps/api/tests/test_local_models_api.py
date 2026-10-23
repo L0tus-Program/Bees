@@ -66,13 +66,16 @@ def state(tmp_path):
         yield client, backend
 
 
-def wait(client, pull_id, status="running"):
-    for _ in range(200):
+def wait(client, pull_id, status="running", deadline=15.0):
+    # Prazo generoso: runners de CI podem atrasar a tarefa de download em segundo plano.
+    end = time.monotonic() + deadline
+    while True:
         view = client.get(f"/api/v1/local-models/pulls/{pull_id}").json()
         if view["status"] != status:
             return view
-        time.sleep(0.01)
-    raise AssertionError(view)
+        if time.monotonic() > end:
+            raise AssertionError(view)
+        time.sleep(0.02)
 
 
 def test_status_lists_installed_and_suggestions_and_requires_session(state):
@@ -200,10 +203,10 @@ def test_cancel_running_pull_and_delete_requires_confirmation(state):
         json={"client_request_id": str(uuid4()), "model": "qwen3:4b", "confirm_download": True},
         headers=headers(client),
     ).json()
-    for _ in range(100):
-        if client.get(f"/api/v1/local-models/pulls/{started['id']}").json()["total_bytes"]:
-            break
-        time.sleep(0.01)
+    end = time.monotonic() + 15
+    while not client.get(f"/api/v1/local-models/pulls/{started['id']}").json()["total_bytes"]:
+        assert time.monotonic() < end
+        time.sleep(0.02)
     busy = client.post(
         "/api/v1/local-models/delete",
         json={"model": "qwen3:4b", "confirm_delete": True},
