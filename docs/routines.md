@@ -334,3 +334,7 @@ Uma rotina pode ser disparada por outro serviço (Zapier, IFTTT, GitHub, formul�
 - Respostas: `202` aceito (`occurrence_id`, `task_id`), `404` segredo inválido/revogado, `409` recusado (rotina mudou, em curso, parada global), `429` intervalo.
 - **Gerar nova URL** invalida a anterior; **Revogar** desativa na hora. Trate a URL como senha; o servidor precisa estar acessível ao serviço externo (veja `BEES_PUBLIC_URL`).
 - Disparos aparecem no histórico como origem manual com ator `webhook` na auditoria. Gatilhos não entram na exportação.
+
+## Rotinas proativas (só avisam quando há novidade)
+
+Rotinas em **modo agente** recebem a orientação de lembrar o que já entregaram (memória da abelha) e responder exatamente `SEM_NOVIDADES` quando nada novo ou relevante apareceu. Nesse caso a tarefa conclui normalmente e fica no histórico, mas **nenhuma mensagem** é publicada na conversa de destino nem enviada aos canais (Telegram/Discord). Com novidade, a própria resposta é o aviso — o lembrete genérico de “ocorrência concluída” não é repetido no modo agente. Combine com agenda frequente (ex.: a cada hora) ou com o gatilho por webhook para monitorar páginas, buscas ou conectores MCP dentro dos limites de consumo da abelha.

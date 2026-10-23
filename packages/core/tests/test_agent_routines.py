@@ -188,3 +188,50 @@ def test_agent_routine_scheduled_and_manual_deliver_to_destination(setup):
         AgentSkillTaskService(database).detail(agent.id, receipt.occurrence.task_id).task.status
         == "completed"
     )
+
+
+def test_agent_routine_without_news_stays_quiet(setup):
+    from test_routines import instant
+
+    database, store, agent, destination, skill = setup
+    now = instant("2026-01-02T09:00:15+00:00")
+    routines = RoutineService(database, clock=lambda: now - timedelta(hours=1))
+    routine = routines.create(
+        agent.id,
+        CreateRoutine(
+            client_request_id=uuid4(),
+            definition=RoutineDefinition(
+                name="Radar",
+                instructions="Avise só se houver novidade.",
+                schedule={"frequency": "daily", "time": "09:00"},
+                timezone="UTC",
+                skill_id=skill.id,
+                skill_version=1,
+                inputs={"url": "https://example.org/a"},
+                environment="none",
+                destination={"conversation_id": destination.id},
+                notification="always",
+                execution_mode="agent",
+            ),
+            active=True,
+        ),
+    )
+    scheduler = RoutineScheduler(database, clock=lambda: now)
+    scheduler.tick()
+    requests = []
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return answer("SEM_NOVIDADES")
+
+    drain(AgentTaskWorker(database, transport=httpx.MockTransport(respond)))
+    assert "SEM_NOVIDADES" in json.dumps(requests[0]["messages"], ensure_ascii=False)
+    scheduler.synchronize(now=now)
+    occurrence = next(x for x in routines.occurrences(agent.id, routine.id) if x.task_id)
+    task = AgentSkillTaskService(database).detail(agent.id, occurrence.task_id).task
+    assert task.status == "completed"
+    with store.transaction(write=False) as unit:
+        assistant = [
+            m for m in unit.messages.list(conversation_id=destination.id) if m.role == "assistant"
+        ]
+    assert assistant == []
