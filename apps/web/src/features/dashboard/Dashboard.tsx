@@ -6,6 +6,7 @@ import { useResource } from '../../hooks/useResource'
 import { Chat } from '../chat/Chat'
 import { CreateBee } from '../setup/CreateBee'
 import { ProfileEditor } from '../bee/ProfileEditor'
+import { AgentActivation } from '../bee/AgentActivation'
 import { ModelEditor } from '../bee/ModelEditor'
 import { MemoryPanel } from '../memory/MemoryPanel'
 import { TaskPanel } from '../tasks/TaskPanel'
@@ -82,6 +83,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
+          {view === 'model' && <AgentActivation key={`activate:${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('agentActive'); reload() }} onReload={reload} />}
           {view === 'memories' && <MemoryPanel key={selected.id} agent={selected} />}
           {view === 'deliveries' && <Suspense fallback={<LoadingNotice />}><DeliveryHistoryPanel key={selected.id} agent={selected} onSkills={() => setView('skills')} /></Suspense>}
           {view === 'routines' && <Suspense fallback={<LoadingNotice />}><RoutinesPanel key={selected.id} agent={selected} /></Suspense>}

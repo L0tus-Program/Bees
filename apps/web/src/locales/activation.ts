@@ -1,0 +1,40 @@
+const pt = {
+  title: 'Reativar abelha pausada', scope: 'A restauração mantém a abelha pausada. Depois de revisar e salvar um modelo, você pode reativá-la explicitamente enquanto a parada global continua ativa.',
+  saved: 'Modelo salvo', saveFirst: 'Escolha e salve o modelo antes de reativar. Alterações ainda não salvas no formulário acima não serão aplicadas aqui.',
+  check: 'Consultar estado antes de reativar', checking: 'Consultando estado…', stopRequired: 'Use Parar tudo antes de reativar. A parada global precisa permanecer ativa até a confirmação.',
+  changed: 'A configuração ou revisão mudou. Atualize a abelha e revise novamente o modelo salvo.',
+  ready: 'Abelha ainda pausada e parada global ativa. O serviço consultará a disponibilidade do modelo salvo antes de confirmar.',
+  consent: 'Revisei o modelo salvo mostrado e quero reativar esta abelha. Sei que tarefas e rotinas permanecem pausadas, a parada global continua ativa e acessos exigem revisão própria.',
+  submit: 'Reativar com o modelo salvo', submitting: 'Conferindo modelo e reativando…',
+  failure: 'Não foi possível confirmar a reativação. O estado pode ter mudado. Consulte o estado atual antes de decidir uma nova tentativa; nada será repetido automaticamente.',
+  checkFailure: 'Não foi possível confirmar os pré-requisitos. A reativação continua bloqueada; consulte de novo.',
+  limits: 'Reativar não retoma tarefas, resolve resultados desconhecidos, concede ferramentas nem reconecta ambientes. Retomar globalmente e decidir sobre cada trabalho continuam sendo ações separadas.',
+  reload: 'Atualizar abelha',
+}
+const en: typeof pt = {
+  title: 'Reactivate a paused bee', scope: 'Restoration keeps the bee paused. After reviewing and saving a model, you can explicitly reactivate it while global stop remains active.',
+  saved: 'Saved model', saveFirst: 'Choose and save the model before reactivation. Unsaved changes in the form above will not be applied here.',
+  check: 'Check state before reactivation', checking: 'Checking state…', stopRequired: 'Use Stop all before reactivation. Global stop must remain active until confirmation.',
+  changed: 'The configuration or revision changed. Refresh the bee and review the saved model again.',
+  ready: 'The bee remains paused and global stop is active. The service will check the saved model availability before confirming.',
+  consent: 'I reviewed the saved model shown and want to reactivate this bee. I understand that tasks and routines stay paused, global stop stays active and access requires its own review.',
+  submit: 'Reactivate with the saved model', submitting: 'Checking model and reactivating…',
+  failure: 'Reactivation could not be confirmed. State may have changed. Check current state before deciding on another attempt; nothing will be repeated automatically.',
+  checkFailure: 'The prerequisites could not be confirmed. Reactivation remains blocked; check again.',
+  limits: 'Reactivation does not resume tasks, resolve unknown outcomes, grant tools or reconnect environments. Global resume and decisions about each job remain separate actions.',
+  reload: 'Refresh bee',
+}
+const es: typeof pt = {
+  title: 'Reactivar abeja pausada', scope: 'La restauración mantiene la abeja pausada. Tras revisar y guardar un modelo, puedes reactivarla explícitamente mientras la parada global sigue activa.',
+  saved: 'Modelo guardado', saveFirst: 'Elige y guarda el modelo antes de reactivar. Los cambios sin guardar del formulario anterior no se aplicarán aquí.',
+  check: 'Consultar estado antes de reactivar', checking: 'Consultando estado…', stopRequired: 'Usa Detener todo antes de reactivar. La parada global debe seguir activa hasta la confirmación.',
+  changed: 'La configuración o revisión cambió. Actualiza la abeja y revisa de nuevo el modelo guardado.',
+  ready: 'La abeja sigue pausada y la parada global está activa. El servicio consultará la disponibilidad del modelo guardado antes de confirmar.',
+  consent: 'Revisé el modelo guardado mostrado y quiero reactivar esta abeja. Sé que tareas y rutinas siguen pausadas, la parada global sigue activa y los accesos requieren su propia revisión.',
+  submit: 'Reactivar con el modelo guardado', submitting: 'Comprobando modelo y reactivando…',
+  failure: 'No se pudo confirmar la reactivación. El estado puede haber cambiado. Consulta el estado actual antes de decidir otro intento; nada se repetirá automáticamente.',
+  checkFailure: 'No se pudieron confirmar los requisitos. La reactivación sigue bloqueada; consulta de nuevo.',
+  limits: 'Reactivar no reanuda tareas, resuelve resultados desconocidos, concede herramientas ni reconecta entornos. Reanudar globalmente y decidir sobre cada trabajo siguen siendo acciones separadas.',
+  reload: 'Actualizar abeja',
+}
+export const activationResources = { 'pt-BR': pt, en, es }

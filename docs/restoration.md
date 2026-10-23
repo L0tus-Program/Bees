@@ -100,6 +100,31 @@ humanos próprios. Retomar globalmente não reabilita grants ou rotinas, nem rep
 ação. A recuperação de um resultado físico desconhecido pertence ao seu executor;
 importar o core não restaura nem apaga o journal privado do host.
 
+## Reativar uma abelha após a revisão
+
+Na instalação de destino, configure uma identidade nova e salve explicitamente o
+modelo da abelha restaurada. Em **Modelo → Reativar abelha pausada**, consulte o
+estado e revise o modelo **salvo** mostrado. Alterações ainda não salvas no editor
+não são aplicadas pela reativação. O consentimento começa desmarcado.
+
+A parada global deve estar ativa. O serviço consulta somente a disponibilidade do
+modelo e confere novamente as revisões da abelha e da parada global antes de
+mudar `paused` para `active`. Configuração ausente, abelha arquivada/ativa, revisão
+obsoleta, falha do provedor ou retomada global durante a consulta são recusadas.
+A operação não faz geração, retoma tarefas/rotinas, habilita ferramentas, resolve
+unknown ou reconecta ambientes. A parada global permanece ativa na confirmação.
+Retomá-la e decidir sobre cada trabalho continuam sendo comandos humanos separados.
+
+O endpoint humano `POST /api/v1/agents/{agent_id}/reactivate` exige sessão, CSRF,
+`expected_revision`, `expected_safety_revision` e
+`consent: "reactivate_paused_agent"`. A resposta fechada confirma o estado ativo,
+a nova revisão, a revisão da parada ainda ativa e a consulta de disponibilidade.
+A mutação usa CAS monotônica, como a edição de perfil; não promete replay UUID.
+Se a resposta se perder, consulte o estado atual da abelha antes de decidir outra
+tentativa. A interface não repete a mutação automaticamente; se a leitura encontra
+estado ativo, apresenta esse estado atual, sem atribuí-lo a um pedido específico.
+Uma repetição do CAS antigo falha sem nova mudança ou consulta de modelo.
+
 ## Staging, validação e publicação
 
 O serviço verifica os mesmos bytes que depois interpreta: formato/versão, inventário,

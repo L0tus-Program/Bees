@@ -1,4 +1,5 @@
 const pt = {
+  agentActive: 'Estado atual confirmado: abelha ativa. Revise a parada global e cada trabalho antes de continuar.',
   beeNavigation: 'Gerenciar abelha', view_conversation: 'Conversa', view_profile: 'Perfil', view_model: 'Modelo', view_memories: 'Memórias',
   status_active: 'Ativa', status_paused: 'Pausada', status_archived: 'Arquivada', inactiveConversation: 'Abelha {{status}}. O histórico continua disponível; novas mensagens estão desabilitadas.',
   profileTitle: 'Perfil da abelha', profileDescription: 'Ajuste o propósito e como ela deve responder. As próximas mensagens usam estas escolhas.',
@@ -30,6 +31,7 @@ const pt = {
 }
 
 const en: Record<keyof typeof pt, string> = {
+  agentActive: 'Current state confirmed: bee active. Review global stop and each job before continuing.',
   beeNavigation: 'Manage bee', view_conversation: 'Conversation', view_profile: 'Profile', view_model: 'Model', view_memories: 'Memories',
   status_active: 'Active', status_paused: 'Paused', status_archived: 'Archived', inactiveConversation: 'Bee {{status}}. History remains available; new messages are disabled.',
   profileTitle: 'Bee profile', profileDescription: 'Adjust its purpose and how it should respond. Future messages use these choices.', instructionsDistinction: 'Instructions define permanent behavior. Editable facts and preferences belong in Memories. Neither option grants access to tools or computers.',
@@ -45,6 +47,7 @@ const en: Record<keyof typeof pt, string> = {
 }
 
 const es: Record<keyof typeof pt, string> = {
+  agentActive: 'Estado actual confirmado: abeja activa. Revisa la parada global y cada trabajo antes de continuar.',
   beeNavigation: 'Gestionar abeja', view_conversation: 'Conversación', view_profile: 'Perfil', view_model: 'Modelo', view_memories: 'Memorias', status_active: 'Activa', status_paused: 'Pausada', status_archived: 'Archivada', inactiveConversation: 'Abeja {{status}}. El historial sigue disponible; los mensajes nuevos están deshabilitados.',
   profileTitle: 'Perfil de la abeja', profileDescription: 'Ajusta su propósito y cómo debe responder. Los próximos mensajes usan estas decisiones.', instructionsDistinction: 'Las instrucciones definen un comportamiento permanente. Los hechos y preferencias editables están en Memorias. Ninguna opción concede acceso a herramientas u ordenadores.', memoryEnabled: 'Usar memorias relevantes en las conversaciones', memoryEnabledHelp: 'Incluye datos personales, de la abeja y de la tarea cuando corresponda. Desactivar no elimina memorias; el historial de conversación sigue usándose.', saveProfile: 'Guardar perfil', profileSaved: 'Perfil actualizado. El historial se conservó.', profileResourceScope: 'La conversación de texto y la memoria están disponibles. Los ordenadores, herramientas y tareas siguen en preparación.',
   modelTitle: 'Elegir otro modelo', modelDescription: 'Cambia de proveedor o modelo manteniendo la abeja, conversación y memorias. La prueba de conexión es opcional.', reuseCredential: 'Usar la credencial guardada para esta conexión', reuseCredentialHelp: 'Elección explícita para el mismo tipo y dirección. Cambiar la dirección o tipo borra la credencial seleccionada y la clave escrita.', credentialReused: 'La credencial permanece en el servidor; el navegador no recibe su valor.', credentialRemoved: 'Esta configuración no tiene credencial. Al guardar, la abeja deja de usar la clave anterior. Para mantenerla en esta conexión, selecciona la opción de credencial guardada.', transferNotice: 'Al guardar, los próximos mensajes enviarán el historial y las memorias relevantes al backend elegido. Los datos enviados al proveedor anterior no se eliminan.', modelValidated: 'Modelo encontrado en la consulta remota. Guarda para aplicar el cambio.', saveModel: 'Guardar y usar este modelo', modelSaved: 'Modelo actualizado. Abeja, conversación y memorias conservadas.', reloadCurrent: 'Recargar datos actuales', legacyConfigure: 'Configura un modelo para empezar. Bees crea la conversación inicial y mantiene esta abeja, sin exigir otro registro.', configureModel: 'Configurar modelo',
