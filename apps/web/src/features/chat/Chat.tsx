@@ -27,6 +27,7 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
   const { t: agentText } = useTranslation('agent')
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
   const [agentMode, setAgentMode] = useState<boolean | null>(null)
+  const [research, setResearch] = useState(false)
   const [enabling, setEnabling] = useState(false)
   const [capabilityVersion, setCapabilityVersion] = useState(0)
   useEffect(() => {
@@ -69,9 +70,9 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
     if (useAgent && selectedFiles.length === 0 && !allowRoutineProposal) {
       const content = draft.trim()
       // Mesmo UUID enquanto o texto não mudar: reenvio reconcilia sem criar outra tarefa.
-      if (agentIdentity.current?.content !== content) agentIdentity.current = { content, id: crypto.randomUUID() }
+      if (agentIdentity.current?.content !== `${research}:${content}`) agentIdentity.current = { content: `${research}:${content}`, id: crypto.randomUUID() }
       try {
-        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, controller.current.signal)
+        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, controller.current.signal, research ? 'research' : 'agent')
         if (controller.current.signal.aborted) return
         agentIdentity.current = null
         updateComposer({ type: 'success' }); refresh()
@@ -120,9 +121,10 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
         <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => { if (failed && event.target.value !== draft) { setFileConsentRevision(null); setAllowRoutineProposal(false) } updateComposer({ type: 'draft', value: event.target.value }) }} disabled={busy || agent.status !== 'active'} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
         {selectedFiles.length > 0 && (agent.provider_config ? <label className="checkbox-field"><input type="checkbox" checked={attachmentConsent} disabled={busy || !filesReady || agent.status !== 'active'} onChange={(event) => setFileConsentRevision(event.target.checked ? agent.revision : null)} /><span>{artifacts('consentUse')}<small>{artifacts('consentHelp', { model: agent.provider_config.model, endpoint: agent.provider_config.endpoint })}</small></span></label> : <p className="quiet-note">{artifacts('noDestination')}</p>)}
         {capabilities?.available && <fieldset className="agent-mode"><legend>{agentText('modeLabel')}</legend>
-          <label><input type="radio" name="agent-mode" checked={useAgent} onChange={() => setAgentMode(true)} disabled={busy} /> {agentText('modeAgent')}</label>
+          <label><input type="radio" name="agent-mode" checked={useAgent && !research} onChange={() => { setAgentMode(true); setResearch(false) }} disabled={busy} /> {agentText('modeAgent')}</label>
+          <label><input type="radio" name="agent-mode" checked={useAgent && research} onChange={() => { setAgentMode(true); setResearch(true) }} disabled={busy} /> {agentText('modeResearch')}</label>
           <label><input type="radio" name="agent-mode" checked={!useAgent} onChange={() => setAgentMode(false)} disabled={busy} /> {agentText('modeChat')}</label>
-          <small>{agentText(useAgent ? 'modeAgentHelp' : 'modeChatHelp')}</small>
+          <small>{agentText(!useAgent ? 'modeChatHelp' : research ? 'modeResearchHelp' : 'modeAgentHelp')}</small>
           {useAgent && capabilities.worker && !capabilities.worker.available && <small className="transfer-notice">{agentText('workerOffline')}</small>}
         </fieldset>}
         {capabilities && !capabilities.available && capabilities.tool_calls_supported && !capabilities.recommended_installed && <div className="agent-enable"><strong>{agentText('enableTitle')}</strong><small>{agentText('enableHelp')}</small><button type="button" className="button secondary" onClick={() => { void enableTools() }} disabled={enabling || busy}>{agentText(enabling ? 'enabling' : 'enableButton')}</button></div>}

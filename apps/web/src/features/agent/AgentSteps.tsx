@@ -12,3 +12,15 @@ export function AgentSteps({ task }: { task: TaskRecord }) {
     </li>)}
   </ol>
 }
+
+export function ResearchSummary({ task }: { task: TaskRecord }) {
+  const { t } = useTranslation('agent')
+  const research = task.research
+  if (!research || research.pending) return research?.pending ? <p className="quiet-note">{t('researchPending')}</p> : null
+  return <div className="research-summary">
+    <p>{t('researchCheck', { read: research.sources_read ?? 0, cited: research.links_cited ?? 0, verified: research.links_verified ?? 0 })}</p>
+    {research.no_citations && <p className="transfer-notice">{t('researchNoCitations')}</p>}
+    {!!research.unverified_links?.length && <details><summary>{t('researchUnverified', { count: research.unverified_links.length })}</summary><ul>{research.unverified_links.map((url) => <li key={url}><code>{url}</code></li>)}</ul></details>}
+    {!!research.artifacts?.length && <ul className="research-artifacts">{research.artifacts.map((item) => <li key={item.artifact_id}><a href={`/api/v1/agents/${encodeURIComponent(task.agent_id)}/artifacts/${encodeURIComponent(item.artifact_id)}/download`}>{item.name}</a></li>)}</ul>}
+  </div>
+}

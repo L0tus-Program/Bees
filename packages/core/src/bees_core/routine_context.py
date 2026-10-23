@@ -35,7 +35,7 @@ def validate_routine_task(unit, task):
         if (
             (routine.status == "cancelled" if manual else routine.status != "active")
             or routine.revision != value["revision"]
-            or (not manual and routine.definition.execution_mode != "scheduled")
+            or (not manual and routine.definition.execution_mode not in ("scheduled", "agent"))
             or digest(routine.definition.model_dump(mode="json")) != digest(value["definition"])
             or row is None
             or row
@@ -66,13 +66,29 @@ def validate_routine_task(unit, task):
                 or receipt.occurrence.routine_revision != routine.revision
                 or receipt.occurrence.task_id != task.id
                 or _stamp(receipt.occurrence.scheduled_at) != value["scheduled_at"]
-                or receipt.runtime_binding.model_dump(mode="json") != value["runtime_binding"]
+                or (
+                    receipt.runtime_binding.model_dump(mode="json")
+                    if receipt.runtime_binding
+                    else None
+                )
+                != value["runtime_binding"]
             ):
                 raise ValueError
             pinned = receipt.runtime_binding
         target = task.metadata.get("tool_cycle_binding", {})
         plugin = unit.plugins.get(pinned.plugin_id) if pinned else None
-        if (
+        if routine.definition.execution_mode == "agent":
+            # Sem recurso fixado: cada ação reavalia concessão, alvo e política atuais.
+            if (
+                source is None
+                or source["skill_id"] != definition["skill_id"]
+                or source["version"] != definition["skill_version"]
+                or source["inputs"] != definition["inputs"]
+                or pinned is not None
+                or task.metadata.get("execution_kind") != "agent_task"
+            ):
+                raise ValueError
+        elif (
             source is None
             or source["skill_id"] != definition["skill_id"]
             or source["version"] != definition["skill_version"]

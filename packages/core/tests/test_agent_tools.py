@@ -394,3 +394,54 @@ def test_conversation_is_not_reused(tmp_path):
     case = Case(tmp_path, [answer("ok")])
     assert case.task.conversation_id != case.chat.id
     assert isinstance(case.chat, Conversation)
+
+
+def test_research_mode_publishes_report_with_verified_and_unverified_links(tmp_path):
+    case = Case(
+        tmp_path,
+        [
+            tool_calls(("r1", "web_search", {"query": "abelhas polinização"})),
+            tool_calls(("r2", "web_fetch", {"url": "https://example.org/abelhas"})),
+            answer(
+                "As abelhas polinizam cerca de 75% das culturas [1].\n\n"
+                "Fontes: [1] https://example.org/abelhas ; [2] https://nao-lida.example/x"
+            ),
+        ],
+    )
+    with case.store.transaction() as unit:
+        task = unit.tasks.get(case.task.id)
+        unit.tasks.update(
+            task.model_copy(update={"metadata": task.metadata | {"research": True}}),
+            task.revision,
+        )
+    case.drain()
+    detail = case.detail()
+    assert detail.task.status == "completed"
+    assert "Modo pesquisa" in case.requests[0]["messages"][0]["content"] or any(
+        "Modo pesquisa" in (m.get("content") or "") for m in case.requests[0]["messages"]
+    )
+    check = detail.runs[-1].checkpoint["research"]
+    assert check["sources_read"] == 1 and check["links_cited"] == 2
+    assert check["links_verified"] == 1
+    assert check["unverified_links"] == ["https://nao-lida.example/x"]
+    names = {artifact.name for artifact in case.artifacts.list(case.agent.id, case.task.id)}
+    assert names == {"pesquisa.md", "pesquisa-fontes.json"}
+    report = next(
+        a for a in case.artifacts.list(case.agent.id, case.task.id) if a.name == "pesquisa.md"
+    )
+    _, content = case.artifacts.read(case.agent.id, report.id)
+    text = content.decode()
+    assert "https://example.org/abelhas" in text and "não verificados" in text
+
+
+def test_pending_agent_decision_is_actionable_attention_once(tmp_path):
+    from bees_core.attention import AttentionService
+
+    case = Case(tmp_path, [tool_calls(("m1", "memory_save", {"content": "X"})), answer("ok")])
+    case.work(2)
+    attention = AttentionService(case.database)
+    items = [i for i in attention.list(case.agent.id).items if i.kind == "approval_required"]
+    assert len(items) == 1 and items[0].requires_attention
+    case.work(1)  # sem efeito enquanto aguarda: nenhum item duplicado
+    items = [i for i in attention.list(case.agent.id).items if i.kind == "approval_required"]
+    assert len(items) == 1

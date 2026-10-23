@@ -4,7 +4,7 @@ import { exact, instant, timestamp, uuid } from './activity'
 export type RoutineStatus = 'active' | 'paused' | 'cancelled'
 export interface RoutineProposalSource { conversation_id: string; message_id: string; content_hash: string }
 export interface RoutineDefinition {
-  execution_mode?: 'prepare' | 'scheduled'
+  execution_mode?: 'prepare' | 'scheduled' | 'agent'
   runtime_binding?: { installation_id: string; resource_id: string; plugin_id: string; manifest_hash: string; tool_version: '1' } | null
   name: string; instructions: string
   schedule: { frequency: 'daily' | 'weekly'; time: string; weekdays: number[] }
@@ -45,7 +45,7 @@ export function isRoutineDefinition(value: unknown): value is RoutineDefinition 
   const keys = ['name', 'instructions', 'schedule', 'timezone', 'skill_id', 'skill_version', 'inputs', 'environment', 'destination', 'notification', 'grace_seconds', 'misfire_policy', 'overlap_policy']
   if (!record(value) || !keys.every((key) => Object.hasOwn(value, key)) || Object.keys(value).some((key) => ![...keys, 'execution_mode', 'runtime_binding'].includes(key))) return false
   if (value.runtime_binding !== undefined && value.runtime_binding !== null && (!exact(value.runtime_binding, ['installation_id', 'resource_id', 'plugin_id', 'manifest_hash', 'tool_version']) || !commandId(value.runtime_binding.installation_id) || !commandId(value.runtime_binding.resource_id) || !commandId(value.runtime_binding.plugin_id) || typeof value.runtime_binding.manifest_hash !== 'string' || !/^[0-9a-f]{64}$/.test(value.runtime_binding.manifest_hash) || value.runtime_binding.tool_version !== '1')) return false
-  if (('execution_mode' in value && !['prepare', 'scheduled'].includes(String(value.execution_mode)))
+  if (('execution_mode' in value && !['prepare', 'scheduled', 'agent'].includes(String(value.execution_mode)))
     || !text(value.name, 200) || !text(value.instructions, 4096) || !zone(value.timezone) || !uuid(value.skill_id) || !positive(value.skill_version)
     || !exact(value.schedule, ['frequency', 'time', 'weekdays']) || !['daily', 'weekly'].includes(String(value.schedule.frequency)) || typeof value.schedule.time !== 'string' || !/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/.test(value.schedule.time)
     || !Array.isArray(value.schedule.weekdays) || value.schedule.weekdays.length > 7 || !value.schedule.weekdays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) || new Set(value.schedule.weekdays).size !== value.schedule.weekdays.length

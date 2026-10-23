@@ -7,7 +7,17 @@ from pydantic import ValidationError
 from bees_core.providers.contracts import ConnectionConfig, Contract, ProviderKind
 from bees_core.providers.errors import ProviderError
 
-ProviderId = Literal["openai", "openrouter", "gemini", "ollama", "custom", "custom_ollama"]
+ProviderId = Literal[
+    "openai",
+    "anthropic",
+    "xai",
+    "groq",
+    "openrouter",
+    "gemini",
+    "ollama",
+    "custom",
+    "custom_ollama",
+]
 
 
 class SuggestedModel(Contract):
@@ -38,6 +48,41 @@ PROVIDERS = (
             SuggestedModel(id="gpt-4.1", name="GPT-4.1"),
             SuggestedModel(id="gpt-4.1-mini", name="GPT-4.1 mini"),
             SuggestedModel(id="gpt-4o-mini", name="GPT-4o mini"),
+        ),
+    ),
+    # Camadas compatíveis com a API de chat da OpenAI, incluindo tool calls.
+    ProviderPreset(
+        id="anthropic",
+        name="Anthropic Claude",
+        kind="openai_compatible",
+        endpoint="https://api.anthropic.com/v1",
+        requires_api_key=True,
+        models=(
+            SuggestedModel(id="claude-sonnet-5-5", name="Claude Sonnet 5.5"),
+            SuggestedModel(id="claude-haiku-5-5", name="Claude Haiku 5.5"),
+            SuggestedModel(id="claude-opus-5-5", name="Claude Opus 5.5"),
+        ),
+    ),
+    ProviderPreset(
+        id="xai",
+        name="xAI Grok",
+        kind="openai_compatible",
+        endpoint="https://api.x.ai/v1",
+        requires_api_key=True,
+        models=(
+            SuggestedModel(id="grok-4", name="Grok 4"),
+            SuggestedModel(id="grok-3-mini", name="Grok 3 mini"),
+        ),
+    ),
+    ProviderPreset(
+        id="groq",
+        name="Groq",
+        kind="openai_compatible",
+        endpoint="https://api.groq.com/openai/v1",
+        requires_api_key=True,
+        models=(
+            SuggestedModel(id="openai/gpt-oss-120b", name="GPT-OSS 120B"),
+            SuggestedModel(id="llama-3.3-70b-versatile", name="Llama 3.3 70B"),
         ),
     ),
     ProviderPreset(

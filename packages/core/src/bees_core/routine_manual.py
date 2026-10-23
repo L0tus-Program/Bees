@@ -16,7 +16,7 @@ from bees_core.routines import (
     command_hash,
 )
 from bees_core.skill_context import SkillTaskInput
-from bees_core.skill_tasks import SkillTaskService
+from bees_core.skill_tasks import AgentSkillTaskService, SkillTaskService
 from bees_core.skills import Command, Contract
 from bees_core.storage.store import IntegrityError, NotFoundError, RevisionConflict, StateStore
 from bees_core.tasks import TaskError
@@ -34,7 +34,7 @@ class ManualRoutineReceipt(Contract):
     agent_id: UUID
     routine_id: UUID
     routine_revision: int = Field(ge=1, strict=True)
-    runtime_binding: RoutineRuntimeBinding
+    runtime_binding: RoutineRuntimeBinding | None
     occurrence: RoutineOccurrence
 
 
@@ -95,10 +95,18 @@ class ManualRoutineService:
         prior = self.replay(agent_id, routine_id, value)
         if prior is not None:
             return prior
-        try:
-            resource, plugin_id = available_runtime(self.store.database, agent_id)
-        except TransportError, ProviderError, ToolError, TaskError:
-            raise TaskError("unsupported_capability") from None
+        with self.store.transaction(write=False) as unit:
+            connection, _ = RoutineService._connection(unit, agent_id)
+            current = RoutineService._get(unit, connection, UUID(str(agent_id)), routine_id)
+            agent_mode = (
+                current.definition is not None and current.definition.execution_mode == "agent"
+            )
+        resource = plugin_id = None
+        if not agent_mode:
+            try:
+                resource, plugin_id = available_runtime(self.store.database, agent_id)
+            except TransportError, ProviderError, ToolError, TaskError:
+                raise TaskError("unsupported_capability") from None
         with self.store.transaction(actor="user", source="routine_manual") as unit:
             connection, agent_id = RoutineService._connection(unit, agent_id)
             prior = self._replay(unit, agent_id, routine_id, value)
@@ -111,18 +119,22 @@ class ManualRoutineService:
                 raise RevisionConflict("A rotina exige uma definição humana não cancelada.")
             if unit.safety.state().status != "running":
                 raise TaskError("global_stop")
-            plugin = unit.plugins.get(plugin_id)
-            if plugin is None:
-                raise TaskError("unsupported_capability")
-            pinned = RoutineRuntimeBinding(
-                installation_id=resource.identity.installation_id,
-                resource_id=resource.identity.resource_id,
-                plugin_id=plugin_id,
-                manifest_hash=plugin.manifest_hash,
-            )
             definition = routine.definition
-            if definition.runtime_binding is not None and definition.runtime_binding != pinned:
-                raise RevisionConflict("Recurso ou versão mudou; revise a seleção humana.")
+            if (definition.execution_mode == "agent") != agent_mode:
+                raise RevisionConflict("A rotina mudou; revise antes de executar.")
+            pinned = None
+            if not agent_mode:
+                plugin = unit.plugins.get(plugin_id)
+                if plugin is None:
+                    raise TaskError("unsupported_capability")
+                pinned = RoutineRuntimeBinding(
+                    installation_id=resource.identity.installation_id,
+                    resource_id=resource.identity.resource_id,
+                    plugin_id=plugin_id,
+                    manifest_hash=plugin.manifest_hash,
+                )
+                if definition.runtime_binding is not None and definition.runtime_binding != pinned:
+                    raise RevisionConflict("Recurso ou versão mudou; revise a seleção humana.")
             RoutineService._validate_links(unit, connection, agent_id, definition, active=True)
             if connection.execute(
                 "SELECT 1 FROM routine_occurrences WHERE routine_id=? AND "
@@ -167,9 +179,14 @@ class ManualRoutineService:
                 "scheduled_at": _stamp(now),
                 "definition": definition.model_dump(mode="json"),
                 "manual_request_id": str(value.client_request_id),
-                "runtime_binding": pinned.model_dump(mode="json"),
+                "runtime_binding": pinned.model_dump(mode="json") if pinned else None,
             }
-            task = SkillTaskService(self.store.database, resource, plugin_id).create_skill_in_unit(
+            service = (
+                AgentSkillTaskService(self.store.database)
+                if agent_mode
+                else SkillTaskService(self.store.database, resource, plugin_id)
+            )
+            task = service.create_skill_in_unit(
                 unit,
                 agent_id,
                 SkillTaskInput(

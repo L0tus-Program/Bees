@@ -625,3 +625,4 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .invite-token { overflow-wrap: anywhere; font-size: 13px; }
 .connector-invite pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .success-notice { color: var(--accent); }
+.research-summary { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 4px; font-size: 14px; } .research-artifacts { margin: 0; padding-left: 18px; }

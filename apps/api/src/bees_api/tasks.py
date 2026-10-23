@@ -15,7 +15,13 @@ from bees_core.recovery import RecoveryActionPage, RecoveryInventory, RecoveryIn
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
 from bees_core.skill_context import SkillTaskInput
-from bees_core.skill_tasks import SkillTaskService, replay_skill_task
+from bees_core.skill_tasks import (
+    AgentSkillTaskInput,
+    AgentSkillTaskService,
+    SkillTaskService,
+    is_agent_skill,
+    replay_skill_task,
+)
 from bees_core.storage.store import NotFoundError
 from bees_core.tasks import (
     TaskCommand,
@@ -142,6 +148,21 @@ def _view(detail) -> dict:
             ],
             "agent_chat_conversation_id": task.metadata.get("agent_chat", {}).get(
                 "conversation_id"
+            ),
+            "research": (
+                {
+                    key: run.checkpoint["research"].get(key)
+                    for key in (
+                        "sources_read",
+                        "links_cited",
+                        "links_verified",
+                        "unverified_links",
+                        "no_citations",
+                        "artifacts",
+                    )
+                }
+                if run is not None and isinstance(run.checkpoint.get("research"), dict)
+                else ({"pending": True} if task.metadata.get("research") else None)
             ),
             "partial": run is not None
             and task.status == "paused"
@@ -398,6 +419,24 @@ def create_skill_task(agent_id: UUID, body: SkillTaskInput, request: Request, se
             )
         except TransportError, ToolError:
             raise TaskError("unsupported_capability") from None
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }
+
+
+@router.post("/{agent_id}/agent-skill-tasks", status_code=201)
+def create_agent_skill_task(
+    agent_id: UUID, body: AgentSkillTaskInput, request: Request, session: _SESSION
+):
+    """Skill com ferramentas do registro: executa no ciclo do agente."""
+    with request.app.state.store.transaction(write=False) as unit:
+        task = replay_skill_task(unit, agent_id, body)
+        if task is None and not is_agent_skill(unit, agent_id, body.skill_id, body.skill_version):
+            raise TaskError("unsupported_capability")
+    if task is None:
+        task = AgentSkillTaskService(request.app.state.database).create(agent_id, body)
     return {
         "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
         "client_request_id": str(body.client_request_id),

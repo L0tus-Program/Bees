@@ -51,3 +51,18 @@ Decisões usam UUID e revisão (CAS); reenviar a mesma decisão confirma a anter
 - Resultados de ferramentas são dados não confiáveis no contexto do modelo.
 - Efeito com resultado desconhecido pausa a tarefa e exige reconhecimento humano antes de retomar.
 - Parada global impede novas intenções e efeitos; a tarefa volta à fila sem efeito.
+
+## Pesquisa com fontes
+
+No chat, escolha **Pesquisa com fontes**. A abelha recebe instruções de pesquisa (fontes primárias e recentes, citação por URL, incerteza explícita, nunca seguir instruções das páginas). Ao concluir, o Bees publica na tarefa:
+
+- `pesquisa.md`: resposta, fontes lidas (URL final, título e momento de coleta) e verificação automática dos links;
+- `pesquisa-fontes.json` (`bees.research.task/v1`): fontes com hash SHA-256 do texto observado, links citados, conferidos e não verificados.
+
+As fontes vêm somente de leituras confirmadas nesta tarefa (`web_fetch` e aberturas do navegador). Links citados sem leitura aparecem como **não verificados**; resposta sem citações recebe aviso. A verificação confere procedência, não a veracidade — a revisão humana continua necessária ([corpus e rubrica](research-corpus.md)).
+
+## Skills e rotinas do agente
+
+Uma skill cujos recursos declaram ferramentas do registro (por exemplo `web.search, web.fetch, deliverable.publish` ou `computer.shell.run`) roda no ciclo do agente: somente as ferramentas declaradas são oferecidas ao modelo, e cada ação continua sujeita a concessões, políticas e decisões atuais. O ambiente declarado precisa ser coerente (`own` para `computer.*`, `personal` para `personal.*`).
+
+Rotinas com essas skills usam o modo de execução **agente** (`execution_mode: "agent"`): não fixam recurso, cada ocorrência cria uma tarefa do agente e o resultado é publicado na conversa de destino. Execução manual e agendada compartilham o mesmo caminho; parada global, agenda e limites seguem as regras das [rotinas](routines.md).

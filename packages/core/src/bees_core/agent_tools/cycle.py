@@ -288,6 +288,10 @@ class AgentTaskWorker(TaskWorker):
                 )
             return text
         parts = [INSTRUCTION, f"Título: {task.title}", f"Objetivo: {task.objective}"]
+        if task.metadata.get("research"):
+            from bees_core.agent_tools.research import RESEARCH_INSTRUCTION
+
+            parts.insert(1, RESEARCH_INSTRUCTION)
         if task.expected_result:
             parts.append(f"Resultado esperado: {task.expected_result}")
         context = task.metadata.get("agent_chat", {}).get("context")
@@ -392,6 +396,7 @@ class AgentTaskWorker(TaskWorker):
                 claim, call, prepared, elapsed_ms=elapsed_ms, response=response, **options
             )
             if self._agent(claim.task) and response is not None:
+                self._finish_research(claim.task.id, call.id)
                 self._deliver_to_chat(claim.task.id)
             return publish
         try:
@@ -400,6 +405,40 @@ class AgentTaskWorker(TaskWorker):
             return super()._finish(
                 claim, call, prepared, elapsed_ms=elapsed_ms, response=response, **options
             )
+
+    def _finish_research(self, task_id, call_id):
+        """Consolida fontes lidas e verificação dos links numa entrega persistente."""
+        from bees_core.agent_tools import research
+
+        try:
+            with self.store.transaction(write=False) as unit:
+                task = unit.tasks.get(task_id)
+                if not task.metadata.get("research") or task.status != "completed":
+                    return
+                run = unit.runs.latest(task.id)
+                result = unit.messages.get(run.checkpoint.get("result_message_id"))
+                observed = research.sources(unit, task)
+            answer = result.content if result else ""
+            check = research.verify(answer, observed)
+            created = (
+                research.publish(self.artifacts, task, run.id, call_id, answer, observed, check)
+                if self.artifacts is not None
+                else []
+            )
+            with self.store.transaction(actor="worker", source="agent_research") as unit:
+                current = unit.runs.get(run.id)
+                unit.runs.update(
+                    current.model_copy(
+                        update={
+                            "checkpoint": current.checkpoint
+                            | {"research": check | {"artifacts": created}}
+                        }
+                    ),
+                    current.revision,
+                )
+        except Exception:
+            # A resposta já está concluída; a consolidação pode ser refeita pela interface.
+            return
 
     def _deliver_to_chat(self, task_id):
         """Resultado concluído aparece na conversa de origem, uma única vez."""

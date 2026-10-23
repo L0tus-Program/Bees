@@ -5,7 +5,7 @@ somente o worker prepara intenções e despacha efeitos com claim atual.
 """
 
 import hashlib
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid5
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -52,6 +52,7 @@ class AgentTaskBody(Input):
 class AgentMessageBody(Input):
     client_request_id: UUID
     content: str = Field(min_length=1, max_length=12000)
+    mode: Literal["agent", "research"] = "agent"
     max_calls: int = Field(default=DEFAULT_MAX_CALLS, ge=1, le=50, strict=True)
     max_active_seconds: int = Field(default=DEFAULT_ACTIVE_SECONDS, ge=30, le=1800, strict=True)
 
@@ -249,7 +250,8 @@ def agent_message(
                 max_calls=body.max_calls,
                 max_active_seconds=body.max_active_seconds,
             ),
-            metadata={
+            metadata=({"research": True} if body.mode == "research" else {})
+            | {
                 "agent_chat": {
                     "conversation_id": str(conversation.id),
                     "source_message_id": str(message.id),
