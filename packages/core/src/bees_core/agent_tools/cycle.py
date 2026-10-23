@@ -254,7 +254,9 @@ INSTRUCTION = (
 class AgentTaskWorker(TaskWorker):
     task_kinds = frozenset({"text_task", AGENT_TASK_KIND})
 
-    def __init__(self, database, resolver=None, *, web=None, targets=None, **options):
+    def __init__(
+        self, database, resolver=None, *, web=None, targets=None, mcp_transport=None, **options
+    ):
         super().__init__(database, resolver, **options)
         self.providers = AgentProviderService(
             database, self.providers.resolver, transport=self.providers.transport
@@ -262,6 +264,7 @@ class AgentTaskWorker(TaskWorker):
         self.tasks = AgentTaskService(database)
         self.agent_tools = AgentToolService(database, targets=targets)
         self.web = web
+        self.mcp_transport = mcp_transport
 
     @staticmethod
     def _agent(task):
@@ -699,6 +702,8 @@ class AgentTaskWorker(TaskWorker):
             database=self.store.database,
             artifacts=self.artifacts,
             web=self.web,
+            secrets=self.providers.resolver,
+            mcp_transport=self.mcp_transport,
         )
         operation = asyncio.ensure_future(runner.run(spec, arguments, context, target))
         claim, outcome = await self._await_effect(claim, operation, spec)

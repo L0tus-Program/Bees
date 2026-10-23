@@ -750,10 +750,87 @@ def _executor_specs(prefix: str, function_prefix: str, target: str, note: str) -
     )
 
 
+# ---------------------------------------------------------------- MCP
+
+_SERVER = r"^[a-z0-9][a-z0-9_-]{0,39}$"
+
+
+class McpListInput(_Input):
+    server: str | None = Field(default=None, pattern=_SERVER)
+
+
+class McpCallInput(_Input):
+    server: str = Field(pattern=_SERVER)
+    tool: str = Field(min_length=1, max_length=128)
+    arguments: dict = Field(default_factory=dict)
+
+    @field_validator("tool")
+    @classmethod
+    def clean_tool(cls, value):
+        return _text(value, allow_newlines=False)
+
+    @field_validator("arguments")
+    @classmethod
+    def bounded(cls, value):
+        if len(json.dumps(value, ensure_ascii=False)) > 32768:
+            raise ValueError("Argumentos MCP excedem 32 KiB.")
+        return value
+
+
+class McpCallParameters(AgentToolParameters):
+    server: str = Field(pattern=_SERVER)
+    tool: str = Field(min_length=1, max_length=128)
+
+
+MCP_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="mcp.list_tools",
+        function="mcp_list_tools",
+        action="list",
+        target="web",
+        effect="read",
+        default_effect="allow",
+        description=(
+            "Lista os conectores MCP configurados para esta abelha e suas ferramentas "
+            "(nome, descrição e esquema de argumentos). Use antes de mcp_call."
+        ),
+        schema=_schema({"server": {"type": "string", "minLength": 1, "maxLength": 40}}, []),
+        input_model=McpListInput,
+        timeout_seconds=10,
+        capabilities=("mcp.read",),
+    ),
+    ToolSpec(
+        name="mcp.call",
+        function="mcp_call",
+        action="call",
+        target="web",
+        effect="external",
+        default_effect="ask",
+        description=(
+            "Chama uma ferramenta de um conector MCP configurado (serviços como e-mail, "
+            "agenda, tarefas, repositórios). Informe server, tool e arguments conforme o "
+            "esquema de mcp_list_tools. Pode alterar dados no serviço externo." + UNTRUSTED
+        ),
+        schema=_schema(
+            {
+                "server": {"type": "string", "minLength": 1, "maxLength": 40},
+                "tool": {"type": "string", "minLength": 1, "maxLength": 128},
+                "arguments": {"type": "object"},
+            },
+            ["server", "tool"],
+        ),
+        input_model=McpCallInput,
+        parameters_model=McpCallParameters,
+        timeout_seconds=60,
+        capabilities=("mcp.call",),
+    ),
+)
+
 SPECS = (
     SPECS
     + _executor_specs("computer", "computer_", "computer", COMPUTER)
     + _executor_specs("personal", "personal_", "personal", PERSONAL)
+    + MCP_SPECS
 )
 
 
@@ -799,6 +876,12 @@ BUNDLES: tuple[dict, ...] = (
         "name": "Máquina pessoal (conector)",
         "version": "1.0.0",
         "tools": tuple(spec.name for spec in SPECS if spec.target == "personal"),
+    },
+    {
+        "plugin_key": "bees.mcp",
+        "name": "Conectores MCP",
+        "version": "1.0.0",
+        "tools": ("mcp.list_tools", "mcp.call"),
     },
 )
 

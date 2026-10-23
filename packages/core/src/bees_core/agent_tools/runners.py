@@ -36,9 +36,48 @@ class RunContext:
     database: object
     artifacts: object | None = None
     web: WebClient | None = None
+    secrets: object | None = None
+    mcp_transport: object | None = None
+
+
+async def run_mcp(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
+    from bees_core.mcp import McpError, McpService
+
+    service = McpService(context.database, context.secrets, transport=context.mcp_transport)
+    try:
+        if spec.name == "mcp.list_tools":
+            servers = [
+                {
+                    "server": row["name"],
+                    "tools": [
+                        {
+                            "name": tool["name"],
+                            "description": tool["description"][:400],
+                            "arguments_schema": tool["input_schema"],
+                            "read_only": tool["read_only"],
+                        }
+                        for tool in row["tools"]
+                    ],
+                }
+                for row in service.list(context.agent_id, enabled_only=True)
+                if arguments.server in (None, row["name"])
+            ]
+            return Outcome("confirmed", {"servers": servers})
+        return Outcome(
+            "confirmed",
+            await service.call(
+                context.agent_id, arguments.server, arguments.tool, arguments.arguments
+            ),
+        )
+    except McpError as error:
+        if error.code == "mcp_outcome_unknown":
+            return Outcome("unknown", code=error.code)
+        return Outcome("failed", code=error.code, detail=error.detail)
 
 
 async def run_web(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
+    if spec.name.startswith("mcp."):
+        return await run_mcp(spec, arguments, context)
     client = context.web or WebClient()
     try:
         if spec.name == "web.search":

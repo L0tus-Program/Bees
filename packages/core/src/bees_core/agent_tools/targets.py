@@ -20,6 +20,14 @@ class TargetResolver:
     def resolve(self, unit, agent_id: UUID, spec: ToolSpec):
         from bees_core.agent_tools.service import ToolTarget
 
+        if spec.target == "web" and spec.name.startswith("mcp."):
+            # Conectores MCP só aparecem quando a abelha tem servidor pronto.
+            if not unit.agents._context.connection.execute(
+                "SELECT 1 FROM mcp_servers WHERE agent_id=? AND enabled=1 AND status='ready'",
+                (str(agent_id),),
+            ).fetchone():
+                raise ToolError("environment_unavailable", "Nenhum conector MCP pronto.")
+            return ToolTarget(WEB, WEB, f"mcp:{agent_id}", "bees_user")
         if spec.target == "web":
             return ToolTarget(WEB, WEB, "web:public", "anonymous")
         if spec.target == "control_plane":

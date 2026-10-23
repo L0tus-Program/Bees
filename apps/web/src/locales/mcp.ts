@@ -1,0 +1,44 @@
+const pt = {
+  title: 'Conectores MCP',
+  scope: 'Conecte serviços que oferecem um servidor MCP (Model Context Protocol) por HTTP — e-mail, agenda, tarefas, repositórios, bancos de dados. A abelha lista as ferramentas e pede sua aprovação antes de cada chamada, a menos que você crie uma regra.',
+  empty: 'Nenhum conector MCP.', add: 'Adicionar conector',
+  name: 'Nome curto', nameHelp: 'Letras minúsculas, números, - ou _ (ex.: agenda).',
+  url: 'Endereço do servidor MCP', urlHelp: 'URL HTTPS do endpoint Streamable HTTP (HTTP somente em localhost).',
+  token: 'Token de acesso (opcional)', tokenHelp: 'Enviado como Bearer; fica cifrado no cofre.',
+  create: 'Conectar e ler ferramentas', creating: 'Conectando…',
+  tools: '{{count}} ferramentas', readOnly: 'somente leitura', refresh: 'Atualizar ferramentas', enable: 'Ativar', disable: 'Desativar',
+  remove: 'Remover', removeConfirm: 'Remover o conector apaga a credencial do cofre. Continuar?',
+  status_ready: 'pronto', status_failed: 'falhou', disabled: 'desativado',
+  reason_mcp_auth_failed: 'Credencial recusada.', reason_mcp_unreachable: 'Servidor inacessível.', reason_mcp_protocol_error: 'Resposta fora do protocolo MCP.',
+  needsGrant: 'Ative o pacote “Conectores MCP” em Ferramentas (ou “Ativar ferramentas recomendadas” no chat) para a abelha usar.',
+}
+type Translations = typeof pt
+const en: Translations = {
+  title: 'MCP connectors',
+  scope: 'Connect services that offer an MCP (Model Context Protocol) server over HTTP — email, calendar, tasks, repositories, databases. The bee lists the tools and asks for your approval before each call, unless you create a rule.',
+  empty: 'No MCP connector.', add: 'Add connector',
+  name: 'Short name', nameHelp: 'Lowercase letters, numbers, - or _ (e.g. calendar).',
+  url: 'MCP server address', urlHelp: 'HTTPS URL of the Streamable HTTP endpoint (HTTP only on localhost).',
+  token: 'Access token (optional)', tokenHelp: 'Sent as Bearer; encrypted in the vault.',
+  create: 'Connect and read tools', creating: 'Connecting…',
+  tools: '{{count}} tools', readOnly: 'read-only', refresh: 'Refresh tools', enable: 'Enable', disable: 'Disable',
+  remove: 'Remove', removeConfirm: 'Removing the connector deletes its credential from the vault. Continue?',
+  status_ready: 'ready', status_failed: 'failed', disabled: 'disabled',
+  reason_mcp_auth_failed: 'Credential rejected.', reason_mcp_unreachable: 'Server unreachable.', reason_mcp_protocol_error: 'Response outside the MCP protocol.',
+  needsGrant: 'Enable the “MCP connectors” package in Tools (or “Enable recommended tools” in chat) so the bee can use it.',
+}
+const es: Translations = {
+  title: 'Conectores MCP',
+  scope: 'Conecta servicios que ofrecen un servidor MCP (Model Context Protocol) por HTTP — correo, agenda, tareas, repositorios, bases de datos. La abeja lista las herramientas y pide tu aprobación antes de cada llamada, salvo que crees una regla.',
+  empty: 'Ningún conector MCP.', add: 'Añadir conector',
+  name: 'Nombre corto', nameHelp: 'Minúsculas, números, - o _ (p. ej.: agenda).',
+  url: 'Dirección del servidor MCP', urlHelp: 'URL HTTPS del endpoint Streamable HTTP (HTTP solo en localhost).',
+  token: 'Token de acceso (opcional)', tokenHelp: 'Se envía como Bearer; queda cifrado en la bóveda.',
+  create: 'Conectar y leer herramientas', creating: 'Conectando…',
+  tools: '{{count}} herramientas', readOnly: 'solo lectura', refresh: 'Actualizar herramientas', enable: 'Activar', disable: 'Desactivar',
+  remove: 'Eliminar', removeConfirm: 'Eliminar el conector borra la credencial de la bóveda. ¿Continuar?',
+  status_ready: 'listo', status_failed: 'falló', disabled: 'desactivado',
+  reason_mcp_auth_failed: 'Credencial rechazada.', reason_mcp_unreachable: 'Servidor inaccesible.', reason_mcp_protocol_error: 'Respuesta fuera del protocolo MCP.',
+  needsGrant: 'Activa el paquete “Conectores MCP” en Herramientas (o “Activar herramientas recomendadas” en el chat) para que la abeja lo use.',
+}
+export const mcpResources = { 'pt-BR': pt, en, es }
