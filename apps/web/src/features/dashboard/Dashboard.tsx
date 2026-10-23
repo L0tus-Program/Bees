@@ -46,6 +46,7 @@ const ToolsPanel = lazy(async () => {
   return { default: module.ToolsPanel }
 })
 const ChannelsPanel = lazy(() => import('../channels/ChannelsPanel'))
+const McpServers = lazy(() => import('../mcp/McpServers'))
 
 export function Dashboard({ userName }: { userName: string }) {
   const { t } = useTranslation('product')
@@ -97,7 +98,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
           {view === 'usage' && <ActivityPanel key={selected.id} agent={selected} onPreferences={() => setView('attention')} />}
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}
-          {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /></Suspense>}
+          {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /><McpServers key={`mcp-${selected.id}`} agentId={selected.id} /></Suspense>}
           {view === 'computer' && <Suspense fallback={<LoadingNotice />}><ComputerWorkspace key={`computer-${selected.id}`} agentId={selected.id} /><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'channels' && <Suspense fallback={<LoadingNotice />}><ChannelsPanel key={selected.id} agentId={selected.id} /></Suspense>}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}

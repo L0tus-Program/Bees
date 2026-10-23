@@ -35,6 +35,7 @@ from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
 from bees_api.local_models import router as local_models_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
+from bees_api.mcp import router as mcp_router
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
@@ -59,6 +60,7 @@ from bees_core.channels.adapters import ChannelError
 from bees_core.channels.service import ChannelServiceError
 from bees_core.environments import EnvironmentError
 from bees_core.executors import ExecutorError
+from bees_core.mcp import McpError
 from bees_core.policies import PolicyError
 from bees_core.portability import ExportService
 from bees_core.providers.errors import ProviderError
@@ -188,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(executors_router)
     app.include_router(local_models_router)
     app.include_router(channels_router)
+    app.include_router(mcp_router)
     app.include_router(views_router)
     app.include_router(activity_router)
     app.include_router(artifacts_router)
@@ -333,6 +336,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             else 502
             if code in ("channel_unreachable", "channel_invalid_response")
             else 409,
+        )
+
+    @app.exception_handler(McpError)
+    async def mcp_error(request: Request, error: McpError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Confira o endereço e a credencial do servidor MCP.",
+                }
+            },
+            status_code={
+                "mcp_auth_failed": 422,
+                "mcp_unreachable": 502,
+                "mcp_protocol_error": 502,
+            }.get(error.code, 409),
         )
 
     @app.exception_handler(LocalModelError)

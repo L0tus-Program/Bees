@@ -416,6 +416,7 @@ EXCLUDED = frozenset(
         "cache_entries",
         "channel_events",
         "channel_links",
+        "mcp_servers",
         "computers",
         "execution_leases",
         "executor_commands",

@@ -30,8 +30,8 @@ const pt = {
   stepsTitle: 'Passos executados',
   agentTask: 'Tarefa do agente',
   stepStatus: { confirmed: 'concluído', failed: 'falhou', rejected: 'recusado', not_started: 'não iniciado', outcome_unknown: 'resultado desconhecido' },
-  functions: { web_search: 'Pesquisa na web', web_fetch: 'Leitura de página', memory_search: 'Busca na memória', memory_save: 'Salvar na memória', publish_file: 'Publicar arquivo' },
-  tools: { web_search: 'Pesquisar na web', web_fetch: 'Ler página da web', memory_search: 'Buscar na memória', memory_save: 'Salvar na memória da abelha', deliverable_publish: 'Publicar arquivo de entrega' },
+  functions: { web_search: 'Pesquisa na web', web_fetch: 'Leitura de página', memory_search: 'Busca na memória', memory_save: 'Salvar na memória', publish_file: 'Publicar arquivo', mcp_list_tools: 'Conectores MCP', mcp_call: 'Chamada MCP' },
+  tools: { web_search: 'Pesquisar na web', web_fetch: 'Ler página da web', memory_search: 'Buscar na memória', memory_save: 'Salvar na memória da abelha', mcp_list_tools: 'Listar conectores MCP', mcp_call: 'Chamar ferramenta de conector MCP', deliverable_publish: 'Publicar arquivo de entrega' },
 
 }
 type Translations = typeof pt
@@ -49,8 +49,8 @@ const en: Translations = {
   allowToolHelp: '“Always allow” creates an autonomy rule for this tool in this environment; Ask or Block rules still prevail. Denying does not pause the task: the bee receives the refusal and adapts its plan.',
   stepsTitle: 'Executed steps', agentTask: 'Agent task',
   stepStatus: { confirmed: 'done', failed: 'failed', rejected: 'refused', not_started: 'not started', outcome_unknown: 'unknown outcome' },
-  functions: { web_search: 'Web search', web_fetch: 'Page reading', memory_search: 'Memory search', memory_save: 'Save to memory', publish_file: 'Publish file' },
-  tools: { web_search: 'Search the web', web_fetch: 'Read a web page', memory_search: 'Search memory', memory_save: 'Save to the bee’s memory', deliverable_publish: 'Publish a deliverable file' },
+  functions: { web_search: 'Web search', web_fetch: 'Page reading', memory_search: 'Memory search', memory_save: 'Save to memory', publish_file: 'Publish file', mcp_list_tools: 'MCP connectors', mcp_call: 'MCP call' },
+  tools: { web_search: 'Search the web', web_fetch: 'Read a web page', memory_search: 'Search memory', memory_save: 'Save to the bee’s memory', mcp_list_tools: 'List MCP connectors', mcp_call: 'Call an MCP connector tool', deliverable_publish: 'Publish a deliverable file' },
 
 }
 const es: Translations = {
@@ -67,8 +67,8 @@ const es: Translations = {
   allowToolHelp: '“Permitir siempre” crea una regla de autonomía para esta herramienta en este entorno; las reglas Preguntar o Bloquear siguen prevaleciendo. Rechazar no pausa la tarea: la abeja recibe el rechazo y adapta su plan.',
   stepsTitle: 'Pasos ejecutados', agentTask: 'Tarea del agente',
   stepStatus: { confirmed: 'hecho', failed: 'falló', rejected: 'rechazado', not_started: 'no iniciado', outcome_unknown: 'resultado desconocido' },
-  functions: { web_search: 'Búsqueda web', web_fetch: 'Lectura de página', memory_search: 'Búsqueda en memoria', memory_save: 'Guardar en memoria', publish_file: 'Publicar archivo' },
-  tools: { web_search: 'Buscar en la web', web_fetch: 'Leer una página web', memory_search: 'Buscar en la memoria', memory_save: 'Guardar en la memoria de la abeja', deliverable_publish: 'Publicar un archivo de entrega' },
+  functions: { web_search: 'Búsqueda web', web_fetch: 'Lectura de página', memory_search: 'Búsqueda en memoria', memory_save: 'Guardar en memoria', publish_file: 'Publicar archivo', mcp_list_tools: 'Conectores MCP', mcp_call: 'Llamada MCP' },
+  tools: { web_search: 'Buscar en la web', web_fetch: 'Leer una página web', memory_search: 'Buscar en la memoria', memory_save: 'Guardar en la memoria de la abeja', mcp_list_tools: 'Listar conectores MCP', mcp_call: 'Llamar herramienta de conector MCP', deliverable_publish: 'Publicar un archivo de entrega' },
 
 }
 export const agentResources = { 'pt-BR': pt, en, es }
