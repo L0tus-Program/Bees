@@ -590,3 +590,23 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
   .app-header { flex-wrap: wrap; gap: 12px; padding-block: 16px; }
   .header-controls { flex: 1 1 210px; }
 }
+
+/* Modo agente: escolha, ativação, passos e decisões inline no chat. */
+.agent-mode { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 0; }
+.agent-mode legend { font-size: 12px; font-weight: 600; color: var(--muted); padding: 0 4px; }
+.agent-mode small { flex-basis: 100%; color: var(--muted); }
+.agent-enable { display: grid; gap: 6px; border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; }
+.agent-enable small { color: var(--muted); }
+.agent-enable .button { justify-self: start; }
+.agent-steps { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; }
+.agent-step { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 4px 8px; border-left: 3px solid var(--line); overflow-wrap: anywhere; }
+.agent-step small { color: var(--muted); }
+.agent-step-confirmed { border-left-color: var(--accent); }
+.agent-step-failed, .agent-step-rejected, .agent-step-outcome_unknown { border-left-color: var(--honey); }
+.agent-approvals { display: grid; gap: 10px; margin: 8px 0; }
+.agent-approval { border: 1px solid var(--honey); border-radius: 10px; padding: 10px 12px; background: var(--theme-warning, #faf3df); display: grid; gap: 6px; }
+.agent-approval h4 { margin: 0; }
+.agent-approval-summary code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-approval-preview { max-height: 240px; overflow: auto; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--theme-input, #fff); padding: 8px; border-radius: 6px; }
+.agent-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-approval small { color: var(--muted); }

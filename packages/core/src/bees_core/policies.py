@@ -23,6 +23,8 @@ from pydantic import (
     model_validator,
 )
 
+from bees_core.agent_tools.catalog import all_specs
+from bees_core.agent_tools.catalog import spec as agent_spec
 from bees_core.models import Policy
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, StateStore, UnitOfWork, _pagination
@@ -295,8 +297,25 @@ DEFAULT_REGISTRY = ToolRegistry(
             requires_resource=True,
             requires_identity=True,
         ),
+        *(
+            ToolActionDescriptor(
+                tool_name=spec.name,
+                action=spec.action,
+                parameters_model=spec.parameters_model,
+                default_effect=spec.default_effect,
+                requires_resource=True,
+                requires_identity=True,
+                version=spec.version,
+            )
+            for spec in all_specs()
+        ),
     )
 )
+
+# Ações cuja regra emitida por decisão humana exige igualdade com todos os parâmetros.
+_EXACT_GRANT_ACTIONS = {("text.normalize", "transform_resource")} | {
+    (spec.name, spec.action) for spec in all_specs()
+}
 
 
 class PolicyDecision(BaseModel):
@@ -349,19 +368,7 @@ def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int
             getattr(scope, field) is None
             for field in ("tool_name", "action", "environment_id", "resource", "identity")
         )
-        or set(scope.parameters)
-        != (
-            set(ResourceTextParameters.model_fields)
-            - (
-                {
-                    name
-                    for name in ("skill_execution_hash", "routine_scope_hash")
-                    if name not in scope.parameters
-                }
-            )
-            if scope.tool_name == "text.normalize" and scope.action == "transform_resource"
-            else {"model"}
-        )
+        or set(scope.parameters) != _exact_parameter_names(scope)
         or hashlib.sha256(_canonical(policy.scope).encode()).hexdigest() != grant.get("scope_hash")
     ):
         return set()
@@ -381,15 +388,27 @@ def _approval_exceptions(unit: UnitOfWork, policy: Policy) -> set[tuple[str, int
         or any(type(revision) is not int or revision < 1 for _, revision in exceptions)
     ):
         return set()
-    if scope.action == "transform_resource":
+    if (scope.tool_name, scope.action) in _EXACT_GRANT_ACTIONS:
         action = unit.actions.get(approval.action_id)
+        kind = "resource_tool" if scope.action == "transform_resource" else "agent_tool"
         if (
             action is None
-            or action.metadata.get("approval_kind") != "resource_tool"
+            or action.metadata.get("approval_kind") != kind
             or approval.scope != policy.scope
         ):
             return set()
     return exceptions
+
+
+def _exact_parameter_names(scope: PolicyScope) -> set[str]:
+    optional = {"skill_execution_hash", "routine_scope_hash"}
+    if scope.tool_name == "text.normalize" and scope.action == "transform_resource":
+        model = ResourceTextParameters
+    elif (scope.tool_name, scope.action) in _EXACT_GRANT_ACTIONS:
+        model = agent_spec(scope.tool_name).parameters_model
+    else:
+        return {"model"}
+    return set(model.model_fields) - {name for name in optional if name not in scope.parameters}
 
 
 class PolicyService:
@@ -564,7 +583,7 @@ class PolicyService:
                 return reject("invalid_policy")
             if _matches(scope, intent) and not (
                 policy.metadata.get("approval_grant")
-                and intent.action == "transform_resource"
+                and (intent.tool_name, intent.action) in _EXACT_GRANT_ACTIONS
                 and scope.parameters != intent.parameters
             ):
                 matches.append(policy)

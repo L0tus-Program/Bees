@@ -83,7 +83,8 @@ class ConversationDelegationService:
         entries = []
         remaining = 6000
         for task in unit.tasks.delegations(agent_id, conversation_id, limit=100):
-            if task.status != "completed":
+            if task.status != "completed" or "agent_chat" in task.metadata:
+                # Resultado do agente já entra no histórico do chat como resposta.
                 continue
             run = unit.runs.latest(task.id)
             if run is None:
