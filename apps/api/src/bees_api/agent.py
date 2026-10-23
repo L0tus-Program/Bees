@@ -4,7 +4,6 @@ Nenhum endpoint executa ferramentas: a API cria tarefas e registra decisões;
 somente o worker prepara intenções e despacha efeitos com claim atual.
 """
 
-import hashlib
 from typing import Annotated, Literal
 from uuid import UUID, uuid5
 
@@ -15,6 +14,7 @@ from bees_api.auth import require_session
 from bees_api.onboarding import Input
 from bees_api.worker_status import worker_status
 from bees_core.agent_tools.catalog import bundles, manifest_for
+from bees_core.agent_tools.chat import submit_agent_message
 from bees_core.agent_tools.cycle import (
     DEFAULT_ACTIVE_SECONDS,
     DEFAULT_MAX_CALLS,
@@ -23,7 +23,6 @@ from bees_core.agent_tools.cycle import (
     available_tools,
 )
 from bees_core.agent_tools.service import AgentToolDecision, AgentToolRevoke, AgentToolService
-from bees_core.providers.contracts import ChatMessage
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
 from bees_core.security.identity import Session
@@ -32,8 +31,6 @@ from bees_core.tools import PluginManifest, ToolService
 
 _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1/agents/{agent_id}", tags=["agent"])
-CONTEXT_MESSAGES = 12
-CONTEXT_CHARS = 8000
 
 
 class RecommendedInput(Input):
@@ -181,23 +178,6 @@ def create_agent_task(
     return {"task_id": str(task.id), "status": task.status, "revision": task.revision}
 
 
-def _context(records) -> str:
-    lines = []
-    total = 0
-    for record in reversed(records):
-        if record.role not in ("user", "assistant") or not record.content:
-            continue
-        text = " ".join(record.content.split())
-        if len(text) > 1500:
-            text = text[:1500] + "…"
-        line = ("Usuário: " if record.role == "user" else "Abelha: ") + text
-        if total + len(line) > CONTEXT_CHARS or len(lines) >= CONTEXT_MESSAGES:
-            break
-        lines.append(line)
-        total += len(line)
-    return "\n".join(reversed(lines))
-
-
 @router.post("/conversations/{conversation_id}/agent-messages")
 def agent_message(
     agent_id: UUID,
@@ -207,71 +187,18 @@ def agent_message(
     session: _SESSION,
 ) -> dict:
     """Mensagem no chat executada pelo agente; a resposta volta para esta conversa."""
-    store = request.app.state.store
-    service = AgentTaskService(request.app.state.database)
-    with store.transaction(source="agent_chat_message") as unit:
-        agent = ProviderService._agent(unit, agent_id)
-        conversation = ProviderService._conversation(unit, agent, conversation_id)
-        if conversation.metadata.get("execution_kind"):
-            raise ProviderError("invalid_request")
-        prior = unit.tasks.find_submission(body.client_request_id)
-        if prior is not None:
-            origin = prior.metadata.get("agent_chat", {})
-            if (
-                prior.agent_id != agent.id
-                or origin.get("conversation_id") != str(conversation.id)
-                or origin.get("content_hash") != _hash(body.content)
-            ):
-                raise ProviderError("state_conflict")
-            return {
-                "task_id": str(prior.id),
-                "message_id": origin.get("source_message_id"),
-                "status": prior.status,
-            }
-        records = ProviderService._records(unit, conversation.id)
-        context = _context(records)
-        message = ProviderService._message(
-            conversation.id,
-            ChatMessage(role="user", content=body.content),
-            records,
-            source="user",
-            metadata={"agent_request": {"id": str(body.client_request_id)}},
-        ).model_copy(update={"id": uuid5(body.client_request_id, "bees.agent-chat-message/v1")})
-        unit.messages.create(message)
-        unit.conversations.update(conversation, conversation.revision)
-        title = " ".join(body.content.split())
-        task = service.create_bound_in_unit(
+    with request.app.state.store.transaction(source="agent_chat_message") as unit:
+        return submit_agent_message(
+            request.app.state.database,
             unit,
-            agent.id,
-            AgentTaskInput(
-                client_request_id=body.client_request_id,
-                title=title[:80] + ("…" if len(title) > 80 else ""),
-                objective=body.content,
-                max_calls=body.max_calls,
-                max_active_seconds=body.max_active_seconds,
-            ),
-            metadata=({"research": True} if body.mode == "research" else {})
-            | {
-                "agent_chat": {
-                    "conversation_id": str(conversation.id),
-                    "source_message_id": str(message.id),
-                    "content_hash": _hash(body.content),
-                    "context": context,
-                },
-                "delegation": {
-                    "origin_conversation_id": str(conversation.id),
-                    "source_message_id": str(message.id),
-                    "response_message_id": str(message.id),
-                    "tool_call_id": "agent",
-                    "request_id": str(body.client_request_id),
-                },
-            },
+            agent_id,
+            conversation_id,
+            body.content,
+            body.client_request_id,
+            mode=body.mode,
+            max_calls=body.max_calls,
+            max_active_seconds=body.max_active_seconds,
         )
-    return {"task_id": str(task.id), "message_id": str(message.id), "status": task.status}
-
-
-def _hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 approvals = APIRouter(

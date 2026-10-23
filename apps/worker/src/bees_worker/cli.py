@@ -9,6 +9,7 @@ from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.worker_status import HEARTBEAT_KEY, HEARTBEAT_TTL, worker_status
 from bees_core.artifacts import ArtifactStore
+from bees_core.channels.service import ChannelWorker
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.vault import FernetBackend, FileSecretVault
 from bees_core.routine_scheduler import RoutineScheduler
@@ -29,7 +30,7 @@ def existing_database(settings: Settings) -> Database:
     return database
 
 
-def create_worker(settings: Settings, database: Database) -> TaskWorker:
+def create_resolver(settings: Settings, database: Database):
     if settings.deployment_mode == "container":
         key = managed_vault_key(
             settings.vault_key_file, settings.data_dir, database, provision=False
@@ -37,9 +38,13 @@ def create_worker(settings: Settings, database: Database) -> TaskWorker:
         vault = FileSecretVault(settings.data_dir / "vault", backend=FernetBackend(key))
     else:
         vault = FileSecretVault(settings.data_dir / "vault", key=settings.vault_key)
+    return build_secret_resolver(vault)
+
+
+def create_worker(settings: Settings, database: Database) -> TaskWorker:
     return TaskWorker(
         database,
-        build_secret_resolver(vault),
+        create_resolver(settings, database),
         artifacts=ArtifactStore(database, settings.data_dir / "artifacts", actor="worker"),
     )
 
@@ -58,6 +63,7 @@ async def serve(settings: Settings) -> None:
                     "tool_cycle_version": 1,
                     "routine_scheduler_version": 1,
                     "routine_manual_version": 1,
+                    "channels_version": 1,
                 },
                 ttl_seconds=HEARTBEAT_TTL,
             )
@@ -67,6 +73,11 @@ async def serve(settings: Settings) -> None:
         group.create_task(heartbeat())
         group.create_task(worker.run_forever())
         group.create_task(RoutineScheduler(database).run_forever())
+        group.create_task(
+            ChannelWorker(
+                database, create_resolver(settings, database), app_url=settings.public_url
+            ).run_forever()
+        )
 
 
 def main() -> None:

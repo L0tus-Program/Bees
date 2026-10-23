@@ -24,6 +24,7 @@ from bees_api.artifacts import router as artifacts_router
 from bees_api.attention import router as attention_router
 from bees_api.auth import install_auth
 from bees_api.budgets import router as budgets_router
+from bees_api.channels import router as channels_router
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
@@ -54,6 +55,8 @@ from bees_api.views import ViewHub
 from bees_api.views import router as views_router
 from bees_core.approvals import ApprovalError
 from bees_core.artifacts import ArtifactError, ArtifactStore
+from bees_core.channels.adapters import ChannelError
+from bees_core.channels.service import ChannelServiceError
 from bees_core.environments import EnvironmentError
 from bees_core.executors import ExecutorError
 from bees_core.policies import PolicyError
@@ -184,6 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_approvals_router)
     app.include_router(executors_router)
     app.include_router(local_models_router)
+    app.include_router(channels_router)
     app.include_router(views_router)
     app.include_router(activity_router)
     app.include_router(artifacts_router)
@@ -315,6 +319,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"error": {"code": error.code, "message": "Confira o executor e atualize a tela."}},
             status_code=401
             if error.code in ("executor_invite_invalid", "executor_credentials_invalid")
+            else 409,
+        )
+
+    @app.exception_handler(ChannelError)
+    @app.exception_handler(ChannelServiceError)
+    async def channel_error(request: Request, error: Exception) -> JSONResponse:
+        code = getattr(error, "code", "channel_invalid_response")
+        return JSONResponse(
+            {"error": {"code": code, "message": "Confira o token, o canal e tente de novo."}},
+            status_code=422
+            if code in ("channel_token_invalid", "channel_target_invalid")
+            else 502
+            if code in ("channel_unreachable", "channel_invalid_response")
             else 409,
         )
 

@@ -636,3 +636,10 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .local-model .inline-field input { flex: 1 1 160px; min-width: 0; }
 .local-model-pull { display: grid; gap: 6px; }
 .local-model-pull progress { width: 100%; }
+.channel-list { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 12px; }
+.channel-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.channel-heading { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.channel-pairing { display: grid; gap: 6px; padding: 10px; border-radius: 10px; background: var(--theme-surface-muted, rgba(0,0,0,.04)); }
+.channels-panel .row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.channels-panel .inline-select { display: flex; gap: 6px; align-items: center; }
+.channel-form fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; }

@@ -45,12 +45,14 @@ const ToolsPanel = lazy(async () => {
   const module = await import('../tools/ToolsPanel')
   return { default: module.ToolsPanel }
 })
+const ChannelsPanel = lazy(() => import('../channels/ChannelsPanel'))
 
 export function Dashboard({ userName }: { userName: string }) {
   const { t } = useTranslation('product')
   const { t: bee } = useTranslation('bee')
   const { t: policies } = useTranslation('policies')
   const { t: tools } = useTranslation('tools')
+  const { t: channels } = useTranslation('channels')
   const { t: environments } = useTranslation('environments')
   const { t: activity } = useTranslation('activity')
   const { t: attention } = useTranslation('attention')
@@ -83,7 +85,7 @@ export function Dashboard({ userName }: { userName: string }) {
           <section className="environment-section" aria-labelledby="environments-heading"><h2 className="section-label" id="environments-heading">{t('environments')}</h2><ComputerSummary key={selected.id} agentId={selected.id} onOpen={() => { setView('computer'); setNotice(null) }} /></section>
         </aside>
         <div className="conversation-column">
-          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'deliveries', 'skills', 'routines', 'policies', 'usage', 'attention', 'tools', 'computer'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'routines' ? routines('navigation') : item === 'deliveries' ? deliveries('navigation') : item === 'skills' ? skills('navigation') : item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : bee(`view_${item}`)}</button>)}</nav>
+          <nav className="bee-navigation" aria-label={bee('beeNavigation')}>{(['conversation', 'profile', 'model', 'memories', 'deliveries', 'skills', 'routines', 'policies', 'usage', 'attention', 'tools', 'computer', 'channels'] as const).map((item) => <button key={item} type="button" className={view === item ? 'current' : ''} aria-pressed={view === item} onClick={() => { setView(item); setNotice(null) }}>{item === 'routines' ? routines('navigation') : item === 'deliveries' ? deliveries('navigation') : item === 'skills' ? skills('navigation') : item === 'policies' ? policies('navigation') : item === 'usage' ? activity('navigation') : item === 'attention' ? attention('navigation') : item === 'tools' ? tools('navigation') : item === 'computer' ? environments('navigation') : item === 'channels' ? channels('navigation') : bee(`view_${item}`)}</button>)}</nav>
           {notice && <p className="form-success saved-notice" role="status">{bee(notice)}</p>}
           {view === 'profile' && <ProfileEditor key={`${selected.id}:${selected.revision}`} agent={selected} onSaved={() => { setNotice('profileSaved'); reload() }} onReload={reload} />}
           {view === 'model' && <ModelEditor key={`${selected.id}:${selected.revision}`} agent={selected} vault={data.vault} onSaved={() => { setNotice('modelSaved'); reload() }} onReload={reload} />}
@@ -97,6 +99,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}
           {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'computer' && <Suspense fallback={<LoadingNotice />}><ComputerWorkspace key={`computer-${selected.id}`} agentId={selected.id} /><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
+          {view === 'channels' && <Suspense fallback={<LoadingNotice />}><ChannelsPanel key={selected.id} agentId={selected.id} /></Suspense>}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
           {view === 'conversation' && (selected.provider_config && selected.conversation_id ? <Chat key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id }} /> : <div className="surface legacy-agent"><h2>{t('modelNotConfigured')}</h2><p>{bee('legacyConfigure')}</p><button className="button primary" type="button" onClick={() => setView('model')}>{bee('configureModel')}</button></div>)}
           <div className="next-step-note"><span aria-hidden="true">↗</span><p><strong>{t('nextStepTitle')}</strong>{t('nextStepDescription')}</p></div>
