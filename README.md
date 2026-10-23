@@ -24,6 +24,8 @@ O [pacote local do helper Windows](docs/host-package.md) permite vincular o diag
 
 O computador da abelha sobe junto no Compose (serviço `computer`); pareie e crie pela aba **Computador**. Para contribuidores, o caminho alternativo por VM Hyper-V ([kit Linux](docs/guest-image.md), [ponte de diagnóstico](docs/guest-bridge.md), [provisionamento](docs/provisioning.md)) continua disponível e depende de validação física.
 
+No Linux e macOS, execute `./scripts/start.sh` (ou dê dois cliques em **Iniciar Bees.command** no macOS): mesmo fluxo, abrindo o navegador já autorizado para o primeiro acesso.
+
 Operadores também podem subir com `docker compose up --build --detach --wait`. Interface em [localhost:8080](http://localhost:8080); dados e chave ficam em volumes separados e sobrevivem a reinícios. [Distribuição e operação](docs/containers.md) explica primeiro acesso, volumes, backup, Ollama opcional e limites. A instalação nativa abaixo usa outro estado; não há importação automática.
 
 ## Requisitos de desenvolvimento
