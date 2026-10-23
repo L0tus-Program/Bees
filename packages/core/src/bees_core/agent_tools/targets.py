@@ -30,6 +30,12 @@ class TargetResolver:
             return ToolTarget(WEB, WEB, f"mcp:{agent_id}", "bees_user")
         if spec.target == "web":
             return ToolTarget(WEB, WEB, "web:public", "anonymous")
+        if spec.target == "control_plane" and spec.name.startswith("bees."):
+            # Equipe só existe com outra abelha ativa.
+            if not unit.agents._context.connection.execute(
+                "SELECT 1 FROM agents WHERE id!=? AND status='active'", (str(agent_id),)
+            ).fetchone():
+                raise ToolError("environment_unavailable", "Nenhuma outra abelha ativa.")
         if spec.target == "control_plane":
             return ToolTarget(CONTROL_PLANE, CONTROL_PLANE, f"agent:{agent_id}", "bees_user")
         from bees_core.agent_tools.executors import resolve_executor_target

@@ -826,11 +826,107 @@ MCP_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
+# ---------------------------------------------------------------- equipe de abelhas
+
+
+class BeeAskInput(_Input):
+    bee: str = Field(min_length=1, max_length=80)
+    question: str = Field(min_length=1, max_length=8000)
+
+    @field_validator("bee")
+    @classmethod
+    def clean_bee(cls, value):
+        return _text(value, allow_newlines=False).strip()
+
+
+class BeeDelegateInput(_Input):
+    bee: str = Field(min_length=1, max_length=80)
+    task: str = Field(min_length=1, max_length=8000)
+    expected_result: str = Field(default="", max_length=2000)
+
+    @field_validator("bee")
+    @classmethod
+    def clean_bee(cls, value):
+        return _text(value, allow_newlines=False).strip()
+
+
+class BeeParameters(AgentToolParameters):
+    bee: str = Field(min_length=1, max_length=80)
+
+
+TEAM_SPECS: tuple[ToolSpec, ...] = (
+    ToolSpec(
+        name="bees.list",
+        function="bees_list",
+        action="list",
+        target="control_plane",
+        effect="read",
+        default_effect="allow",
+        description=(
+            "Lista as outras abelhas do usuário (nome e propósito) para consulta ou delegação."
+        ),
+        schema=_schema({}, []),
+        input_model=EmptyInput,
+        timeout_seconds=10,
+        capabilities=("team.read",),
+    ),
+    ToolSpec(
+        name="bees.ask",
+        function="bees_ask",
+        action="ask",
+        target="control_plane",
+        effect="read",
+        default_effect="allow",
+        description=(
+            "Consulta outra abelha especialista e devolve a resposta dela (somente texto, "
+            "sem ferramentas). Use para opinião, revisão ou conhecimento do propósito dela."
+            + UNTRUSTED
+        ),
+        schema=_schema(
+            {
+                "bee": {"type": "string", "minLength": 1, "maxLength": 80},
+                "question": {"type": "string", "minLength": 1, "maxLength": 8000},
+            },
+            ["bee", "question"],
+        ),
+        input_model=BeeAskInput,
+        parameters_model=BeeParameters,
+        timeout_seconds=150,
+        capabilities=("team.ask",),
+    ),
+    ToolSpec(
+        name="bees.delegate",
+        function="bees_delegate",
+        action="delegate",
+        target="control_plane",
+        effect="write",
+        default_effect="ask",
+        description=(
+            "Delega uma tarefa completa a outra abelha, que trabalha com as próprias "
+            "ferramentas e permissões. O resultado chega depois nesta conversa; não espere "
+            "por ele nesta tarefa."
+        ),
+        schema=_schema(
+            {
+                "bee": {"type": "string", "minLength": 1, "maxLength": 80},
+                "task": {"type": "string", "minLength": 1, "maxLength": 8000},
+                "expected_result": {"type": "string", "maxLength": 2000},
+            },
+            ["bee", "task"],
+        ),
+        input_model=BeeDelegateInput,
+        parameters_model=BeeParameters,
+        timeout_seconds=20,
+        capabilities=("team.delegate",),
+    ),
+)
+
 SPECS = (
     SPECS
     + _executor_specs("computer", "computer_", "computer", COMPUTER)
     + _executor_specs("personal", "personal_", "personal", PERSONAL)
     + MCP_SPECS
+    + TEAM_SPECS
 )
 
 
@@ -876,6 +972,12 @@ BUNDLES: tuple[dict, ...] = (
         "name": "Máquina pessoal (conector)",
         "version": "1.0.0",
         "tools": tuple(spec.name for spec in SPECS if spec.target == "personal"),
+    },
+    {
+        "plugin_key": "bees.team",
+        "name": "Equipe de abelhas",
+        "version": "1.0.0",
+        "tools": ("bees.list", "bees.ask", "bees.delegate"),
     },
     {
         "plugin_key": "bees.mcp",

@@ -38,6 +38,7 @@ class RunContext:
     web: WebClient | None = None
     secrets: object | None = None
     mcp_transport: object | None = None
+    provider_transport: object | None = None
 
 
 async def run_mcp(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
@@ -147,3 +148,116 @@ def run_control(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
             },
         )
     return Outcome("failed", code="tool_unavailable")
+
+
+TEAM_PROMPT = (
+    "Pergunta de outra abelha do mesmo usuário ({origin}). Responda de forma objetiva, "
+    "dentro do seu propósito; se não souber, diga.\n\n{question}"
+)
+
+
+def _team_target(unit, origin_id, name: str):
+    agents = [
+        agent
+        for agent in unit.agents.list(limit=1000)
+        if agent.id != origin_id and agent.status == "active"
+    ]
+    wanted = " ".join(name.split()).casefold()
+    matches = [agent for agent in agents if " ".join(agent.name.split()).casefold() == wanted]
+    return (matches[0] if len(matches) == 1 else None), [agent.name for agent in agents]
+
+
+async def run_team(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
+    from bees_core.agent_tools.cycle import AgentTaskInput, AgentTaskService
+    from bees_core.models import Conversation
+    from bees_core.providers.errors import ProviderError
+    from bees_core.providers.service import ProviderService
+    from bees_core.storage.store import StateStore
+
+    store = StateStore(context.database)
+    with store.transaction(write=False) as unit:
+        origin = unit.agents.get(context.agent_id)
+        if spec.name == "bees.list":
+            bees = [
+                {"name": agent.name, "purpose": agent.purpose[:300]}
+                for agent in unit.agents.list(limit=1000)
+                if agent.id != context.agent_id and agent.status == "active"
+            ]
+            return Outcome("confirmed", {"bees": bees})
+        target, names = _team_target(unit, context.agent_id, arguments.bee)
+        task = unit.tasks.get(context.task_id)
+    if target is None:
+        return Outcome("failed", code="bee_not_found", detail="Abelhas: " + ", ".join(names)[:500])
+    if spec.name == "bees.ask":
+        with store.transaction(source="team_consult") as unit:
+            consult = next(
+                (
+                    item
+                    for item in unit.conversations.list(agent_id=target.id, limit=1000)
+                    if item.metadata.get("consult", {}).get("from_agent_id") == str(origin.id)
+                ),
+                None,
+            )
+            if consult is None:
+                consult = unit.conversations.create(
+                    Conversation(
+                        agent_id=target.id,
+                        title=f"Consultas de {origin.name}"[:200],
+                        metadata={"consult": {"from_agent_id": str(origin.id)}},
+                    )
+                )
+        try:
+            response = await ProviderService(
+                context.database, context.secrets, transport=context.provider_transport
+            ).chat(
+                target.id,
+                consult.id,
+                TEAM_PROMPT.format(origin=origin.name, question=arguments.question),
+            )
+        except ProviderError as error:
+            return Outcome("failed", code=error.code)
+        return Outcome(
+            "confirmed", {"bee": target.name, "answer": (response.message.content or "")[:12000]}
+        )
+    origin_chat = (task.metadata.get("agent_chat") or {}).get("conversation_id") if task else None
+    with store.transaction(write=False) as unit:
+        main = next(
+            (
+                item
+                for item in unit.conversations.list(agent_id=target.id, limit=1000)
+                if not item.metadata.get("execution_kind") and not item.metadata.get("consult")
+            ),
+            None,
+        )
+    try:
+        created = AgentTaskService(context.database).create(
+            target.id,
+            AgentTaskInput(
+                client_request_id=uuid5(context.action_id, "bees.team-delegate/v1"),
+                title=f"Pedido de {origin.name}"[:80],
+                objective=arguments.task,
+                expected_result=arguments.expected_result,
+            ),
+            metadata={
+                **({"agent_chat": {"conversation_id": str(main.id)}} if main else {}),
+                "delegated_from": {
+                    "agent_id": str(origin.id),
+                    "agent_name": origin.name,
+                    "task_id": str(context.task_id),
+                    "conversation_id": origin_chat,
+                },
+            },
+        )
+    except ProviderError as error:
+        return Outcome("failed", code=error.code)
+    except Exception as error:  # TaskError e validações do destino
+        return Outcome("failed", code=getattr(error, "code", "delegation_failed"))
+    return Outcome(
+        "confirmed",
+        {
+            "bee": target.name,
+            "task_id": str(created.id),
+            "status": created.status,
+            "note": "O resultado será publicado na conversa quando a outra abelha concluir.",
+        },
+    )
