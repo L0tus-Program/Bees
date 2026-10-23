@@ -67,6 +67,33 @@ jobs:
       - run: npm run test
       - run: npm run build
 
+  executor-wheel:
+    name: Pacote do executor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.7.21
+      - name: Construir duas vezes
+        run: |
+          uv build --wheel apps/executor -o dist-a
+          uv build --wheel apps/executor -o dist-b
+      - name: Conferir conteúdo e reprodutibilidade
+        run: python scripts/check-wheel.py dist-a/*.whl dist-b/*.whl --out SHA256SUMS
+      - name: Instalar em ambiente limpo
+        run: |
+          python -m venv /tmp/executor
+          /tmp/executor/bin/pip install dist-a/*.whl
+          /tmp/executor/bin/bees-executor --help
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bees-executor-wheel
+          path: |
+            dist-a/*.whl
+            SHA256SUMS
+
   container:
     name: Distribuição Docker / Linux
     runs-on: ubuntu-latest
