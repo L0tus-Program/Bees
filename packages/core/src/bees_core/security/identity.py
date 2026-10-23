@@ -20,6 +20,7 @@ _TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _ARGON_SLOTS = BoundedSemaphore(2)
 _MESSAGES = {
     "already_configured": "Esta instalação já possui uma identidade.",
+    "not_configured": "Esta instalação ainda não possui identidade; use o primeiro acesso.",
     "bootstrap_invalid": "Código de configuração inválido ou expirado.",
     "credentials_invalid": "Senha inválida ou identidade indisponível.",
     "invalid_identity": "Nome ou senha fora dos limites permitidos.",
@@ -133,6 +134,54 @@ class IdentityService:
                 (_hash_token(token), now, now + self.bootstrap_ttl_seconds),
             )
         return token
+
+    def issue_recovery(self) -> str:
+        """Código de redefinição de senha; quem o emite prova posse do servidor/dados."""
+        token = secrets.token_urlsafe(32)
+        now = self._now()
+        with self.database.transaction() as connection:
+            if not connection.execute("SELECT EXISTS(SELECT 1 FROM identity_users)").get:
+                raise AuthError("not_configured")
+            connection.execute(
+                "INSERT INTO identity_bootstrap(id,token_hash,created_at,expires_at,consumed_at) "
+                "VALUES(1,?,?,?,NULL) ON CONFLICT(id) DO UPDATE SET "
+                "token_hash=excluded.token_hash,created_at=excluded.created_at,"
+                "expires_at=excluded.expires_at,consumed_at=NULL",
+                (_hash_token(token), now, now + self.bootstrap_ttl_seconds),
+            )
+        return token
+
+    def recover(self, recovery_token: str, password: str) -> IssuedSession:
+        """Troca a senha com código do operador e encerra todas as sessões anteriores.
+
+        Não altera cofre, abelhas, tarefas nem dados; só a credencial de acesso.
+        """
+        validate_password(password)
+        self._reserve_attempt("setup")
+        token_hash = _hash_token(recovery_token)
+        with self.database.transaction(write=False) as connection:
+            if not connection.execute("SELECT EXISTS(SELECT 1 FROM identity_users)").get:
+                raise AuthError("not_configured")
+            if not self._valid_bootstrap(connection, token_hash, self._now()):
+                raise AuthError("bootstrap_invalid")
+        with _argon_slot():
+            password_hash = self._hasher.hash(password)
+        now = self._now()
+        with self.database.transaction() as connection:
+            if not self._valid_bootstrap(connection, token_hash, now):
+                raise AuthError("bootstrap_invalid")
+            name = connection.execute("SELECT name FROM identity_users WHERE id=1").get
+            if name is None:
+                raise AuthError("not_configured")
+            connection.execute(
+                "UPDATE identity_users SET password_hash=? WHERE id=1", (password_hash,)
+            )
+            connection.execute(
+                "UPDATE identity_sessions SET revoked_at=? WHERE revoked_at IS NULL", (now,)
+            )
+            connection.execute("UPDATE identity_bootstrap SET consumed_at=? WHERE id=1", (now,))
+            connection.execute("DELETE FROM identity_rate_limits")
+            return self._create_session(connection, name, now)
 
     def _reserve_attempt(self, operation: str) -> None:
         now = self._now()

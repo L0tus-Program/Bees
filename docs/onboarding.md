@@ -34,6 +34,17 @@ Cada credencial recebe referência `vault:UUID`. Arquivos cifrados ficam em `BEE
 
 Diretórios POSIX usam permissões restritas. No Windows, escolha uma pasta com ACL privada. Criptografia não protege contra comprometimento da conta/processo do serviço. Preserve cofre e acesso à chave/perfil original junto dos backups; [persistência](persistence.md) descreve os limites de restauração.
 
+## Esqueci a senha
+
+A redefinição exige posse do servidor — não há reset anônimo pela rede. No terminal do servidor, gere um código de uso único (15 minutos):
+
+- Docker: `docker compose exec bees bees-auth recover`
+- Instalação local: `uv run --locked bees-auth recover` (mesmo `BEES_DATA_DIR` da API)
+
+Na tela de entrada, use **Esqueci a senha**, cole o código e defina a nova senha. Todas as sessões abertas são encerradas; abelhas, cofre, tarefas, backups e itens em quarentena não mudam. Gerar outro código invalida o anterior. Tentativas compartilham o limite do primeiro acesso.
+
+Perder a senha é diferente de perder o cofre: a chave Fernet (Linux/Docker, `bees-secrets`) ou o perfil DPAPI original (Windows) não podem ser recriados. Sem eles, as chaves de API salvas ficam ilegíveis; o Bees não gera chave substituta. Recupere a chave/perfil do backup ou cadastre de novo as credenciais de modelo nas abelhas.
+
 ## Celular e servidor com HTTPS
 
 Para acessar a mesma identidade por outro dispositivo, use a interface compilada atrás de um proxy HTTPS no mesmo host. Configure `BEES_PUBLIC_URL` com a origem exata, por exemplo `https://bees.seu-dominio.example`. O serviço continua ligado a `127.0.0.1`; o proxy fornece certificado, preserva o Host público e define `X-Forwarded-Proto: https`, removendo valores enviados pelo cliente. Uvicorn só confia nos cabeçalhos encaminhados pelo endereço loopback explicitamente configurado.

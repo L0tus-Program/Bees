@@ -18,6 +18,7 @@ COOKIE_NAME = "bees_session"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 AUTH_HTTP_CODES = {
     "already_configured": 409,
+    "not_configured": 409,
     "bootstrap_invalid": 401,
     "credentials_invalid": 401,
     "invalid_identity": 422,
@@ -32,6 +33,11 @@ class Input(BaseModel):
 class SetupInput(Input):
     bootstrap_token: SecretStr = Field(min_length=43, max_length=43)
     name: str = Field(min_length=1, max_length=80)
+    password: SecretStr = Field(min_length=12, max_length=256)
+
+
+class RecoverInput(Input):
+    recovery_token: SecretStr = Field(min_length=43, max_length=43)
     password: SecretStr = Field(min_length=12, max_length=256)
 
 
@@ -206,6 +212,15 @@ def status(request: Request) -> AuthStatus:
 def setup(body: SetupInput, request: Request, response: Response) -> AuthStatus:
     session = _identity(request).setup(
         body.bootstrap_token.get_secret_value(), body.name, body.password.get_secret_value()
+    )
+    _set_cookie(request, response, session)
+    return _status(session)
+
+
+@router.post("/recover", response_model=AuthStatus, response_model_exclude_none=True)
+def recover(body: RecoverInput, request: Request, response: Response) -> AuthStatus:
+    session = _identity(request).recover(
+        body.recovery_token.get_secret_value(), body.password.get_secret_value()
     )
     _set_cookie(request, response, session)
     return _status(session)

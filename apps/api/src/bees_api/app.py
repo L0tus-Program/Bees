@@ -32,6 +32,7 @@ from bees_api.environments import router as environments_router
 from bees_api.executors import router as executors_router
 from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
+from bees_api.local_models import router as local_models_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
@@ -58,6 +59,7 @@ from bees_core.executors import ExecutorError
 from bees_core.policies import PolicyError
 from bees_core.portability import ExportService
 from bees_core.providers.errors import ProviderError
+from bees_core.providers.local_models import LocalModelError, LocalModelManager
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
 from bees_core.providers.vault import FernetBackend, FileSecretVault
@@ -132,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.receipts = Receipts()
         application.state.settings = config
         application.state.view_hub = ViewHub()
+        application.state.local_models = LocalModelManager()
         application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
         application.state.artifact_upload_slots = BoundedSemaphore(2)
         application.state.restoration = (
@@ -146,6 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await application.state.local_models.close()
             del application.state.store
             del application.state.database
             del application.state.identity
@@ -179,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(agent_approvals_router)
     app.include_router(executors_router)
+    app.include_router(local_models_router)
     app.include_router(views_router)
     app.include_router(activity_router)
     app.include_router(artifacts_router)
@@ -311,6 +316,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=401
             if error.code in ("executor_invite_invalid", "executor_credentials_invalid")
             else 409,
+        )
+
+    @app.exception_handler(LocalModelError)
+    async def local_model_error(request: Request, error: LocalModelError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Confira o backend local e tente de novo."}},
+            status_code={
+                "backend_unavailable": 503,
+                "invalid_model": 422,
+                "pull_not_found": 404,
+                "model_not_found": 404,
+            }.get(error.code, 409),
         )
 
     @app.exception_handler(ToolError)

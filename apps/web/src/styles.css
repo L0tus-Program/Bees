@@ -626,3 +626,13 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .connector-invite pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .success-notice { color: var(--accent); }
 .research-summary { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 4px; font-size: 14px; } .research-artifacts { margin: 0; padding-left: 18px; }
+.local-model { border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 12px 0; display: grid; gap: 8px; min-width: 0; }
+.local-model h3, .local-model h4 { margin: 4px 0 0; }
+.local-model-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.local-model-list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 8px; min-width: 0; }
+.local-model-list li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.local-model-list .block { display: block; }
+.local-model .row-actions, .local-model .inline-field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.local-model .inline-field input { flex: 1 1 160px; min-width: 0; }
+.local-model-pull { display: grid; gap: 6px; }
+.local-model-pull progress { width: 100%; }
