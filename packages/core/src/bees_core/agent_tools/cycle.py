@@ -120,6 +120,18 @@ def _payload_text(payload: dict, limit: int) -> str:
     )
 
 
+QUIET_MARK = "SEM_NOVIDADES"
+QUIET_INSTRUCTION = (
+    "Esta é uma execução automática de rotina. Use memory_search e memory_save para "
+    "lembrar o que já foi entregue antes. Se não houver nada novo ou relevante desde a "
+    f"última entrega, responda exatamente {QUIET_MARK} e nada mais."
+)
+
+
+def quiet(content: str | None) -> bool:
+    return (content or "").strip().strip(".").upper() == QUIET_MARK
+
+
 class AgentTaskService(TaskService):
     def create(self, agent_id, value, *, metadata=None):
         value = AgentTaskInput.model_validate(
@@ -310,6 +322,7 @@ class AgentTaskWorker(TaskWorker):
         routine = routine_instruction(task)
         if routine:
             parts.append(routine)
+            parts.append(QUIET_INSTRUCTION)
         return "\n\n".join(parts)
 
     def _tools(self, unit, task, run):
@@ -460,6 +473,9 @@ class AgentTaskWorker(TaskWorker):
                 if result is None or not result.content:
                     return
                 origin = task.metadata.get("agent_chat", {}).get("conversation_id")
+                if task.metadata.get("routine_execution") and quiet(result.content):
+                    # Rotina sem novidade: resultado fica na tarefa, sem aviso no chat/canal.
+                    return
                 delegated = task.metadata.get("delegated_from") or {}
                 targets = []
                 if origin:

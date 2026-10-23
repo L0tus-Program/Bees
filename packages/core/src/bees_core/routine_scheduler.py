@@ -44,8 +44,10 @@ class RoutineScheduler:
     @staticmethod
     def _notice(unit, occurrence, definition, status, reason):
         if definition.notification == "none" or (
-            definition.notification == "failures" and status == "completed"
+            (definition.notification == "failures" or definition.execution_mode == "agent")
+            and status == "completed"
         ):
+            # No modo agente, a própria resposta (ou o silêncio sem novidade) é o aviso.
             return
         destination = unit.conversations.get(definition.destination.conversation_id)
         routine = unit.routines.get(occurrence.routine_id)
