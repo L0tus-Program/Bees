@@ -12,6 +12,10 @@ O launcher gera internamente um código de uso único, válido por 15 minutos, e
 
 O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; não há instalador assinado ou launcher gráfico Linux/macOS neste checkpoint. O setup gráfico completo para as distribuições suportadas continua em BEES-028.
 
+## Uso no Linux e macOS
+
+Com Docker Engine 28+ (ou Docker Desktop) e Compose 2.20+, execute `./scripts/start.sh` na pasta do projeto — no macOS também é possível dar dois cliques em **Iniciar Bees.command**. O script compila e sobe API, worker e computador da abelha, aguarda a saúde dos serviços e abre o navegador com a autorização de primeiro acesso no fragmento privado da URL (o código não aparece no terminal nem em `logs/startup.log`). Opções: `--port 8090`, `--no-build`, `--no-browser`, `--project-name`. Sem `xdg-open`/`open`, o script apenas informa o endereço; gere o código com `docker compose exec bees bees-auth bootstrap`.
+
 ## Operação por Compose
 
 Quem administra a instalação também pode usar um comando único:
