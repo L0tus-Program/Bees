@@ -15,6 +15,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from bees_api import __version__
+from bees_api.activation import router as activation_router
 from bees_api.activity import router as activity_router
 from bees_api.approvals import router as approvals_router
 from bees_api.artifacts import router as artifacts_router
@@ -158,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.add_middleware(RequestSafetyMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
+    app.include_router(activation_router)
     app.include_router(onboarding_router)
     app.include_router(configuration_router)
     app.include_router(profiles_router)
