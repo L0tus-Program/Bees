@@ -152,3 +152,40 @@ def test_unknown_bee_fails_without_effect(team):
     drain(worker(database, script, requests))
     assert "bee_not_found" in json.dumps(requests[1]["messages"], ensure_ascii=False)
     assert "Pesquisadora" in json.dumps(requests[1]["messages"], ensure_ascii=False)
+
+
+def test_delegation_chain_cannot_loop_back(team):
+    from bees_core.agent_tools.catalog import BeeDelegateInput, spec
+    from bees_core.agent_tools.runners import RunContext, run_team
+    from bees_core.models import Action, Run, Task
+
+    database, store, coordinator, chat, specialist, _ = team
+    with store.transaction() as unit:
+        task = unit.tasks.create(
+            Task(
+                agent_id=specialist.id,
+                title="Delegada",
+                objective="x",
+                metadata={
+                    "delegated_from": {
+                        "agent_id": str(coordinator.id),
+                        "chain": [str(coordinator.id)],
+                    }
+                },
+            )
+        )
+        run = unit.runs.create(Run(task_id=task.id))
+        action = unit.actions.create(Action(run_id=run.id, tool_name="bees.delegate"))
+    context = RunContext(
+        agent_id=specialist.id,
+        task_id=task.id,
+        run_id=run.id,
+        action_id=action.id,
+        database=database,
+    )
+    outcome = asyncio.run(
+        run_team(
+            spec("bees.delegate"), BeeDelegateInput(bee="Abelha de teste", task="volte"), context
+        )
+    )
+    assert outcome.status == "failed" and outcome.code == "delegation_cycle"

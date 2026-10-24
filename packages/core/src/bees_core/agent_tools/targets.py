@@ -5,6 +5,8 @@ plano de controle, computador próprio da abelha ou máquina pessoal pareada).
 Indisponibilidade nunca troca silenciosamente de alvo.
 """
 
+import hashlib
+import json
 from uuid import UUID
 
 from bees_core.agent_tools.catalog import ToolSpec
@@ -22,12 +24,19 @@ class TargetResolver:
 
         if spec.target == "web" and spec.name.startswith("mcp."):
             # Conectores MCP só aparecem quando a abelha tem servidor pronto.
-            if not unit.agents._context.connection.execute(
-                "SELECT 1 FROM mcp_servers WHERE agent_id=? AND enabled=1 AND status='ready'",
+            servers = unit.agents._context.connection.execute(
+                "SELECT id,revision FROM mcp_servers WHERE agent_id=? AND enabled=1 "
+                "AND status='ready' ORDER BY id",
                 (str(agent_id),),
-            ).fetchone():
+            ).fetchall()
+            if not servers:
                 raise ToolError("environment_unavailable", "Nenhum conector MCP pronto.")
-            return ToolTarget(WEB, WEB, f"mcp:{agent_id}", "bees_user")
+            # Recurso amarrado à identidade/revisão dos servidores: recriar ou atualizar
+            # um servidor invalida decisões e regras exatas preparadas antes.
+            fingerprint = hashlib.sha256(
+                json.dumps([list(row) for row in servers]).encode()
+            ).hexdigest()[:16]
+            return ToolTarget(WEB, WEB, f"mcp:{agent_id}:{fingerprint}", "bees_user")
         if spec.target == "web":
             return ToolTarget(WEB, WEB, "web:public", "anonymous")
         if spec.target == "control_plane" and spec.name.startswith("bees."):

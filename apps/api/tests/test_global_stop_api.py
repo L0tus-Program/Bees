@@ -72,6 +72,7 @@ def test_state_requires_session_and_commands_require_csrf_uuid_and_cas(state):
         "tool_actions",
         "chat_reservations",
         "provisioning_effects",
+        "executor_commands",
     }
     unprotected = client.post(
         "/api/v1/safety/commands",

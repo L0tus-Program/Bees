@@ -196,3 +196,47 @@ def test_agent_lists_then_calls_after_human_approval(setup):
     assert server.calls == [{"name": "create_issue", "arguments": {"title": "X"}}]
     detail = AgentTaskService(database).detail(agent.id, task.id)
     assert detail.task.status == "completed"
+
+
+def test_server_change_makes_pending_decision_stale(setup):
+    database, agent, server, service, row = setup
+    task = AgentTaskService(database).create(
+        agent.id,
+        AgentTaskInput(client_request_id=uuid4(), title="Criar", objective="Crie a tarefa X"),
+    )
+    script = [
+        tool_calls(
+            (
+                "c1",
+                "mcp_call",
+                {"server": "tarefas", "tool": "create_issue", "arguments": {"title": "X"}},
+            )
+        ),
+        answer("Não foi possível."),
+    ]
+    worker = AgentTaskWorker(
+        database,
+        transport=httpx.MockTransport(lambda request: script.pop(0)),
+        mcp_transport=httpx.MockTransport(server),
+        resolver=Secrets(),
+    )
+    for _ in range(10):
+        if not asyncio.run(worker.run_once()):
+            break
+    pending = AgentToolService(database).list(agent.id, status="pending")
+    assert len(pending) == 1
+    # Servidor atualizado (nova revisão) antes da decisão humana.
+    asyncio.run(service.refresh(agent.id, row["id"], row["revision"]))
+    view = AgentToolService(database).view(agent.id, pending[0]["id"])
+    assert view["valid"] is False
+    with pytest.raises(Exception, match="stale|approval"):
+        AgentToolService(database).decide(
+            agent.id,
+            pending[0]["id"],
+            AgentToolDecision(
+                client_request_id=uuid4(),
+                expected_revision=pending[0]["revision"],
+                decision="allow_once",
+            ),
+        )
+    assert server.calls == [] and task

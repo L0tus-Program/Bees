@@ -240,6 +240,10 @@ def supersede_pending(unit, task, run, *, code="tool_cycle_superseded"):
         root_id = uuid5(call.id, f"bees.agent-tool-intent/v1/{proposals[index].id}")
         effect = unit.actions.get(effect_id(root_id))
         if effect is not None and effect.status in ("dispatch_started", "outcome_unknown"):
+            from bees_core.executors import close_for_resume
+
+            # Comando ainda na fila nunca sai depois de declarado desconhecido.
+            close_for_resume(unit, effect.id)
             payload = {"status": "outcome_unknown", "code": "tool_outcome_unknown"}
         elif effect is not None and effect.status == "confirmed":
             payload = {"status": "confirmed", "result": effect.result, "action_id": str(effect.id)}

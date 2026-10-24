@@ -10,7 +10,7 @@ import { SafetyConfirmation, SafetyControl, SafetyStatusView } from './SafetyCon
 import { checkedSafetySnapshot, inFlightTotal, safetyFailure } from './state'
 import type { SafetyIntent } from './state'
 
-const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0 }
+const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0, executor_commands: 0 }
 const running: SafetyState = { snapshot: { event_seq: 1, observed_at: '2026-10-12T12:00:00Z' }, status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
 const stopped: SafetyState = { ...running, status: 'stopped', generation: 1, revision: 2, changed_at: '2026-10-10T12:00:00+00:00', reason: 'Revisão de custos', in_flight: { ...flight, model_calls: 2, tool_actions: 1 } }
 const intent: SafetyIntent = { kind: 'stop', revision: 1, requestId: 'request-1', reason: '', sent: false }

@@ -4,7 +4,7 @@ import type { SafetyInFlight, SafetyKind, SafetyState } from '../../api/safety'
 
 export interface SafetyIntent { kind: SafetyKind; revision: number; requestId: string; reason: string; sent: boolean }
 
-export const FLIGHT: (keyof SafetyInFlight)[] = ['model_calls', 'tool_actions', 'chat_reservations', 'provisioning_effects']
+export const FLIGHT: (keyof SafetyInFlight)[] = ['model_calls', 'tool_actions', 'chat_reservations', 'provisioning_effects', 'executor_commands']
 
 // Perda de resposta conserva o mesmo UUID: a nova tentativa é replay, nunca segunda parada.
 export function safetyFailure(error: ApiError): 'lost' | 'conflict' | 'error' {

@@ -3,7 +3,7 @@ import { isObservation, timestamp } from './activity'
 import type { Observation } from './activity'
 
 export type SafetyKind = 'stop' | 'resume'
-export interface SafetyInFlight { model_calls: number; tool_actions: number; chat_reservations: number; provisioning_effects: number }
+export interface SafetyInFlight { model_calls: number; tool_actions: number; chat_reservations: number; provisioning_effects: number; executor_commands: number }
 export interface SafetyState {
   snapshot: Observation
   status: 'running' | 'stopped'; generation: number; revision: number; changed_at: string
@@ -11,7 +11,7 @@ export interface SafetyState {
 }
 
 const KEYS = ['changed_at', 'generation', 'in_flight', 'reason', 'revision', 'snapshot', 'status']
-const FLIGHT = ['chat_reservations', 'model_calls', 'provisioning_effects', 'tool_actions']
+const FLIGHT = ['chat_reservations', 'executor_commands', 'model_calls', 'provisioning_effects', 'tool_actions']
 const count = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0
 const exact = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).sort().join() === keys.join()
 

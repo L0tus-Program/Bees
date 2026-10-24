@@ -201,6 +201,7 @@ class RestorationReport(Contract):
             "unknown_outcomes",
             "explicit_global_resume",
             "provisioner_state_not_restored",
+            "connections_not_restored",
         ]
     ]
     source_evidence: Literal["source.zip"] = "source.zip"
@@ -581,6 +582,7 @@ class RestoreService:
                     "unknown_outcomes",
                     "explicit_global_resume",
                     "provisioner_state_not_restored",
+                    "connections_not_restored",
                 ],
             )
             _write(stage / "restoration.json", report.model_dump_json().encode())
