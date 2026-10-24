@@ -76,3 +76,7 @@ Com o pacote **Equipe de abelhas** (`bees.team`) concedido e outra abelha ativa,
 - `bees_delegate` — **pede aprovação** e cria uma tarefa do agente na outra abelha, que trabalha com as próprias ferramentas, permissões e decisões. O resultado aparece na conversa da especialista e volta à conversa de quem delegou como “Resultado da abelha …” (e, se houver canal vinculado, no Telegram/Discord).
 
 Delegação é idempotente por chamada (sem tarefa duplicada em retomada) e não transfere permissões: cada abelha só usa o que lhe foi concedido.
+
+## Relevância em pesquisas repetidas
+
+Cada pesquisa guarda uma impressão das fontes lidas (endereço final + hash do texto). Uma nova execução da mesma rotina, ou da mesma pergunta, que leia exatamente as mesmas páginas com o mesmo conteúdo é marcada como **sem novidade** (`unchanged_since`); em rotinas, o resultado fica no histórico sem ser publicado na conversa nem nos canais. Páginas de erro (por exemplo, 404) nunca contam como fonte lida.

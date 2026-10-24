@@ -438,8 +438,19 @@ class AgentTaskWorker(TaskWorker):
                 run = unit.runs.latest(task.id)
                 result = unit.messages.get(run.checkpoint.get("result_message_id"))
                 observed = research.sources(unit, task)
+                key = research.relevance_key(task)
+                prior_task, prior_print = research.previous_fingerprint(unit, task, key)
             answer = result.content if result else ""
             check = research.verify(answer, observed)
+            current_print = research.fingerprint(observed)
+            # Mesmas fontes com o mesmo texto da execução anterior: sem novidade.
+            check |= {
+                "key": key,
+                "fingerprint": current_print,
+                "unchanged_since": prior_task
+                if observed and prior_print == current_print
+                else None,
+            }
             created = (
                 research.publish(self.artifacts, task, run.id, call_id, answer, observed, check)
                 if self.artifacts is not None
@@ -477,7 +488,8 @@ class AgentTaskWorker(TaskWorker):
                 if result is None or not result.content:
                     return
                 origin = task.metadata.get("agent_chat", {}).get("conversation_id")
-                if task.metadata.get("routine_execution") and quiet(result.content):
+                unchanged = bool((run.checkpoint.get("research") or {}).get("unchanged_since"))
+                if task.metadata.get("routine_execution") and (quiet(result.content) or unchanged):
                     # Rotina sem novidade: resultado fica na tarefa, sem aviso no chat/canal.
                     return
                 delegated = task.metadata.get("delegated_from") or {}

@@ -68,6 +68,14 @@ export async function getAgentApproval(agentId: string, approvalId: string, sign
   return value
 }
 
+export async function revokeAgentApproval(agentId: string, approval: AgentApproval, clientRequestId: string, signal?: AbortSignal) {
+  const value = await request(`${base(agentId)}/agent-tool-approvals/${encodeURIComponent(approval.id)}`, {
+    authenticated: true, signal, method: 'PATCH', body: { client_request_id: clientRequestId, expected_revision: approval.revision },
+  })
+  if (!record(value) || !isApproval(value.approval)) throw new ApiError('invalid_response')
+  return value.approval
+}
+
 export async function decideAgentApproval(agentId: string, approval: AgentApproval, decision: AgentDecision, clientRequestId: string, signal?: AbortSignal) {
   const value = await request(`${base(agentId)}/agent-tool-approvals/${encodeURIComponent(approval.id)}/decision`, {
     authenticated: true, signal, body: { client_request_id: clientRequestId, expected_revision: approval.revision, decision },
