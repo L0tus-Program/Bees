@@ -36,3 +36,7 @@ No modo agente, ações sensíveis geram um aviso no app (“A abelha precisa da
 - O worker (`bees-worker`) precisa estar ativo. WhatsApp exige webhook público e conta Meta Business; não está incluído nesta versão.
 
 API: `GET/POST /api/v1/agents/{agent}/channels`, `POST .../{id}/update` (`mode`, `paused`), `.../{id}/code`, `.../{id}/revoke`, todos com `expected_revision`.
+
+## Parada global e entregas incertas
+
+Durante a parada global nada é enviado aos canais; as respostas pendentes saem após a retomada. Cada envio é registrado antes de sair: se a conexão cair depois do envio, a mensagem fica marcada como incerta e **não é repetida**.

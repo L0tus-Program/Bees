@@ -248,7 +248,13 @@ def test_stop_after_preflight_blocks_dispatch_and_requeues(setup, monkeypatch):
 
 
 def test_stop_during_task_dispatch_keeps_result_and_blocks_next_claim(setup):
-    idle = {"model_calls": 0, "tool_actions": 0, "chat_reservations": 0, "provisioning_effects": 0}
+    idle = {
+        "model_calls": 0,
+        "tool_actions": 0,
+        "chat_reservations": 0,
+        "provisioning_effects": 0,
+        "executor_commands": 0,
+    }
     assert setup.safety.current()["in_flight"] == idle
     seen = []
 

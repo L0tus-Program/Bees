@@ -150,6 +150,8 @@ def run_control(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
     return Outcome("failed", code="tool_unavailable")
 
 
+MAX_DELEGATION_DEPTH = 2
+MAX_DELEGATIONS_PER_TASK = 3
 TEAM_PROMPT = (
     "Pergunta de outra abelha do mesmo usuário ({origin}). Responda de forma objetiva, "
     "dentro do seu propósito; se não souber, diga.\n\n{question}"
@@ -213,6 +215,10 @@ async def run_team(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
                 target.id,
                 consult.id,
                 TEAM_PROMPT.format(origin=origin.name, question=arguments.question),
+                # Origem registrada como dado; não dá autoridade à pergunta.
+                input_metadata={
+                    "team": {"from_agent_id": str(origin.id), "task_id": str(context.task_id)}
+                },
             )
         except ProviderError as error:
             return Outcome("failed", code=error.code)
@@ -220,6 +226,25 @@ async def run_team(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
             "confirmed", {"bee": target.name, "answer": (response.message.content or "")[:12000]}
         )
     origin_chat = (task.metadata.get("agent_chat") or {}).get("conversation_id") if task else None
+    parent = (task.metadata.get("delegated_from") or {}) if task else {}
+    chain = [
+        *parent.get("chain", [parent["agent_id"]] if parent.get("agent_id") else []),
+        str(origin.id),
+    ]
+    if len(chain) > MAX_DELEGATION_DEPTH:
+        return Outcome("failed", code="delegation_depth")
+    if str(target.id) in chain:
+        return Outcome("failed", code="delegation_cycle")
+    request_id = uuid5(context.action_id, "bees.team-delegate/v1")
+    with store.transaction(write=False) as unit:
+        replay = unit.tasks.find_submission(request_id) is not None
+        delegated = unit.agents._context.connection.execute(
+            "SELECT count(*) FROM tasks WHERE "
+            "json_extract(metadata_json,'$.delegated_from.task_id')=?",
+            (str(context.task_id),),
+        ).fetchone()[0]
+    if not replay and delegated >= MAX_DELEGATIONS_PER_TASK:
+        return Outcome("failed", code="delegation_limit")
     with store.transaction(write=False) as unit:
         main = next(
             (
@@ -233,7 +258,7 @@ async def run_team(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
         created = AgentTaskService(context.database).create(
             target.id,
             AgentTaskInput(
-                client_request_id=uuid5(context.action_id, "bees.team-delegate/v1"),
+                client_request_id=request_id,
                 title=f"Pedido de {origin.name}"[:80],
                 objective=arguments.task,
                 expected_result=arguments.expected_result,
@@ -245,6 +270,7 @@ async def run_team(spec: ToolSpec, arguments, context: RunContext) -> Outcome:
                     "agent_name": origin.name,
                     "task_id": str(context.task_id),
                     "conversation_id": origin_chat,
+                    "chain": chain,
                 },
             },
         )

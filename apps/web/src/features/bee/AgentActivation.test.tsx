@@ -11,7 +11,7 @@ import { activationResources } from '../../locales/activation'
 import { AgentActivation } from './AgentActivation'
 const id = '10000000-0000-4000-8000-000000000001'
 const agent: AgentSummary = { id, name: 'Restaurada', purpose: '', instructions: '', provider_config: { kind: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen3:1.7b', capabilities: { text: true, tool_calls: false } }, revision: 4, status: 'paused', conversation_id: null, memory_enabled: true }
-const safety = { snapshot: { event_seq: 1, observed_at: '2026-10-21T20:00:00Z' }, status: 'stopped', generation: 2, revision: 9, changed_at: '2026-10-21T20:00:00Z', reason: 'PRIVATE_REASON', in_flight: { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0 } }
+const safety = { snapshot: { event_seq: 1, observed_at: '2026-10-21T20:00:00Z' }, status: 'stopped', generation: 2, revision: 9, changed_at: '2026-10-21T20:00:00Z', reason: 'PRIVATE_REASON', in_flight: { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0, executor_commands: 0 } }
 const receipt = { agent_id: id, revision: 5, status: 'active', safety_revision: 9, global_status: 'stopped', provider_checked: true }
 const onboarding = (value = agent) => ({ agents: [value], vault: { available: true, backend: 'fernet' }, environments: [], next_steps: [] })
 let root: Root, container: HTMLDivElement

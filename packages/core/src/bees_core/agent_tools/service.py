@@ -824,8 +824,13 @@ class AgentToolService:
                 ),
                 approval.revision,
             )
-            if approval.policy_id:
-                policy = unit.policies.get(approval.policy_id)
+            # "Sempre permitir" cria regra ampla registrada só nos metadados da decisão;
+            # revogar a decisão revoga também essa regra.
+            created = approval.metadata.get("created_policy_id")
+            for policy_id in (approval.policy_id, UUID(created) if created else None):
+                if not policy_id:
+                    continue
+                policy = unit.policies.get(policy_id)
                 if policy and policy.status == "active":
                     unit.policies.update(
                         policy.model_copy(update={"status": "revoked"}), policy.revision

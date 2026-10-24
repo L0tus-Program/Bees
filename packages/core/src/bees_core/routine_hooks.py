@@ -9,6 +9,7 @@ Fronteiras:
 """
 
 import hashlib
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4, uuid5
@@ -172,7 +173,40 @@ class RoutineHookService:
                 "UPDATE routine_hooks SET last_result=? WHERE id=?", (result, hook_id)
             )
 
-    def trigger(self, token: str) -> dict:
+    def _prior(self, token: str, key: str) -> dict | None:
+        """Reenvio com a mesma chave devolve o recibo anterior sem nova execução."""
+        with self.database.transaction(write=False) as connection:
+            values = connection.execute(
+                f"SELECT {COLUMNS} FROM routine_hooks WHERE token_hash=? AND status='active'",
+                (_hash(token),),
+            ).fetchone()
+            if values is None:
+                raise HookError("hook_not_found")
+            row = _row(values)
+            request_id = uuid5(UUID(row["id"]), f"bees.routine-hook/key/{key}")
+            prior = connection.execute(
+                "SELECT response_json FROM routine_commands WHERE client_request_id=?",
+                (str(request_id),),
+            ).fetchone()
+        if prior is None:
+            return None
+        occurrence = json.loads(prior[0])["occurrence"]
+        return {
+            "accepted": True,
+            "replayed": True,
+            "occurrence_id": occurrence["id"],
+            "task_id": occurrence.get("task_id"),
+        }
+
+    def trigger(self, token: str, idempotency_key: str | None = None) -> dict:
+        if idempotency_key is not None:
+            if not 1 <= len(idempotency_key) <= 200 or any(
+                ord(c) < 33 or ord(c) > 126 for c in idempotency_key
+            ):
+                raise HookError("hook_rejected")
+            prior = self._prior(token, idempotency_key)
+            if prior is not None:
+                return prior
         row, now = self._reserve(token)
         with self.store.transaction(write=False) as unit:
             routine = unit.agents._context.connection.execute(
@@ -182,7 +216,12 @@ class RoutineHookService:
         if routine is None:
             self._result(row["id"], "routine_missing")
             raise HookError("hook_rejected")
-        request_id = uuid5(UUID(row["id"]), f"bees.routine-hook/{_iso(now)}")
+        request_id = uuid5(
+            UUID(row["id"]),
+            f"bees.routine-hook/key/{idempotency_key}"
+            if idempotency_key
+            else f"bees.routine-hook/{_iso(now)}",
+        )
         try:
             receipt = ManualRoutineService(self.database, clock=self.clock).execute(
                 row["agent_id"],

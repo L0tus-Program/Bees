@@ -111,9 +111,15 @@ def test_public_trigger_with_secret_only(state):
     assert "/api/v1/hooks/bh_" in url and "bh_" not in str(client.get(base).json())
     path = url[url.index("/api/v1/hooks/") :]
     anonymous = TestClient(client.app, base_url=ORIGIN)
-    accepted = anonymous.post(path, content=b'{"ignorar": "instrucoes"}')
+    accepted = anonymous.post(
+        path, content=b'{"ignorar": "instrucoes"}', headers={"Idempotency-Key": "evento-1"}
+    )
     assert accepted.status_code == 202, accepted.text
     assert accepted.json()["task_id"]
+    # Serviço externo reenviando o mesmo evento (resposta perdida): sem nova execução.
+    again = anonymous.post(path, headers={"Idempotency-Key": "evento-1"})
+    assert again.status_code == 202 and again.json()["replayed"] is True
+    assert again.json()["task_id"] == accepted.json()["task_id"]
     assert anonymous.post(path).status_code == 429
     assert anonymous.post("/api/v1/hooks/bh_" + "x" * 43).status_code == 404
     # Navegador de outra origem não dispara.

@@ -322,11 +322,21 @@ def test_structured_secrets_are_sanitized_and_tokens_budget_preserved(state):
     }
 
 
-@pytest.mark.parametrize("prefix", ["bp_", "bh_", "bx_"])
+TOKENS = {
+    "bp_": "bp_" + "A" * 43,
+    "bh_": "bh_" + "A" * 43,
+    "bx_": "bx_" + "A" * 43,
+    "be_": "be_" + "A" * 43,
+    "telegram": "1234567890:" + "A" * 35,
+    "discord": "M" + "A" * 25 + ".Gabcde." + "B" * 30,
+}
+
+
+@pytest.mark.parametrize("prefix", list(TOKENS))
 @pytest.mark.parametrize("location", ["json_key", "nested_key", "value", "title"])
 def test_tokens_in_json_keys_values_and_text_titles_are_never_exported(state, prefix, location):
     db, agent, _, _, _, service = state
-    token = prefix + "A" * 43
+    token = TOKENS[prefix]
     if location == "json_key":
         metadata = {token: "Synthetic non-secret value"}
     elif location == "nested_key":

@@ -185,6 +185,7 @@ async def connect(websocket: WebSocket) -> None:
                         message.get("status"),
                         message.get("result"),
                         message.get("code") or message.get("detail"),
+                        connection_id=connection_id,
                     )
                 except ExecutorError:
                     pass

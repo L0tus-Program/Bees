@@ -282,3 +282,53 @@ def test_discord_adapter_cursor_and_split():
 def test_split_text_prefers_paragraphs():
     parts = split_text("a" * 30 + "\n\n" + "b" * 30, 40)
     assert parts == ["a" * 30, "b" * 30]
+
+
+def test_outbound_is_recorded_before_send_and_never_repeated_when_uncertain(setup):
+    database, store, agent, chat, telegram, service, link, code = setup
+    script = [answer("Resposta 1")]
+    work = worker(database, telegram, script)
+    telegram.message(f"/start {code}")
+    run(work.poll_once(link["id"]))
+    telegram.message("Oi")
+    run(work.poll_once(link["id"]))
+    original = telegram.__call__
+
+    def timeout(request):
+        if request.url.path.endswith("/sendMessage"):
+            raise httpx.ReadTimeout("perdida", request=request)
+        return original(request)
+
+    work.adapters["telegram"] = TelegramAdapter(httpx.MockTransport(timeout))
+    with pytest.raises(ChannelError, match="channel_outcome_unknown"):
+        run(work.flush_once(link["id"]))
+    # Resposta pode ter chegado: não é reenviada depois.
+    work.adapters["telegram"] = TelegramAdapter(httpx.MockTransport(telegram))
+    before = len(telegram.sent)
+    assert run(work.flush_once(link["id"])) == 0 and len(telegram.sent) == before
+
+
+def test_global_stop_holds_outbound_messages(setup):
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    database, store, agent, chat, telegram, service, link, code = setup
+    script = [answer("Depois da parada")]
+    work = worker(database, telegram, script)
+    telegram.message(f"/start {code}")
+    run(work.poll_once(link["id"]))
+    telegram.message("Oi")
+    run(work.poll_once(link["id"]))
+    safety = SafetyService(database)
+    stopped = safety.command(
+        SafetyCommand(
+            client_request_id=uuid4(), kind="stop", expected_revision=safety.current()["revision"]
+        )
+    )
+    assert run(work.flush_once(link["id"])) == 0
+    safety.command(
+        SafetyCommand(
+            client_request_id=uuid4(), kind="resume", expected_revision=stopped["revision"]
+        )
+    )
+    assert run(work.flush_once(link["id"])) == 1
+    assert telegram.sent[-1][1] == "Depois da parada"

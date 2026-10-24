@@ -118,3 +118,9 @@ mesmo quando ela fica obsoleta, e a nova orientação gera somente a próxima ch
 prevista. Replay antes/depois da resposta, após reinício do serviço e depois da conclusão
 preserva IDs, journal, contadores e liquidações. Pausar uma resposta em voo e retomar
 seu resultado pronto, inclusive com limite de uma chamada, não gera nem cobra novamente.
+
+## Agente, equipe e canais
+
+- Cada tarefa do agente tem limite de gerações, efeitos e tempo; atingido o limite, a tarefa encerra com `task_limit_reached`.
+- Delegação entre abelhas: no máximo 3 delegações por tarefa e cadeia de profundidade 2 (A→B→C); voltar a uma abelha da cadeia é recusado (`delegation_cycle`). Cada tarefa delegada usa o orçamento da abelha que a executa.
+- Consultas (`bees_ask`), mensagens de canais e rotinas disparadas por webhook usam a mesma reserva de tokens do chat/tarefas da abelha correspondente.

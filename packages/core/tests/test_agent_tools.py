@@ -250,7 +250,17 @@ def test_allow_tool_rule_skips_later_questions(tmp_path):
     case.drain()
     assert case.detail().task.status == "completed"
     assert len(MemoryService(case.database).list_for_agent(case.agent.id)) == 2
-    assert len(case.service.list(case.agent.id, task_id=case.task.id)) == 1
+    decided = case.service.list(case.agent.id, task_id=case.task.id)
+    assert len(decided) == 1
+    # Revogar a decisão revoga também a regra ampla que ela criou.
+    case.service.revoke(
+        case.agent.id,
+        decided[0]["id"],
+        {"client_request_id": uuid4(), "expected_revision": decided[0]["revision"]},
+    )
+    with case.store.transaction(write=False) as unit:
+        rules = [p for p in unit.policies.list(agent_id=case.agent.id) if p.source == "user"]
+    assert rules and all(rule.status == "revoked" for rule in rules)
 
 
 def test_unknown_and_revoked_tools_never_reach_runner(tmp_path):

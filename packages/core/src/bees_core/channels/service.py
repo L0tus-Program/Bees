@@ -423,11 +423,44 @@ class ChannelService:
                 is not None
             )
 
+    def begin_outbound(self, link_id, key: str) -> bool:
+        """Registra a saída antes do envio; queda no meio nunca reenvia."""
+        with self.database.transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM channel_events WHERE link_id=? AND direction='out' "
+                "AND external_id=?",
+                (str(link_id), key),
+            ).fetchone():
+                return False
+            connection.execute(
+                "INSERT INTO channel_events(link_id,direction,external_id,created_at,status) "
+                "VALUES(?,'out',?,?,'sending')",
+                (str(link_id), key, _iso(self.clock())),
+            )
+            return True
+
+    def abandon_outbound(self, link_id, key: str, *, uncertain: bool) -> None:
+        """Falha antes da entrega libera nova tentativa; falha incerta fica registrada."""
+        with self.database.transaction() as connection:
+            if uncertain:
+                connection.execute(
+                    "UPDATE channel_events SET status='unknown' WHERE link_id=? "
+                    "AND direction='out' AND external_id=? AND status='sending'",
+                    (str(link_id), key),
+                )
+            else:
+                connection.execute(
+                    "DELETE FROM channel_events WHERE link_id=? AND direction='out' "
+                    "AND external_id=? AND status='sending'",
+                    (str(link_id), key),
+                )
+
     def mark_sent(self, link_id, key: str, *, after: str | None = None) -> None:
         with self.database.transaction() as connection:
             connection.execute(
-                "INSERT OR IGNORE INTO channel_events(link_id,direction,external_id,created_at,"
-                "status) VALUES(?,'out',?,?,'sent')",
+                "INSERT INTO channel_events(link_id,direction,external_id,created_at,status) "
+                "VALUES(?,'out',?,?,'sent') ON CONFLICT(link_id,direction,external_id) "
+                "DO UPDATE SET status='sent'",
                 (str(link_id), key, _iso(self.clock())),
             )
             if after is not None:
@@ -654,18 +687,42 @@ class ChannelWorker:
                 adapter, token, link, message.sender_id, "Não foi possível responder agora."
             )
 
+    def _stopped(self) -> bool:
+        with self.database.transaction(write=False) as connection:
+            row = connection.execute("SELECT status FROM safety_control WHERE id=1").fetchone()
+        return row is not None and row[0] != "running"
+
+    async def _deliver(self, link, adapter, token, key: str, content: str, after=None) -> bool:
+        if not self.service.begin_outbound(link["id"], key):
+            return False
+        try:
+            await adapter.send(token, link["target"], link["chat_id"], content)
+        except ChannelError as error:
+            self.service.abandon_outbound(
+                link["id"], key, uncertain=error.code == "channel_outcome_unknown"
+            )
+            raise
+        except BaseException:
+            # Cancelamento ou queda durante o envio: pode ter chegado; não repetir.
+            self.service.abandon_outbound(link["id"], key, uncertain=True)
+            raise
+        self.service.mark_sent(link["id"], key, after=after)
+        return True
+
     async def flush_once(self, link_id: str) -> int:
         link = self.service.get(link_id)
         if link["status"] != "active" or link["chat_id"] is None:
+            return 0
+        if self._stopped():
+            # Parada global: nada sai para canais externos até a retomada.
             return 0
         adapter = self.adapters[link["kind"]]
         token = None
         sent = 0
         for message_id, content, created_at in self.service.outbound(link):
             token = token or self._token(link)
-            await adapter.send(token, link["target"], link["chat_id"], content)
-            self.service.mark_sent(link_id, message_id, after=created_at)
-            sent += 1
+            if await self._deliver(link, adapter, token, message_id, content, created_at):
+                sent += 1
         sent += await self._notify_approvals(link, adapter, token)
         return sent
 
@@ -685,13 +742,10 @@ class ChannelWorker:
             if not approval.get("valid", True) or self.service.notified(link["id"], key):
                 continue
             token = token or self._token(link)
-            await adapter.send(
-                token,
-                link["target"],
-                link["chat_id"],
+            text = (
                 "⚠️ A abelha precisa da sua decisão: "
-                f"{approval.get('summary') or approval.get('tool_name')}. Decida{where}.",
+                f"{approval.get('summary') or approval.get('tool_name')}. Decida{where}."
             )
-            self.service.mark_sent(link["id"], key)
-            sent += 1
+            if await self._deliver(link, adapter, token, key, text):
+                sent += 1
         return sent

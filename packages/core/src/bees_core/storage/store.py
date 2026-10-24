@@ -1780,6 +1780,14 @@ class Safety:
             "provisioning_effects": connection.execute(
                 "SELECT count(*) FROM provisioning_claims WHERE status='dispatch_started'"
             ).fetchone()[0],
+            # Bases anteriores à migração 0019 não têm executores.
+            "executor_commands": connection.execute(
+                "SELECT count(*) FROM executor_commands WHERE status IN ('queued','sent')"
+            ).fetchone()[0]
+            if connection.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
+            ).fetchone()
+            else 0,
         }
 
 
