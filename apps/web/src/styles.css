@@ -648,3 +648,6 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .read-aloud { margin-top: 4px; font-size: 13px; }
 .template-picker { display: grid; gap: 6px; margin-bottom: 8px; }
 .file-import { cursor: pointer; justify-self: start; }
+.connection-health { margin-bottom: 16px; display: grid; gap: 8px; }
+.agent-approval-preview, .agent-approval-summary code, .channel-card code, .routine-hook code, .hook-url code { overflow-wrap: anywhere; white-space: pre-wrap; word-break: break-word; }
+.agent-recent-decisions { margin-top: 8px; }

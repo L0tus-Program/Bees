@@ -8,6 +8,7 @@ import { ErrorNotice } from '../../components/Feedback'
 import { TaskDetail } from '../tasks/TaskDetail'
 import { TaskTime } from '../tasks/TaskTime'
 import { mergeAttention } from './state'
+import { ConnectionHealth } from './ConnectionHealth'
 import './attention.css'
 
 type Pending = { kind: 'read'; item: AttentionItem; body: ReadCommand } | { kind: 'preference'; preference: AttentionPreference; body: PreferenceCommand }
@@ -27,7 +28,7 @@ export function AttentionList({ items, disabled = false, onOpen, onRead }: { ite
 }
 
 export function AttentionPanel({ agent }: { agent: AgentSummary }) {
-  return <AttentionScope key={agent.id} agent={agent} />
+  return <><ConnectionHealth key={`health-${agent.id}`} agentId={agent.id} /><AttentionScope key={agent.id} agent={agent} /></>
 }
 
 function AttentionScope({ agent }: { agent: AgentSummary }) {

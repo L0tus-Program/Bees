@@ -15,6 +15,7 @@ import { ActivityPanel } from '../activity/ActivityPanel'
 import { rememberWorkspace, restoreWorkspace } from '../activity/context'
 import type { WorkspaceView } from '../activity/context'
 import { ComputerSummary } from '../computer/ComputerSummary'
+import { RecentAgentDecisions } from '../agent/AgentApprovals'
 import { SafetyControl } from '../safety/SafetyControl'
 import { AttentionPanel } from '../attention/AttentionPanel'
 
@@ -98,7 +99,7 @@ export function Dashboard({ userName }: { userName: string }) {
           {view === 'policies' && <PolicyPanel key={selected.id} agent={selected} />}
           {view === 'usage' && <ActivityPanel key={selected.id} agent={selected} onPreferences={() => setView('attention')} />}
           {view === 'attention' && <AttentionPanel key={selected.id} agent={selected} />}
-          {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /><McpServers key={`mcp-${selected.id}`} agentId={selected.id} /></Suspense>}
+          {view === 'tools' && <Suspense fallback={<LoadingNotice />}><ToolsPanel key={selected.id} agent={selected} /><McpServers key={`mcp-${selected.id}`} agentId={selected.id} /><section className="surface"><RecentAgentDecisions key={`decisions-${selected.id}`} agentId={selected.id} /></section></Suspense>}
           {view === 'computer' && <Suspense fallback={<LoadingNotice />}><ComputerWorkspace key={`computer-${selected.id}`} agentId={selected.id} /><EnvironmentPanel key={selected.id} agent={selected} /></Suspense>}
           {view === 'channels' && <Suspense fallback={<LoadingNotice />}><ChannelsPanel key={selected.id} agentId={selected.id} /></Suspense>}
           {view === 'conversation' && <TaskPanel key={selected.id} agent={selected} />}
