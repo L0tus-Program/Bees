@@ -184,3 +184,9 @@ A comparação canônica conservou 12 tabelas de negócio, com somente duas alte
 humanas de leitura e seus eventos. A preparação usou uma falha de transporte
 controlada para produzir unknown; a navegação não iniciou chamadas de modelo,
 tarefas ou efeitos externos. Essa prova não representa aceite com modelo ou VM reais.
+
+## Conexões que precisam de você
+
+A aba **Atenção** mostra, acima dos avisos, as conexões que exigem ação humana, calculadas do estado atual (sem duplicatas nem itens a marcar como lidos): canal com token recusado ou bot sem acesso, conector MCP com falha, computador com falha ou runtime desconectado, comandos aguardando executor desconectado/revogado e gatilho por webhook recusado. Cada item diz o que fazer e onde; nenhum segredo, argumento ou mensagem é exibido (`GET /api/v1/agents/{agente}/connections/health`).
+
+Desativar o aviso **Decisão necessária** também silencia o aviso correspondente nos canais Telegram/Discord.

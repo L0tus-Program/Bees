@@ -442,6 +442,25 @@ def test_research_mode_publishes_report_with_verified_and_unverified_links(tmp_p
     _, content = case.artifacts.read(case.agent.id, report.id)
     text = content.decode()
     assert "https://example.org/abelhas" in text and "não verificados" in text
+    assert check["fingerprint"] and check["unchanged_since"] is None
+    # Mesma pergunta, mesmas fontes com o mesmo texto: marcada como sem novidade.
+    case.script += [
+        tool_calls(("r3", "web_fetch", {"url": "https://example.org/abelhas"})),
+        answer("Igual ao anterior: https://example.org/abelhas"),
+    ]
+    again = case.tasks.create(
+        case.agent.id,
+        AgentTaskInput(
+            client_request_id=uuid4(),
+            title="Pesquisar abelhas",
+            objective=case.task.objective,
+        ),
+        metadata={"research": True},
+    )
+    case.drain()
+    repeat = case.tasks.detail(case.agent.id, again.id).runs[-1].checkpoint["research"]
+    assert repeat["fingerprint"] == check["fingerprint"]
+    assert repeat["unchanged_since"] == str(case.task.id)
 
 
 def test_pending_agent_decision_is_actionable_attention_once(tmp_path):

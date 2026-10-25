@@ -18,6 +18,7 @@ from bees_core.attention import (
     ReadInput,
 )
 from bees_core.security.identity import Session
+from bees_core.storage.store import NotFoundError
 
 _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1/agents", tags=["attention"])
@@ -74,3 +75,14 @@ def put_read(
     return AttentionService(request.app.state.database).set_read(
         agent_id, item_id, body, conversation_id=conversation_id
     )
+
+
+@router.get("/{agent_id}/connections/health")
+def connection_health(agent_id: UUID, request: Request, session: _SESSION) -> dict:
+    """Conexões que precisam de ação humana; leitura do estado, sem efeitos."""
+    from bees_core.connection_health import connection_issues
+
+    with request.app.state.store.transaction(write=False) as unit:
+        if unit.agents.get(agent_id) is None:
+            raise NotFoundError("Abelha não encontrada.")
+    return {"issues": connection_issues(request.app.state.database, agent_id)}

@@ -735,6 +735,15 @@ class ChannelWorker:
             )
         except Exception:
             return 0
+        with self.database.transaction(write=False) as connection:
+            preference = connection.execute(
+                "SELECT enabled FROM attention_preferences WHERE agent_id=? "
+                "AND kind='approval_required'",
+                (link["agent_id"],),
+            ).fetchone()
+        if preference is not None and not preference[0]:
+            # Preferência de atenção desativada também silencia o aviso no canal.
+            return 0
         sent = 0
         where = f" em {self.app_url}" if self.app_url else " na interface do Bees"
         for approval in pending:

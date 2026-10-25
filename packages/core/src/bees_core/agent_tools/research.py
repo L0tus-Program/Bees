@@ -41,6 +41,10 @@ def sources(unit, task) -> list[dict]:
         final = result.get("final_url") or result.get("url")
         if not isinstance(final, str):
             continue
+        status = result.get("status", 200)
+        if isinstance(status, int) and status >= 400:
+            # Página de erro (link morto) não comprova nada: não vira fonte.
+            continue
         text = result.get("text") or ""
         found.setdefault(
             final,
@@ -58,6 +62,30 @@ def sources(unit, task) -> list[dict]:
             },
         )
     return list(found.values())
+
+
+def fingerprint(observed: list[dict]) -> str:
+    """Identidade das evidências lidas: mesmas páginas com o mesmo texto."""
+    pairs = sorted((item["final_url"], item["text_sha256"]) for item in observed)
+    return hashlib.sha256(json.dumps(pairs).encode("utf-8")).hexdigest()
+
+
+def relevance_key(task) -> str:
+    """Mesma rotina ou mesma pergunta: comparáveis entre execuções."""
+    if task.routine_id is not None:
+        return f"routine:{task.routine_id}"
+    return "question:" + hashlib.sha256(task.objective.strip().lower().encode()).hexdigest()
+
+
+def previous_fingerprint(unit, task, key: str) -> tuple[str | None, str | None]:
+    row = unit.agents._context.connection.execute(
+        "SELECT r.task_id,json_extract(r.checkpoint_json,'$.research.fingerprint') FROM runs r "
+        "JOIN tasks t ON t.id=r.task_id WHERE t.agent_id=? AND t.id<>? AND t.status='completed' "
+        "AND json_extract(r.checkpoint_json,'$.research.key')=? "
+        "ORDER BY r.updated_at DESC LIMIT 1",
+        (str(task.agent_id), str(task.id), key),
+    ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
 
 
 def verify(answer: str, observed: list[dict]) -> dict:
