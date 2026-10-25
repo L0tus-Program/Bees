@@ -16,7 +16,8 @@ DISCORD_API = "https://discord.com/api/v10"
 
 class ChannelError(RuntimeError):
     """Códigos: channel_token_invalid, channel_conflict, channel_target_invalid,
-    channel_rate_limited, channel_unreachable, channel_invalid_response."""
+    channel_rate_limited, channel_unreachable (nada enviado), channel_outcome_unknown
+    (pedido pode ter chegado), channel_invalid_response."""
 
     def __init__(self, code: str, retry_after: float | None = None) -> None:
         super().__init__(code)
@@ -97,8 +98,12 @@ class TelegramAdapter(_Http):
         try:
             async with self.client(f"{TELEGRAM_API}/bot{token}/", timeout) as client:
                 response = await client.post(method, json=payload)
-        except httpx.HTTPError:
+        except httpx.ConnectError, httpx.ConnectTimeout:
             raise ChannelError("channel_unreachable") from None
+        except httpx.HTTPError:
+            raise ChannelError(
+                "channel_outcome_unknown" if method == "sendMessage" else "channel_unreachable"
+            ) from None
         if response.status_code in (401, 404):
             raise ChannelError("channel_token_invalid")
         if response.status_code == 409:
@@ -193,8 +198,12 @@ class DiscordAdapter(_Http):
                 },
             ) as client:
                 response = await client.request(method, path, **kwargs)
-        except httpx.HTTPError:
+        except httpx.ConnectError, httpx.ConnectTimeout:
             raise ChannelError("channel_unreachable") from None
+        except httpx.HTTPError:
+            raise ChannelError(
+                "channel_outcome_unknown" if method == "POST" else "channel_unreachable"
+            ) from None
         if response.status_code == 401:
             raise ChannelError("channel_token_invalid")
         if response.status_code in (403, 404):

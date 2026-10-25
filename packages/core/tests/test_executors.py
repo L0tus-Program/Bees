@@ -136,3 +136,199 @@ def test_personal_target_requires_explicit_scope(state):
     other = pair(service)
     with pytest.raises(ExecutorError, match="executor_unavailable"):
         service.set_grant(other["executor_id"], agent.id, {"expected_revision": 0, "enabled": True})
+
+
+def queued(store, executor_id, agent, tool, *, computer_id=None, scope=None, generation=1):
+    from bees_core.models import Action, Run, Task
+
+    with store.transaction() as unit:
+        task = unit.tasks.create(Task(agent_id=agent.id, title="T", objective="O"))
+        run = unit.runs.create(Run(task_id=task.id))
+        action = unit.actions.create(Action(run_id=run.id, tool_name=tool))
+    command_id = str(action.id)
+    payload = {"arguments": {}, "guard": {"generation": generation}}
+    if scope is not None:
+        payload["scope"] = scope
+    now = utc_now().isoformat()
+    deadline = (utc_now() + timedelta(minutes=5)).isoformat()
+    with store.transaction() as unit:
+        unit.agents._context.connection.execute(
+            "INSERT INTO executor_commands(id,created_at,updated_at,executor_id,computer_id,"
+            "agent_id,tool_name,arguments_json,deadline_at,status) "
+            "VALUES(?,?,?,?,?,?,?,?,?,'queued')",
+            (
+                command_id,
+                now,
+                now,
+                executor_id,
+                computer_id,
+                str(agent.id),
+                tool,
+                __import__("json").dumps(payload),
+                deadline,
+            ),
+        )
+    return command_id
+
+
+def status(queue, command_id):
+    row = queue.get(command_id)
+    return row["status"], row["error_code"]
+
+
+def test_claim_rechecks_stop_control_and_personal_grant(state):
+    from bees_core.safety import SafetyService
+
+    database, store, agent, service, clock = state
+    queue = CommandQueue(database, clock=clock)
+    runtime = pair(service)
+    computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+    service.report_computer(runtime["executor_id"], computer["id"], "ready")
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+    shell = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.shell.run",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    click = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.browser.click",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    service.set_control(agent.id, computer["id"], {"expected_revision": 1, "holder": "human"})
+    sent = queue.claim(runtime["executor_id"], "conn-1")
+    # Controle humano tomado depois do início: clique não sai; shell segue.
+    assert [row["id"] for row in sent] == [shell]
+    assert "guard" not in sent[0]["arguments_json"]
+    assert status(queue, click) == ("expired", "human_control")
+    # Geração diferente (parada e retomada no meio) também não sai.
+    stale = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.shell.run",
+        computer_id=computer["id"],
+        generation=generation - 1,
+    )
+    assert queue.claim(runtime["executor_id"], "conn-1") == []
+    assert status(queue, stale) == ("expired", "global_stop")
+    # Parada global expira pendentes imediatamente e bloqueia novos computadores.
+    pending = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.shell.run",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    safety = SafetyService(database)
+    current = safety.current()
+    safety.command(
+        __import__("bees_core.safety", fromlist=["SafetyCommand"]).SafetyCommand(
+            client_request_id=uuid4(), kind="stop", expected_revision=current["revision"]
+        )
+    )
+    assert status(queue, pending) == ("expired", "global_stop")
+    assert safety.current()["in_flight"]["executor_commands"] == 1  # shell já enviado
+    current_computer = service.computers(agent.id)[0]
+    service.remove_computer(
+        agent.id, computer["id"], {"expected_revision": current_computer["revision"]}
+    )
+    with pytest.raises(ExecutorError, match="global_stop"):
+        service.create_computer(agent.id, {"client_request_id": uuid4()})
+
+
+def test_claim_rechecks_personal_grant_and_report_connection(state):
+    database, store, agent, service, clock = state
+    queue = CommandQueue(database, clock=clock)
+    personal = pair(service, "personal")
+    grant = service.set_grant(
+        personal["executor_id"],
+        agent.id,
+        {"expected_revision": 0, "enabled": True, "roots": ["Docs"], "write": True},
+    )
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+    scope = grant["scope"]
+    first = queued(
+        store,
+        personal["executor_id"],
+        agent,
+        "personal.files.write",
+        scope=scope,
+        generation=generation,
+    )
+    narrowed = service.set_grant(
+        personal["executor_id"],
+        agent.id,
+        {"expected_revision": grant["revision"], "enabled": True, "roots": ["Docs"]},
+    )
+    assert status(queue, first) == ("expired", "grant_changed")
+    second = queued(
+        store,
+        personal["executor_id"],
+        agent,
+        "personal.files.write",
+        scope=scope,
+        generation=generation,
+    )
+    assert queue.claim(personal["executor_id"], "conn-1") == []
+    assert status(queue, second) == ("expired", "grant_changed")
+    ok = queued(
+        store,
+        personal["executor_id"],
+        agent,
+        "personal.files.read",
+        scope=narrowed["scope"],
+        generation=generation,
+    )
+    assert [row["id"] for row in queue.claim(personal["executor_id"], "conn-1")] == [ok]
+    # Conexão antiga não fecha o comando enviado pela conexão atual.
+    with pytest.raises(ExecutorError, match="executor_protocol_invalid"):
+        queue.report(personal["executor_id"], ok, "confirmed", {}, connection_id="conn-velha")
+    assert queue.report(personal["executor_id"], ok, "confirmed", {}, connection_id="conn-1")
+
+
+def test_resume_closes_queue_and_late_report_is_only_evidence(state):
+    from bees_core.executors import close_for_resume
+
+    database, store, agent, service, clock = state
+    queue = CommandQueue(database, clock=clock)
+    runtime = pair(service)
+    computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+    service.report_computer(runtime["executor_id"], computer["id"], "ready")
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+    waiting = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.shell.run",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    with store.transaction() as unit:
+        assert close_for_resume(unit, waiting) == "expired"
+    assert queue.claim(runtime["executor_id"], "conn-1") == []
+    sent = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.shell.run",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    assert [row["id"] for row in queue.claim(runtime["executor_id"], "conn-1")] == [sent]
+    with store.transaction() as unit:
+        assert close_for_resume(unit, sent) == "unknown"
+    assert queue.report(runtime["executor_id"], sent, "confirmed", {"ok": True}) is False
+    row = queue.get(sent)
+    assert row["status"] == "unknown" and row["error_code"] == "late_confirmed"
+    assert '"late_status": "confirmed"' in row["result_json"]

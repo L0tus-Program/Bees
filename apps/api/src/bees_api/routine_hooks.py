@@ -56,7 +56,9 @@ def revoke_hook(
 @public.post("/{token}", status_code=202)
 def trigger(token: str, request: Request):
     try:
-        return RoutineHookService(request.app.state.database).trigger(token)
+        return RoutineHookService(request.app.state.database).trigger(
+            token, request.headers.get("idempotency-key")
+        )
     except HookError as error:
         status = {"hook_not_found": 404, "hook_rate_limited": 429}.get(error.code, 409)
         headers = {"Cache-Control": "no-store"}

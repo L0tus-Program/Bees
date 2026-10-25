@@ -772,7 +772,8 @@ _SECRET_KEY = re.compile(
     re.I,
 )
 _SECRET_VALUE = re.compile(
-    r"\b(?:b[phx]_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{16,}|"
+    r"\b(?:b[ehpx]_[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{16,}|"
+    r"\d{6,12}:[A-Za-z0-9_-]{30,}|[MNO][A-Za-z\d_-]{23,}\.[\w-]{6}\.[\w-]{27,}|"
     r"gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
     r"Bearer\s+\S+|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
     re.I,

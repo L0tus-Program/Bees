@@ -407,6 +407,9 @@ class ExecutorService:
         value = ComputerInput.model_validate(value)
         now = self.clock()
         with self.store.transaction(actor="user", source="computer_create") as unit:
+            if unit.safety.state().status != "running":
+                # Parada global: nenhum ambiente novo é provisionado; remover continua livre.
+                raise ExecutorError("global_stop")
             agent = unit.agents.get(agent_id)
             if agent is None:
                 raise NotFoundError("Abelha não encontrada.")
@@ -593,6 +596,13 @@ class ExecutorService:
                     "updated_at=? WHERE id=?",
                     (int(value.enabled), json.dumps(scope), now, grant_id),
                 )
+                # Pendentes com o escopo anterior não são enviados.
+                _connection(unit).execute(
+                    "UPDATE executor_commands SET status='expired',error_code='grant_changed',"
+                    "updated_at=?,finished_at=? WHERE executor_id=? AND agent_id=? "
+                    "AND status='queued'",
+                    (now, now, str(executor_id), str(agent_id)),
+                )
             return next(item for item in self._grants(unit, executor_id) if item["id"] == grant_id)
 
     @staticmethod
@@ -703,6 +713,32 @@ def personal_scope(unit, agent_id) -> dict | None:
 # ------------------------------------------------------------- fila de comandos
 
 
+def close_for_resume(unit, action_id) -> str | None:
+    """Retomada após queda: fila expira (sem efeito), enviado vira desconhecido."""
+    connection = _connection(unit)
+    row = connection.execute(
+        "SELECT status FROM executor_commands WHERE id=?", (str(action_id),)
+    ).fetchone()
+    if row is None:
+        return None
+    now = _iso(_now())
+    if row[0] == "queued":
+        connection.execute(
+            "UPDATE executor_commands SET status='expired',error_code='worker_restart',"
+            "updated_at=?,finished_at=? WHERE id=? AND status='queued'",
+            (now, now, str(action_id)),
+        )
+        return "expired"
+    if row[0] == "sent":
+        connection.execute(
+            "UPDATE executor_commands SET status='unknown',error_code='worker_restart',"
+            "updated_at=?,finished_at=? WHERE id=? AND status='sent'",
+            (now, now, str(action_id)),
+        )
+        return "unknown"
+    return row[0]
+
+
 class CommandQueue:
     def __init__(self, database: Database, *, clock=_now):
         self.store = StateStore(database)
@@ -716,6 +752,8 @@ class CommandQueue:
             payload = {"arguments": payload, "scope": personal_scope(unit, agent_id) or {}}
         else:
             payload = {"arguments": payload}
+        # Autoridade conferida de novo no envio; nunca é repassada ao executor.
+        payload["guard"] = {"generation": unit.safety.state().generation}
         _connection(unit).execute(
             "INSERT INTO executor_commands(id,created_at,updated_at,executor_id,computer_id,"
             "agent_id,tool_name,arguments_json,deadline_at,status) "
@@ -757,22 +795,102 @@ class CommandQueue:
                 "executor_id=? AND status='queued' ORDER BY created_at LIMIT ?",
                 (executor_id, limit),
             )
+            sent = []
             for row in rows:
+                payload = json.loads(row["arguments_json"])
+                reason = self._refusal(unit, row, payload)
+                if reason is not None:
+                    # Estado mudou entre o início e o envio: nada chega ao executor.
+                    _connection(unit).execute(
+                        "UPDATE executor_commands SET status='expired',error_code=?,updated_at=?,"
+                        "finished_at=? WHERE id=? AND status='queued'",
+                        (reason, _iso(now), _iso(now), row["id"]),
+                    )
+                    continue
                 _connection(unit).execute(
                     "UPDATE executor_commands SET status='sent',sent_at=?,updated_at=? "
                     "WHERE id=? AND status='queued'",
                     (_iso(now), _iso(now), row["id"]),
                 )
-            return rows
+                payload.pop("guard", None)
+                sent.append(row | {"arguments_json": json.dumps(payload, ensure_ascii=False)})
+            return sent
 
-    def report(self, executor_id: str, command_id: str, status: str, result=None, code=None):
+    @staticmethod
+    def _refusal(unit, row, payload) -> str | None:
+        from bees_core.safety import blocked
+
+        guard = payload.get("guard") or {}
+        if blocked(unit.safety.state(), guard.get("generation")):
+            return "global_stop"
+        connection = _connection(unit)
+        owner = connection.execute(
+            "SELECT t.status,g.status FROM actions a JOIN runs r ON r.id=a.run_id "
+            "JOIN tasks t ON t.id=r.task_id JOIN agents g ON g.id=t.agent_id WHERE a.id=?",
+            (row["id"],),
+        ).fetchone()
+        if owner is not None and owner[0] == "cancelled":
+            return "task_cancelled"
+        if owner is not None and owner[1] != "active":
+            return "agent_inactive"
+        if row["computer_id"]:
+            computer = connection.execute(
+                "SELECT status,control_holder FROM computers WHERE id=?", (row["computer_id"],)
+            ).fetchone()
+            if computer is None or computer[0] != "ready":
+                return "computer_unavailable"
+            action = row["tool_name"].split(".", 1)[-1]
+            if computer[1] == "human" and action.startswith(DESKTOP_ACTIONS):
+                return "human_control"
+        if row["tool_name"].startswith("personal."):
+            grant = connection.execute(
+                "SELECT enabled,scope_json FROM executor_grants WHERE executor_id=? AND agent_id=?",
+                (row["executor_id"], row["agent_id"]),
+            ).fetchone()
+            if grant is None or not grant[0]:
+                return "grant_revoked"
+            if json.loads(grant[1]) != payload.get("scope"):
+                return "grant_changed"
+        return None
+
+    def report(
+        self,
+        executor_id: str,
+        command_id: str,
+        status: str,
+        result=None,
+        code=None,
+        *,
+        connection_id: str | None = None,
+    ):
         if status not in ("confirmed", "failed", "unknown"):
             raise ExecutorError("executor_protocol_invalid")
         now = self.clock()
         with self.store.transaction(actor="executor", source="executor_result") as unit:
+            if connection_id is not None:
+                executor = _select(unit, "executors", EXECUTOR_COLUMNS, "id=?", (executor_id,))
+                if not executor or executor[0]["connection_id"] != connection_id:
+                    # Conexão substituída não fecha comandos da conexão atual.
+                    raise ExecutorError("executor_protocol_invalid")
             rows = _select(unit, "executor_commands", COMMAND_COLUMNS, "id=?", (command_id,))
             if not rows or rows[0]["executor_id"] != executor_id:
                 raise ExecutorError("executor_protocol_invalid")
+            if rows[0]["status"] == "unknown" and rows[0]["result_json"] is None:
+                # Recibo tardio vira evidência para reconciliação humana; o estado
+                # desconhecido não muda sozinho.
+                _connection(unit).execute(
+                    "UPDATE executor_commands SET result_json=?,error_code=?,updated_at=? "
+                    "WHERE id=? AND status='unknown'",
+                    (
+                        json.dumps(
+                            {"late_status": status, "late_result": result}, ensure_ascii=False
+                        ),
+                        f"late_{status}",
+                        _iso(now),
+                        command_id,
+                    ),
+                )
+                return False
             if rows[0]["status"] != "sent":
                 return False
             _connection(unit).execute(

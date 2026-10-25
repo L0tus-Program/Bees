@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getSafety, isSafetyState, sendSafetyCommand } from './safety'
 import { setCsrfToken } from './client'
 
-const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0 }
+const flight = { model_calls: 0, tool_actions: 0, chat_reservations: 0, provisioning_effects: 0, executor_commands: 0 }
 const running = { snapshot: { event_seq: 1, observed_at: '2026-10-12T12:00:00Z' }, status: 'running', generation: 0, revision: 1, changed_at: '1970-01-01T00:00:00+00:00', reason: null, in_flight: flight }
 const stopped = { ...running, status: 'stopped', generation: 1, revision: 2, changed_at: '2026-10-10T12:00:00+00:00', reason: 'Teste', in_flight: { ...flight, model_calls: 1 } }
 const respond = (body: unknown, status = 200) => vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))

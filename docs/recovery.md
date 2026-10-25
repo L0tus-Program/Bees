@@ -169,3 +169,15 @@ real, VM, aplicativos ou máquina pessoal. RecoveryService composto, inspeção 
 com identidade/recurso exatos, diagnóstico que componha evidência externa e matriz física de falhas
 continuam nos aceites de #82/#83/#84. Um lease vencido ou PID ausente, isoladamente,
 nunca substitui evidência suficiente do executor antigo.
+
+## Executores, canais, MCP e webhooks
+
+| Superfície | Estado após queda | O que acontece na retomada |
+| --- | --- | --- |
+| Comando de executor na fila (`queued`) | Ação `dispatch_started` | O comando expira (`worker_restart`) na mesma transação que declara o efeito desconhecido: nunca sai depois. |
+| Comando enviado (`sent`) | Pode ter executado | Vira `unknown` (`worker_restart`). Recibo que chegar depois é guardado como evidência (`late_confirmed`/`late_failed`) sem mudar o estado; reconciliação é humana. |
+| Journal do executor | `started` sem recibo | O executor marca `unknown` ao reabrir e não repete o comando. |
+| Saída de canal | Registrada como `sending` antes do envio | Queda ou timeout depois do envio vira `unknown`: a mensagem não é reenviada (pode faltar, nunca duplicar). Falha de conexão antes do envio libera nova tentativa. |
+| `mcp_call` | Resposta perdida após o envio | `mcp_outcome_unknown`, sem repetição automática. |
+| Webhook | Reenvio do serviço externo | Com `Idempotency-Key`, o mesmo evento devolve o recibo anterior sem nova execução; sem chave, vale o intervalo mínimo. |
+| Computador `removing`/`failed` | — | Remoção humana conclui; criação nova exige Bees em execução. |

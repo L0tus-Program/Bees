@@ -184,3 +184,7 @@ pacotes adulterados e sessão/CSRF/download privado. Não demonstram a restaura�
 A interface **Meus dados → Restaurar uma cópia** também permite enviar um ZIP a um
 alias novo e inativo já configurado pelo operador e consultar seu relatório sem
 reenviar. Veja [restauração e respostas perdidas](restoration.md#restaurar-pela-interface).
+
+## Conexões que não viajam
+
+Canais (Telegram/Discord), conectores MCP, executores, computadores, concessões da máquina pessoal, comandos de executor e gatilhos por webhook ficam fora do pacote: contêm referências de segredo ou vínculos com processos e serviços externos. O relatório de restauração lista `connections_not_restored`; reconecte cada um pela interface. A exportação recusa conteúdo com credenciais conhecidas (`be_`, `bh_`, `bp_`, `bx_`, tokens de bot Telegram/Discord, `sk-`, tokens GitHub e chaves privadas).

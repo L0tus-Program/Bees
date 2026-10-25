@@ -2,7 +2,7 @@ import { ApiError, record, request } from '../../api/client'
 import { MAX_EXPORT_BYTES } from './api'
 
 export interface RestoreDestination { id: string; available: boolean; state: 'inactive_only' }
-export const restoreReviews = ['new_identity', 'provider_reconnection', 'host_reconnection', 'policy_and_grant_review', 'routine_review', 'task_review', 'unknown_outcomes', 'explicit_global_resume', 'provisioner_state_not_restored'] as const
+export const restoreReviews = ['new_identity', 'provider_reconnection', 'host_reconnection', 'policy_and_grant_review', 'routine_review', 'task_review', 'unknown_outcomes', 'explicit_global_resume', 'provisioner_state_not_restored', 'connections_not_restored'] as const
 export interface RestoreReport {
   restore_id: string; source_id: string; destination: string; status: 'inactive'; created_at: string; package_sha256: string
   source_schema: number; destination_schema: number; records: Record<string, number>; blobs: number

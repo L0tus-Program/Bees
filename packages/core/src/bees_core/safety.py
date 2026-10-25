@@ -75,6 +75,19 @@ class SafetyService:
                 reason=value.reason,
                 now=utc_now(),
             )
+            connection = uow.safety._context.connection
+            if (
+                state.status != "running"
+                and connection.execute(
+                    "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
+                ).fetchone()
+            ):
+                # Comandos ainda não entregues a executores não saem mais.
+                connection.execute(
+                    "UPDATE executor_commands SET status='expired',error_code='global_stop',"
+                    "updated_at=?,finished_at=? WHERE status='queued'",
+                    (state.changed_at.isoformat(), state.changed_at.isoformat()),
+                )
             result = view(state, uow.safety.in_flight())
             if include_snapshot:
                 result["snapshot"] = observe(uow.tasks._context.connection).model_dump(mode="json")

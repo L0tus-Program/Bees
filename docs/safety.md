@@ -86,3 +86,10 @@ com resposta HTTP 503 de resultado desconhecido. As linhas de tarefas, execuçõ
 chamadas, comandos, mensagens, consumo e leases permanecem iguais; o worker não faz
 novas requisições. O consumo confirmado e a reserva incerta continuam contando, e a
 retomada individual do resultado desconhecido ainda exige reconhecimento humano.
+
+## Novas superfícies (agente, executores, canais, MCP, equipe, webhooks)
+
+- **Comandos de executor** (computador da abelha e conector pessoal): o comando nasce na fila com a geração da parada global. Ao parar, todos os comandos ainda na fila expiram (`global_stop`); no envio, o servidor reconfere parada/geração, tarefa cancelada, abelha inativa, computador pronto, controle humano (ações visuais) e a concessão pessoal atual — qualquer diferença expira o comando sem chegar ao executor. Comandos já enviados aparecem em `in_flight.executor_commands`: a parada não garante que o efeito remoto terminou.
+- **Computadores:** durante a parada não é possível criar computador; remover continua permitido.
+- **Canais:** nenhuma mensagem sai para Telegram/Discord durante a parada; as respostas acumuladas são entregues após a retomada. Mensagens recebidas durante a parada recebem aviso de que nada foi executado.
+- **MCP, equipe e webhooks** passam pelo mesmo início de efeito (`begin`) ou pelo caminho manual de rotinas, ambos recusando parada global.
