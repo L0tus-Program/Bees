@@ -9,6 +9,7 @@ import { Dashboard } from './features/dashboard/Dashboard'
 import { useResource } from './hooks/useResource'
 import { setupAuthorization } from './features/auth/setupAuthorization'
 import { AppearanceSelect } from './components/AppearanceSelect'
+import { ConfirmHost } from './components/ConfirmDialog'
 import { clearRestorePending } from './features/portability/restoreSession'
 import { clearExportState } from './features/portability/session'
 
@@ -55,6 +56,7 @@ export function App() {
   return (
     <div className="app-shell product-shell">
       <a className="skip-link" href="#main">{t('skip')}</a>
+      <ConfirmHost />
       <header className="app-header">
         <div className="brand"><img src="/bee.svg" alt="" width="42" height="42" /><span>bees<span className="brand-period">.</span></span></div>
         <div className="header-controls"><span className="release-label">{t('textAssistant')}</span><AppearanceSelect /><label className="language-select"><span className="sr-only">{t('language')}</span><select value={i18n.resolvedLanguage ?? 'pt-BR'} onChange={(event) => { void i18n.changeLanguage(event.target.value) }}><option value="pt-BR">Português</option><option value="en">English</option><option value="es">Español</option></select></label>{authenticated && <button type="button" ref={dataButton} className="text-button" aria-pressed={dataOpen} disabled={signingOut || dataBusy} onClick={() => setDataOpen(value => !value)}>{dataText('navigation')}</button>}{authenticated && <button type="button" className="text-button" disabled={signingOut} onClick={() => { void signOut() }}>{t(signingOut ? 'working' : 'signOut')}</button>}</div>

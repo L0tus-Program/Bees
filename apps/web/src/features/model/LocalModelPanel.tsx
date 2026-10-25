@@ -5,6 +5,7 @@ import type { ApiError } from '../../api/client'
 import { cancelLocalPull, deleteLocalModel, formatBytes, getLocalModels, getLocalPull, startLocalPull } from '../../api/localModels'
 import type { LocalModelPull, LocalModelStatus, SuggestedLocalModel } from '../../api/localModels'
 import { ErrorNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 type State = { state: 'loading' } | { state: 'ready'; data: LocalModelStatus } | { state: 'error'; error: ApiError }
 const MODEL = /^[a-z0-9][a-z0-9._-]{0,99}(\/[a-z0-9][a-z0-9._-]{0,99})?(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$/
@@ -51,7 +52,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
     const message = suggestion
       ? t('confirmKnown', { model: name, size: size(suggestion.download_bytes), source: suggestion.source, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint, memory: suggestion.min_memory_gb })
       : t('confirmUnknown', { model: name, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint })
-    if (!window.confirm(message)) return
+    if (!await confirmAction(message)) return
     setNotice(null); setFailure(null)
     try { setPull(await startLocalPull(target, name, crypto.randomUUID())) } catch (error) { setFailure(asApiError(error)) }
   }
@@ -62,7 +63,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
   }
 
   async function remove(name: string) {
-    if (!window.confirm(t('removeConfirm', { model: name }))) return
+    if (!await confirmAction(t('removeConfirm', { model: name }))) return
     setNotice(null); setFailure(null)
     try { await deleteLocalModel(target, name); setNotice(t('removed')); await load() } catch (error) { setFailure(asApiError(error)) }
   }

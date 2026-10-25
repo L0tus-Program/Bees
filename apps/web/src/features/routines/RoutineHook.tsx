@@ -5,6 +5,7 @@ import type { ApiError } from '../../api/client'
 import { createHook, getHook, revokeHook } from '../../api/hooks'
 import type { RoutineHook as Hook } from '../../api/hooks'
 import { ErrorNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 export function RoutineHook({ agentId, routineId }: { agentId: string; routineId: string }) {
   const { t, i18n } = useTranslation('hooks')
@@ -34,8 +35,8 @@ export function RoutineHook({ agentId, routineId }: { agentId: string; routineId
     {url && <div className="hook-url" role="status"><p><strong>{t('urlOnce')}</strong></p><code>{url}</code><button type="button" className="button secondary" onClick={() => { void navigator.clipboard?.writeText(url).then(() => setCopied(true)) }}>{t('copy')}</button>{copied && <small>{t('copied')}</small>}</div>}
     <div className="routine-actions">
       <label className="inline-select"><span>{t('interval')}</span><input type="number" min={10} max={86400} value={minInterval} onChange={(event) => setMinInterval(Number(event.target.value))} disabled={busy} /></label>
-      <button type="button" className="button secondary" disabled={busy || hook === undefined || minInterval < 10 || minInterval > 86400} onClick={() => { if (active && !window.confirm(t('rotateConfirm'))) return; void act(async () => { const result = await createHook(agentId, routineId, minInterval); setHook(result.hook); setUrl(result.url); setCopied(false) }) }}>{t(active ? 'rotate' : 'create')}</button>
-      {active && <button type="button" className="text-button" disabled={busy} onClick={() => { if (window.confirm(t('revokeConfirm'))) void act(async () => { await revokeHook(agentId, active); setHook(null); setUrl(null) }) }}>{t('revoke')}</button>}
+      <button type="button" className="button secondary" disabled={busy || hook === undefined || minInterval < 10 || minInterval > 86400} onClick={() => { void (active ? confirmAction(t('rotateConfirm')) : Promise.resolve(true)).then((ok) => { if (ok) void act(async () => { const result = await createHook(agentId, routineId, minInterval); setHook(result.hook); setUrl(result.url); setCopied(false) }) }) }}>{t(active ? 'rotate' : 'create')}</button>
+      {active && <button type="button" className="text-button" disabled={busy} onClick={() => { void confirmAction(t('revokeConfirm')).then((ok) => { if (ok) void act(async () => { await revokeHook(agentId, active); setHook(null); setUrl(null) }) }) }}>{t('revoke')}</button>}
     </div>
   </details>
 }

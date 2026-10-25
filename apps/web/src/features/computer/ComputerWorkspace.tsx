@@ -7,6 +7,7 @@ import type { Computer, ComputerState } from '../../api/computers'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { ScreenViewer } from './ScreenViewer'
 import { PersonalConnectors } from './PersonalConnectors'
+import { confirmAction } from '../../components/confirmAction'
 
 export function ComputerWorkspace({ agentId }: { agentId: string }) {
   const { t } = useTranslation('computer')
@@ -62,7 +63,7 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
             {computer.control_holder === 'agent'
               ? <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'human'), 'controlTaken'); setViewing(true) }}>{t('takeControl')}</button>
               : <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'agent'), 'controlReturned') }}>{t('returnControl')}</button>}
-            <button type="button" className="button secondary" disabled={busy} onClick={() => { if (window.confirm(t('removeConfirm'))) void mutate(() => removeComputer(computer), 'removed') }}>{t('remove')}</button>
+            <button type="button" className="button secondary" disabled={busy} onClick={() => { void confirmAction(t('removeConfirm')).then((ok) => { if (ok) void mutate(() => removeComputer(computer), 'removed') }) }}>{t('remove')}</button>
           </div>
           {viewing && computer.online && <ScreenViewer key={`${computer.id}:${computer.control_revision}`} computer={computer} />}
         </>}

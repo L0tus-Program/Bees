@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { checkedRecoveryActions, getRecoveryActions } from './recovery'
 const agent = '10000000-0000-4000-8000-000000000001', task = '20000000-0000-4000-8000-000000000001', run = '30000000-0000-4000-8000-000000000001'
 const id = (n: number) => `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const item = (n = 1) => ({ id: id(n), run_id: run, revision: 2, tool_name: 'tool.intent', status: 'outcome_unknown', unknown_acknowledged: true, created_at: '2026-10-21T19:00:00Z', updated_at: '2026-10-21T19:01:00Z' })
+const item = (n = 1) => ({ id: id(n), run_id: run, revision: 2, tool_name: 'tool.intent', status: 'outcome_unknown', unknown_acknowledged: true, created_at: '2026-10-21T19:00:00Z', updated_at: '2026-10-21T19:01:00Z', executor_command: null, executor_code: null })
 const page = () => ({ agent_id: agent, task_id: task, task_revision: 2, observed_at: '2026-10-21T19:02:00Z', scope: 'all_canonical_task_actions', executor_evidence: 'not_inspected', items: [item()], has_more: false, next_cursor: null })
 afterEach(() => vi.unstubAllGlobals())
 it('accepts only bounded closed scoped pages and exact final cursors', () => {

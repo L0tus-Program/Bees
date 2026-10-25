@@ -12,7 +12,7 @@ import { RecoveryActions } from './RecoveryActions'
 const agent = '10000000-0000-4000-8000-000000000001', taskId = '20000000-0000-4000-8000-000000000001', run = '30000000-0000-4000-8000-000000000001'
 const task = { agent_id: agent, id: taskId, revision: 2 } as TaskRecord
 const id = (n: number) => `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const page = (start: number, length: number, more = false) => ({ agent_id: agent, task_id: taskId, task_revision: 2, observed_at: '2026-10-21T19:00:00Z', scope: 'all_canonical_task_actions', executor_evidence: 'not_inspected', items: Array.from({ length }, (_, index) => ({ id: id(start + index), run_id: run, revision: 2, tool_name: 'private.tool <script>window.BAD=1</script>', status: 'outcome_unknown', unknown_acknowledged: true, created_at: '2026-10-21T18:00:00Z', updated_at: '2026-10-21T19:00:00Z' })), has_more: more, next_cursor: more ? id(start + length - 1) : null })
+const page = (start: number, length: number, more = false) => ({ agent_id: agent, task_id: taskId, task_revision: 2, observed_at: '2026-10-21T19:00:00Z', scope: 'all_canonical_task_actions', executor_evidence: 'not_inspected', items: Array.from({ length }, (_, index) => ({ id: id(start + index), run_id: run, revision: 2, tool_name: 'private.tool <script>window.BAD=1</script>', status: 'outcome_unknown', unknown_acknowledged: true, created_at: '2026-10-21T18:00:00Z', updated_at: '2026-10-21T19:00:00Z', executor_command: index === 0 ? 'unknown' : null, executor_code: index === 0 ? 'late_confirmed' : null })), has_more: more, next_cursor: more ? id(start + length - 1) : null })
 let root: Root, container: HTMLDivElement
 const refreshTask = vi.fn(), pt = recoveryResources['pt-BR']
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks(); container = document.createElement('div'); document.body.append(container); root = createRoot(container) })
@@ -53,4 +53,9 @@ it('blocks duplicate requests and discards replies after switching task scope', 
 })
 it('shows confirmed empty page only after a valid successful GET', async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json(page(1, 0))); vi.stubGlobal('fetch', fetcher); await render(); expect(container.textContent).not.toContain(pt.emptyPage); await click(pt.first); expect(container.textContent).toContain(pt.emptyPage); expect(button(pt.next).disabled).toBe(true)
+})
+it('explains executor queue state and late answers as evidence only', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(page(1, 1)))); await render(); await click(pt.first)
+  expect(container.textContent).toContain('Não se sabe se o comando foi executado no computador')
+  expect(container.textContent).toContain('Uma resposta do computador chegou depois (O computador confirmou o comando.)')
 })
