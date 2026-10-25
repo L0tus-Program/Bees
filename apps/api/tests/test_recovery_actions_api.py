@@ -26,6 +26,8 @@ def test_scoped_action_pages_and_cursor_rejection(state):
         "created_at",
         "updated_at",
         "unknown_acknowledged",
+        "executor_command",
+        "executor_code",
     }
     last = client.get(route + "?after=" + page["next_cursor"]).json()
     assert [item["id"] for item in last["items"]] == [str(entries[2].id)]

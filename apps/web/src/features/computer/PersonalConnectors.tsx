@@ -5,6 +5,7 @@ import type { ApiError } from '../../api/client'
 import { createInvite, getExecutors, getGrants, revokeExecutor, setGrant } from '../../api/computers'
 import type { Executor, ExecutorGrant, Invite } from '../../api/computers'
 import { ErrorNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 function ConnectorGrant({ agentId, executor, onChanged }: { agentId: string; executor: Executor; onChanged: () => void }) {
   const { t } = useTranslation('computer')
@@ -52,7 +53,7 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
     try { setInvite(await createInvite('personal', t('defaultConnectorName'))) } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
   }
   async function revoke(executor: Executor) {
-    if (!window.confirm(t('revokeConfirm'))) return
+    if (!await confirmAction(t('revokeConfirm'))) return
     setBusy(true)
     try { await revokeExecutor(executor); await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
   }

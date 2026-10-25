@@ -6,6 +6,7 @@ import type { ApiError } from '../../api/client'
 import { createMcpServer, listMcpServers, refreshMcpServer, removeMcpServer, setMcpServerEnabled } from '../../api/mcp'
 import type { McpServer } from '../../api/mcp'
 import { ErrorNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 export function McpServers({ agentId }: { agentId: string }) {
   const { t } = useTranslation('mcp')
@@ -46,7 +47,7 @@ export function McpServers({ agentId }: { agentId: string }) {
           <div className="row-actions">
             <button type="button" className="button secondary" disabled={busy} onClick={() => { void act(() => refreshMcpServer(server)) }}>{t('refresh')}</button>
             <button type="button" className="text-button" disabled={busy} onClick={() => { void act(() => setMcpServerEnabled(server, !server.enabled)) }}>{t(server.enabled ? 'disable' : 'enable')}</button>
-            <button type="button" className="text-button danger" disabled={busy} onClick={() => { if (window.confirm(t('removeConfirm'))) void act(() => removeMcpServer(server)) }}>{t('remove')}</button>
+            <button type="button" className="text-button danger" disabled={busy} onClick={() => { void confirmAction(t('removeConfirm')).then((ok) => { if (ok) void act(() => removeMcpServer(server)) }) }}>{t('remove')}</button>
           </div>
         </li>)}
       </ul>

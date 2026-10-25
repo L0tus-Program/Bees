@@ -5,6 +5,7 @@ import type { AgentApproval, AgentDecision } from '../../api/agent'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import { ErrorNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 function newId() { return crypto.randomUUID() }
 const BROAD = new Set(['computer', 'personal'])
@@ -30,7 +31,7 @@ export function RecentAgentDecisions({ agentId }: { agentId: string }) {
   }, [agentId])
   useEffect(() => { if (open && items === null) void load() }, [open, items, load])
   async function revoke(item: AgentApproval) {
-    if (!window.confirm(t('revokeConfirm'))) return
+    if (!await confirmAction(t('revokeConfirm'))) return
     setBusy(true); setError(null); setNotice(null)
     try { await revokeAgentApproval(agentId, item, newId()); setNotice(t('revoked')); await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
   }

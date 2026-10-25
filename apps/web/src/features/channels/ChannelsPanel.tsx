@@ -6,6 +6,7 @@ import type { ApiError } from '../../api/client'
 import { createChannel, listChannels, newPairingCode, revokeChannel, updateChannel } from '../../api/channels'
 import type { Channel, ChannelKind, ChannelMode, Pairing } from '../../api/channels'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
+import { confirmAction } from '../../components/confirmAction'
 
 const MODES: ChannelMode[] = ['chat', 'agent', 'research']
 
@@ -74,7 +75,7 @@ export function ChannelsPanel({ agentId }: { agentId: string }) {
               {channel.status !== 'failed' && <button type="button" className="button secondary" disabled={busy} onClick={() => { void act(async () => setPairing(await newPairingCode(channel))) }}>{t('newCode')}</button>}
               {(channel.status === 'active' || channel.status === 'pending') && <button type="button" className="text-button" disabled={busy} onClick={() => { void act(() => updateChannel(channel, { paused: true })) }}>{t('pause')}</button>}
               {channel.status === 'paused' && <button type="button" className="text-button" disabled={busy} onClick={() => { void act(() => updateChannel(channel, { paused: false })) }}>{t('resume')}</button>}
-              <button type="button" className="text-button danger" disabled={busy} onClick={() => { if (window.confirm(t('revokeConfirm'))) void act(() => revokeChannel(channel)) }}>{t('revoke')}</button>
+              <button type="button" className="text-button danger" disabled={busy} onClick={() => { void confirmAction(t('revokeConfirm')).then((ok) => { if (ok) void act(() => revokeChannel(channel)) }) }}>{t('revoke')}</button>
             </div>
           </li>
         })}
