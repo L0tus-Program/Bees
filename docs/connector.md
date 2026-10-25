@@ -8,13 +8,15 @@ O conector deixa a abelha trabalhar no seu computador **somente** nas pastas e r
 2. Na sua máquina (Windows, Linux ou macOS, Python 3.12+):
 
    ```sh
-   pip install "bees-executor[browser,documents]"   # ou a partir de apps/executor do checkout
+   pip install "./apps/executor[browser,documents]"   # a partir do checkout do Bees
    python -m playwright install chromium            # somente se for conceder navegador
    bees-executor personal --api http://127.0.0.1:8080 --invite <convite> \
      --root Documentos=~/Documents --root Downloads=~/Downloads
    ```
 
    Cada `--root Alias=Caminho` declara uma pasta compartilhável. Nada fora delas fica acessível.
+
+   O pacote `bees-executor` **não está publicado** em PyPI: não instale esse nome a partir de índices públicos (um pacote homônimo seria de terceiros). Use o checkout ou a wheel do artefato **bees-executor-wheel** do CI, conferindo o `SHA256SUMS` (`sha256sum -c SHA256SUMS`).
 3. De volta à interface, o conector aparece **conectado**. Para cada abelha, marque as pastas concedidas e, se quiser, **Escrita**, **Terminal** e **Navegador**; clique **Salvar concessão**.
 4. Instale/conceda o pacote **Máquina pessoal (conector)** (`bees.personal`) em **Ferramentas**.
 
