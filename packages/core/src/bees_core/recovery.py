@@ -174,7 +174,8 @@ class RecoveryInventoryService:
             )
             records = connection.execute(
                 "SELECT x.id,x.run_id,x.revision,x.tool_name,x.status,x.created_at,x.updated_at,"
-                "x.unknown_acknowledged_at IS NOT NULL," + command
+                "x.unknown_acknowledged_at IS NOT NULL,"
+                + command
                 + f"JOIN runs r ON r.id=x.run_id WHERE {' AND '.join(clauses)} "
                 "ORDER BY x.created_at,x.id LIMIT ?",
                 tuple(parameters),
