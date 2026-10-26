@@ -20,8 +20,8 @@ def build(path: Path, extra: dict | None = None) -> Path:
             "Metadata-Version: 2.4\nName: bees-executor\nVersion: 0.1.0\n"
             "License-Expression: Apache-2.0\nLicense-File: LICENSE\nLicense-File: NOTICE\n"
         ),
-        META + "licenses/LICENSE": (ROOT / "LICENSE").read_text(),
-        META + "licenses/NOTICE": (ROOT / "NOTICE").read_text(),
+        META + "licenses/LICENSE": (ROOT / "LICENSE").read_bytes(),
+        META + "licenses/NOTICE": (ROOT / "NOTICE").read_bytes(),
         META + "entry_points.txt": "[console_scripts]\nbees-executor = bees_executor.cli:main\n",
     } | (extra or {})
     with zipfile.ZipFile(path, "w") as archive:
@@ -60,3 +60,15 @@ def test_rejects_missing_spdx_or_changed_notices(tmp_path):
             if not name.endswith("licenses/NOTICE"):
                 target.writestr(name, source.read(name))
     assert any("NOTICE" in error for error in check_wheel.problems(missing))
+
+
+def test_fixture_and_checker_preserve_exact_checkout_notice_bytes(tmp_path, monkeypatch):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    for name in ("LICENSE", "NOTICE"):
+        content = (ROOT / name).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        (checkout / name).write_bytes(content)
+    monkeypatch.setitem(build.__globals__, "ROOT", checkout)
+    monkeypatch.setattr(check_wheel, "__file__", str(checkout / "scripts/check-wheel.py"))
+    wheel = build(tmp_path / "native-checkout.whl")
+    assert check_wheel.problems(wheel) == []

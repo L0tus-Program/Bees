@@ -6,6 +6,12 @@ O texto padrão foi obtido de `/usr/share/common-licenses/Apache-2.0`, distribu�
 
 Cada projeto Python inclui cópias de LICENSE/NOTICE em sua wheel e sdist. O verificador da wheel do executor recusa licença ausente, divergente ou sem a expressão SPDX. O bundle web inclui `third-party-notices.txt`, com textos integrais e créditos dos pacotes de produção/peer do lockfile, inclusive noVNC. As imagens conservam avisos do sistema e recebem os avisos do Bees em `/usr/share/doc/bees`.
 
+Os avisos versionados usam finais de linha LF em todas as plataformas; as leituras
+textuais declaram UTF-8. As verificações de artefato comparam bytes exatos, sem
+normalizar o conteúdo para esconder divergência. Regressões de CI cobrem checkout
+com CRLF e sistema cujo encoding padrão é Windows-1252; os testes de avisos e
+pacotes também rodam na etapa portável antecipada do Windows.
+
 Inventário levantado em 23/10/2026 a partir do `uv.lock` (ambiente `.venv`), `apps/web/package-lock.json` e das imagens `Dockerfile` e `runtime/computer/Dockerfile`. Repetir com o procedimento ao final antes de cada release.
 
 ## Dependências distribuídas com a aplicação

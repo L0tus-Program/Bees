@@ -50,7 +50,28 @@ Os comentários e checklists dessas issues registram a revisão antes do fechame
 Os testes com recursos/processos próprios são separados de transportes controlados;
 nenhum pacote privado, token, prompt ou dump foi incluído como evidência pública.
 
-## Pendências que não devem ser mascaradas
+## Prova de skills e rotinas com modelo local
+
+Na revisão de 26/10/2026, um worker em processo próprio executou duas entradas de
+skill com arquivos de bytes distintos, uma rotina agendada sem frontend e uma
+execução manual. Quatro tarefas terminaram; os quatro arquivos foram conferidos;
+o resultado das duas ocorrências da rotina chegou à conversa de destino.
+Reiniciar o worker não duplicou a tarefa agendada, e reenviar o UUID manual
+preservou a mesma tarefa. O caso final usou oito gerações locais de Qwen3:1.7b.
+
+Uma variante anterior da instrução retornou resposta vazia e foi pausada como
+`empty_response`, sem efeito de ferramenta. O caso aprovado usou uma instrução
+curta e explícita; não equivale a aceite amplo do modelo para qualquer procedimento.
+O produto não traduziu nem reescreveu silenciosamente o pedido para contornar a falha.
+
+A revisão da interface encontrou e corrigiu dois problemas: disponibilidade manual
+do modo agente indevidamente condicionada ao recurso textual e aviso de ativação
+que descrevia esse modo como preparatório. A prova posterior com API, worker e
+Chromium reais teve doze capturas em pt-BR/en/es, larguras390/1280, confirmação
+manual habilitada, aviso correto e pausa preservada após reload. Nenhuma tarefa
+manual ou geração nova foi criada nessa prova visual.
+
+## Pendências de aceite amplo
 
 As demais issues precisam de sua própria revisão ou implementação. Em particular,
 modelo remoto com credencial, fluxos completos dos ambientes suportados, instalação
