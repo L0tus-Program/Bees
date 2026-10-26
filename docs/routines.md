@@ -1,5 +1,25 @@
 # Rotinas e contrato temporal
 
+## Disponibilidade por modo
+
+Rotinas do agente usam o worker compatível com o ciclo de ferramentas, o modelo
+declarado com chamadas de ferramenta e as ferramentas atualmente concedidas.
+Elas não exigem o recurso textual legado. O botão **Executar uma vez** consulta a
+capacidade do modo daquela rotina; disponibilidade de outro modo não a autoriza.
+Atualize API e worker juntos: um heartbeat sem a versão do ciclo do agente não
+habilita essa capacidade.
+
+A consulta humana `GET /api/v1/agents/{agent}/routines/runtime?execution_mode=agent`
+não consulta o provedor, cria tarefas ou concede recursos. Sem o parâmetro, ela
+continua verificando o modo textual programado. É uma indicação de capacidade;
+o despacho ainda confere modelo, revisão, política e grants atuais.
+
+Ao ativar uma rotina em modo agente, a confirmação informa que o próximo horário
+pode criar uma tarefa mesmo com a aba fechada. A mensagem de agenda preparatória,
+que não inicia tarefas, aplica-se somente a esse modo preparatório.
+
+## Contrato temporal
+
 BEES-021.1 (#69) define a agenda canônica e a persistência de ocorrências.
 `RoutineService` calcula instantes e registra decisões, sem despachar efeitos.
 O `RoutineScheduler` de BEES-021.2 (#70), no processo do worker padrão, cria tarefas

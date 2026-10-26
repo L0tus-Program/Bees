@@ -61,6 +61,7 @@ async def serve(settings: Settings) -> None:
                 {
                     "last_seen": datetime.now(UTC).isoformat(),
                     "tool_cycle_version": 1,
+                    "agent_cycle_version": 1,
                     "routine_scheduler_version": 1,
                     "routine_manual_version": 1,
                     "channels_version": 1,

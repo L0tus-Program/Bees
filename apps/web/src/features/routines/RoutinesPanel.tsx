@@ -43,6 +43,8 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
   const [history, setHistory] = useState<History | null>(null)
   const [runtime, setRuntime] = useState(false)
   const [manualRuntime, setManualRuntime] = useState(false)
+  const [agentRuntime, setAgentRuntime] = useState(false)
+  const [agentManualRuntime, setAgentManualRuntime] = useState(false)
   const [manualRoutine, setManualRoutine] = useState<Routine | null>(null)
   const [manualBlocked, setManualBlocked] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -64,12 +66,15 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     const controller = new AbortController(); reading.current = controller
     setLoading(true)
     try {
-      const [page, runtime] = await Promise.all([listRoutines(agent.id, offset, controller.signal), routineRuntime(agent.id, controller.signal).catch(() => ({ available: false, manual_available: false }))])
+      const unavailable = { available: false, manual_available: false }
+      const [page, runtime, agentRuntime] = await Promise.all([listRoutines(agent.id, offset, controller.signal), routineRuntime(agent.id, controller.signal).catch(() => unavailable), routineRuntime(agent.id, controller.signal, 'agent').catch(() => unavailable)])
       if (controller.signal.aborted) return
       setItems((old) => offset ? [...old, ...page.filter((item) => !old.some((previous) => previous.id === item.id))] : page)
       setMore(page.length === 50); setError(null)
       setRuntime(runtime.available)
       setManualRuntime(runtime.manual_available)
+      setAgentRuntime(agentRuntime.available)
+      setAgentManualRuntime(agentRuntime.manual_available)
       return true
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)); return false }
     finally { if (!controller.signal.aborted) setLoading(false) }
@@ -169,20 +174,20 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
     finally { if (!controller.signal.aborted) { locked.current = false; setBusy(false) } }
   }
   const disabled = loading || busy || pending !== null || manualBlocked || manualRoutine !== null
-  const reviewEffect = review?.intent.action === 'status' ? review.intent.body.status === 'active' ? review.definition.execution_mode === 'scheduled' ? 'scheduledEffect' : 'eligibleEffect' : review.intent.body.status === 'paused' ? 'pauseEffect' : 'cancelEffect' : 'saveEffect'
+  const reviewEffect = review?.intent.action === 'status' ? review.intent.body.status === 'active' ? ['scheduled', 'agent'].includes(review.definition.execution_mode ?? 'prepare') ? 'scheduledEffect' : 'eligibleEffect' : review.intent.body.status === 'paused' ? 'pauseEffect' : 'cancelEffect' : 'saveEffect'
   return <section className="surface routines-panel" aria-labelledby="routines-heading" aria-busy={loading || busy}>
     <div className="form-heading"><h2 id="routines-heading">{t('title')}</h2><button type="button" className="text-button" disabled={busy || loading} onClick={() => { void load(); void loadSkills() }}>{t('refresh')}</button></div>
-    <p>{t('description')}</p><p className="routine-unavailable" role="status">{t(runtime ? 'runtimeReady' : 'unavailable')}</p>
+    <p>{t('description')}</p><p className="routine-unavailable" role="status">{t(runtime || agentRuntime ? 'runtimeReady' : 'unavailable')}</p>
     {(loading || busy) && <p role="status">{t('loading')}</p>}
     {error && <ErrorNotice error={error} />}{skillError && <ErrorNotice error={skillError} />}{notice && <p role="status" tabIndex={-1} ref={noticeFocus}>{t(notice)}</p>}
     {pending && !busy && <div className="transfer-notice" role="status"><p>{t('lost')}</p><button type="button" className="button secondary" onClick={() => { void verify() }}>{t('verify')}</button></div>}
     {storageUnavailable && <p role="status">{t('storageUnavailable')}</p>}
     {!skillsLoading && skills.length === 0 && <p>{t('noSkills')}</p>}
     {!agent.conversation_id && <p>{t('noConversation')}</p>}
-    <ManualRoutineRun key={`manual:${agent.id}`} agentId={agent.id} routine={manualRoutine} available={manualRuntime} onLock={setManualBlocked} onClose={() => { setManualRoutine(null); returnFocus.current?.focus(); void load() }} onCreated={(id) => { setManualRoutine(null); setTaskId(id); void load() }} />
+    <ManualRoutineRun key={`manual:${agent.id}`} agentId={agent.id} routine={manualRoutine} available={manualRoutine?.definition?.execution_mode === 'agent' ? agentManualRuntime : manualRuntime} onLock={setManualBlocked} onClose={() => { setManualRoutine(null); returnFocus.current?.focus(); void load() }} onCreated={(id) => { setManualRoutine(null); setTaskId(id); void load() }} />
     <div className="routine-actions"><button type="button" className="button secondary" disabled={disabled || skillsLoading || skills.length === 0 || !agent.conversation_id || !!error || !!skillError} onClick={(event) => { returnFocus.current = event.currentTarget; void openEditor() }}>{t('create')}</button>{moreSkills && <button type="button" className="text-button" disabled={disabled || skillsLoading} onClick={() => { void loadSkills(skills.length) }}>{t('moreSkills')}</button>}</div>
     {editor && !review && <RoutineEditor key={`${editor.previous?.id ?? 'new'}:${editor.previous?.revision ?? 0}`} initial={editor} skills={skills} conversationId={agent.conversation_id} disabled={disabled} onReview={prepare} onCancel={() => { setEditor(null); returnFocus.current?.focus() }} />}
-    {review && <section className="routine-review" aria-labelledby="routine-review-heading"><h3 id="routine-review-heading" tabIndex={-1} ref={reviewHeading}>{t('reviewTitle')}</h3><RoutineDescription definition={review.definition} /><p>{t(reviewEffect)}</p>{!runtime && <p>{t('unavailable')}</p>}<div className="routine-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(review.intent) }}>{t('confirm')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => { setReview(null); if (!editor) returnFocus.current?.focus() }}>{t('back')}</button></div></section>}
+    {review && <section className="routine-review" aria-labelledby="routine-review-heading"><h3 id="routine-review-heading" tabIndex={-1} ref={reviewHeading}>{t('reviewTitle')}</h3><RoutineDescription definition={review.definition} /><p>{t(reviewEffect)}</p>{!(review.definition.execution_mode === 'agent' ? agentRuntime : runtime) && <p>{t('unavailable')}</p>}<div className="routine-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(review.intent) }}>{t('confirm')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => { setReview(null); if (!editor) returnFocus.current?.focus() }}>{t('back')}</button></div></section>}
     {!loading && !error && items.length === 0 && <p>{t('empty')}</p>}
     <ul className="routine-list">{items.map((routine) => <li key={routine.id}>
       <h3>{routine.name}</h3><p>{t('revision', { revision: routine.revision })} · {t(routine.status)}</p>
@@ -191,7 +196,7 @@ export function RoutinesPanel({ agent }: { agent: AgentSummary }) {
       <p>{t('next')}: {routine.next_run_at ? <RoutineTime value={routine.next_run_at} timezone={routine.timezone} /> : t('noNext')}</p>
       {routine.definition && <p>{t(routine.definition.schedule.frequency)} · {routine.definition.schedule.time} ({routine.timezone}) · {t(`notification_${routine.definition.notification}`)}</p>}
       <div className="routine-actions">
-        {routine.definition && routine.status !== 'cancelled' && <button type="button" className="button secondary" disabled={disabled || !manualRuntime || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; setManualRoutine(routine); setEditor(null); setReview(null); setHistory(null); setTaskId(null) }}>{t('manual')}</button>}
+        {routine.definition && routine.status !== 'cancelled' && <button type="button" className="button secondary" disabled={disabled || !(routine.definition.execution_mode === 'agent' ? agentManualRuntime : manualRuntime) || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; setManualRoutine(routine); setEditor(null); setReview(null); setHistory(null); setTaskId(null) }}>{t('manual')}</button>}
         {routine.status !== 'cancelled' && <button type="button" className="button secondary" disabled={disabled || skillsLoading || !!error || routine.origin === 'legacy' && (skills.length === 0 || !agent.conversation_id)} onClick={(event) => { returnFocus.current = event.currentTarget; void openEditor(routine) }}>{t('edit')}</button>}
         {routine.definition && routine.status !== 'cancelled' && <><button type="button" className="button secondary" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, routine.status === 'active' ? 'paused' : 'active') }}>{t(routine.status === 'active' ? 'pause' : 'eligible')}</button><button type="button" className="text-button" disabled={disabled || !!error} onClick={(event) => { returnFocus.current = event.currentTarget; prepareStatus(routine, 'cancelled') }}>{t('cancelRoutine')}</button></>}
         <button type="button" className="text-button" disabled={disabled} onClick={() => { void showHistory(routine) }}>{t('history')}</button>

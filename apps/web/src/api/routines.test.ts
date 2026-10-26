@@ -1,6 +1,6 @@
 import { webcrypto } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { checkedRoutine, checkedRoutineIntent, definitionIntent, getRoutine, isRoutineDefinition, listRoutines, routineOccurrences, routineRevisions, routineStatusIntent, sendRoutine } from './routines'
+import { checkedRoutine, checkedRoutineIntent, definitionIntent, getRoutine, isRoutineDefinition, listRoutines, routineOccurrences, routineRevisions, routineStatusIntent, routineRuntime, sendRoutine } from './routines'
 import { setCsrfToken } from './client'
 import { activeRoutine, agentId, definition, occurrence, persistedRoutine as routine, revision } from '../features/routines/fixtures'
 
@@ -81,5 +81,23 @@ describe('routine transport and human commands', () => {
     expect(await routineRevisions(agentId, routine.id, 50)).toEqual([revision])
     expect(fetcher.mock.calls[3][0]).toContain('revisions?limit=50&offset=50')
     await expect(routineRevisions(agentId, routine.id)).rejects.toThrow('invalid_response')
+  })
+})
+
+
+describe('runtime mode reads', () => {
+  it('queries the agent mode explicitly without changing the legacy default', async () => {
+    const value = { available: true, reason: null, version: 1, max_calls: 4, max_active_seconds: 120, manual_available: true }
+    const fetcher = vi.fn().mockImplementation(async () => Response.json(value)); vi.stubGlobal('fetch', fetcher)
+    expect((await routineRuntime(agentId)).manual_available).toBe(true)
+    expect((await routineRuntime(agentId, undefined, 'agent')).available).toBe(true)
+    expect(fetcher.mock.calls[0][0]).toMatch(/\/runtime$/)
+    expect(fetcher.mock.calls[1][0]).toMatch(/\/runtime\?execution_mode=agent$/)
+    expect(fetcher.mock.calls.every(([, options]) => options.method === 'GET' && options.body === undefined)).toBe(true)
+  })
+  it('rejects an unknown runtime mode before sending a request', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher)
+    await expect(routineRuntime(agentId, undefined, 'unknown' as 'agent')).rejects.toThrow('invalid_request')
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })

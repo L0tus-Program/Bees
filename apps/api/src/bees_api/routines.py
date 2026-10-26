@@ -1,14 +1,16 @@
 """Rotinas humanas; GETs consultam, mutações exigem sessão e proteção CSRF."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from bees_api.auth import require_session
 from bees_api.worker_status import HEARTBEAT_KEY, worker_status
+from bees_core.agent_tools.cycle import available_tools
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import ProviderError
+from bees_core.providers.service import ProviderService
 from bees_core.routine_manual import ManualRoutineInput, ManualRoutineReceipt, ManualRoutineService
 from bees_core.routine_proposals import RoutineProposal, RoutineProposalService
 from bees_core.routines import (
@@ -68,10 +70,16 @@ def create(agent_id: UUID, body: CreateRoutine, request: Request, session: _SESS
 
 
 @router.get("/runtime")
-def runtime_status(agent_id: UUID, request: Request, session: _SESSION):
+def runtime_status(
+    agent_id: UUID,
+    request: Request,
+    session: _SESSION,
+    execution_mode: Literal["scheduled", "agent"] = "scheduled",
+):
     store = request.app.state.store
     with store.transaction(write=False) as unit:
-        if unit.agents.get(agent_id) is None:
+        agent = unit.agents.get(agent_id)
+        if agent is None:
             raise NotFoundError("Abelha não encontrada.")
     heartbeat = store.get_cache(HEARTBEAT_KEY)
     reason = None
@@ -80,11 +88,26 @@ def runtime_status(agent_id: UUID, request: Request, session: _SESSION):
         or not isinstance(heartbeat, dict)
         or type(heartbeat.get("routine_scheduler_version")) is not int
         or heartbeat["routine_scheduler_version"] != 1
+        or execution_mode == "agent"
+        and (
+            type(heartbeat.get("agent_cycle_version")) is not int
+            or heartbeat["agent_cycle_version"] != 1
+        )
     ):
         reason = "worker_unavailable"
     else:
         try:
-            available_runtime(request.app.state.database, agent_id)
+            if execution_mode == "agent":
+                config = ProviderService._validated_config(agent.provider_config)
+                with store.transaction(write=False) as unit:
+                    if (
+                        agent.status != "active"
+                        or not config.capabilities.tool_calls
+                        or not available_tools(unit, agent_id)
+                    ):
+                        reason = "tool_unavailable"
+            else:
+                available_runtime(request.app.state.database, agent_id)
         except TransportError:
             reason = "resource_unavailable"
         except TaskError, ToolError, ProviderError:

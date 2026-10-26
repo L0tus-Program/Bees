@@ -37,7 +37,7 @@ jobs:
       - name: Validar contratos portáveis no Windows
         if: runner.os == 'Windows'
         run: |
-          $targets = @('scripts/tests/test_pytest_annotations.py', 'scripts/tests/test_ci_report.py')
+          $targets = @('scripts/tests/test_pytest_annotations.py', 'scripts/tests/test_ci_report.py', 'scripts/tests/test_licenses.py', 'scripts/tests/test_check_wheel.py', 'scripts/tests/test_host_package.py')
           if (Test-Path packages/core/tests/test_executor_transport.py) {
             $targets += 'packages/core/tests/test_executor_transport.py'
           }

@@ -51,6 +51,49 @@ function queries(current: Routine[] = [routine], history: RoutineOccurrence[] = 
   })
 }
 
+describe('agent routine availability and consent', () => {
+  const agentRoutine: Routine = { ...routine, definition: { ...definition, execution_mode: 'agent' } }
+  function runtimeQueries(current: Routine[] = [agentRoutine], agentReady = true, legacyReady = false) {
+    const fallback = queries(current)
+    return vi.fn(async (url: string, options: RequestInit) => {
+      if (url.includes('/routines/runtime')) {
+        const ready = url.includes('execution_mode=agent') ? agentReady : legacyReady
+        return Response.json({ available: ready, reason: ready ? null : 'resource_unavailable', version: 1, max_calls: 4, max_active_seconds: 120, manual_available: ready })
+      }
+      return fallback(url, options)
+    })
+  }
+  it.each(['pt-BR', 'en', 'es'] as const)('offers manual agent execution without a text resource in %s', async (language) => {
+    await act(async () => { await i18n.changeLanguage(language) })
+    const fetcher = runtimeQueries(); vi.stubGlobal('fetch', fetcher); await render()
+    const text = routineResources[language]
+    expect(button(text.manual).disabled).toBe(false)
+    await click(button(text.manual))
+    expect(button(text.manualConfirm).disabled).toBe(false)
+    expect(fetcher.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+  })
+  it.each(['pt-BR', 'en', 'es'] as const)('warns that agent activation starts scheduled work in %s', async (language) => {
+    await act(async () => { await i18n.changeLanguage(language) })
+    const fetcher = runtimeQueries(); vi.stubGlobal('fetch', fetcher); await render()
+    const text = routineResources[language]
+    await click(button(text.eligible))
+    const review = container.querySelector('.routine-review')!
+    expect(review.textContent).toContain(text.scheduledEffect)
+    expect(review.textContent).not.toContain(text.eligibleEffect)
+    expect(fetcher.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+  })
+  it('does not use agent readiness for a legacy text routine', async () => {
+    const legacy = { ...routine, id: '88888888-8888-4888-8888-888888888888' }
+    vi.stubGlobal('fetch', runtimeQueries([agentRoutine, legacy])); await render()
+    const buttons = [...container.querySelectorAll('button')].filter(item => item.textContent === routineResources['pt-BR'].manual)
+    expect(buttons.map(item => item.disabled)).toEqual([false, true])
+  })
+  it('does not use a ready text resource to enable an unavailable agent', async () => {
+    vi.stubGlobal('fetch', runtimeQueries([agentRoutine], false, true)); await render()
+    expect(button(routineResources['pt-BR'].manual).disabled).toBe(true)
+  })
+})
+
 describe('human routine definitions', () => {
   it('requires an explicit scheduled choice, then reviews before saving a paused revision', async () => {
     const supported = { ...skill, enabled_version: skill.current_version, current: { ...skill.current, definition: { ...skill.current.definition, resources: { environment: 'none' as const, tools: [] } } } }
