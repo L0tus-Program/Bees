@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,16 @@ def package(tmp_path):
         json.dumps({"runtime_dependencies": {"bees-host": "0.1.0"}}), encoding="utf-8"
     )
     (folder / "program.bin").write_bytes(b"trusted build")
+    notices = folder / "licenses" / "bees-host"
+    notices.mkdir(parents=True)
+    for name in ("LICENSE", "NOTICE"):
+        shutil.copyfile(build.ROOT / name, notices / name)
     hashes = {
-        file.name: {"sha256": build.digest(file), "size": file.stat().st_size}
-        for file in folder.iterdir()
+        file.relative_to(folder).as_posix(): {
+            "sha256": build.digest(file),
+            "size": file.stat().st_size,
+        }
+        for file in build.package_files(folder)
     }
     (folder / "SHA256SUMS.json").write_text(json.dumps(hashes), encoding="utf-8")
     build.verify(folder)
@@ -77,3 +85,17 @@ def test_build_refuses_to_replace_a_package_with_runtime_state(package):
     with pytest.raises(ValueError, match="preserve data"):
         build.reject_runtime_state(package)
     assert state.read_bytes() == b"private encrypted state"
+
+
+def test_self_consistent_manifest_cannot_replace_project_license(package):
+    notice = package / "licenses/bees-host/LICENSE"
+    notice.write_bytes(b"another license")
+    manifest = package / "SHA256SUMS.json"
+    hashes = json.loads(manifest.read_text())
+    hashes["licenses/bees-host/LICENSE"] = {
+        "sha256": build.digest(notice),
+        "size": notice.stat().st_size,
+    }
+    manifest.write_text(json.dumps(hashes))
+    with pytest.raises(ValueError, match="Aviso de licença"):
+        build.verify(package)

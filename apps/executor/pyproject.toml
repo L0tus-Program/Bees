@@ -1,4 +1,6 @@
 [project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "bees-executor"
 version = "0.1.0"
 description = "Executor remoto do Bees: computador próprio da abelha e conector pessoal"

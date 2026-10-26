@@ -26,4 +26,4 @@ Migrações exigem serviço quiescido e backup. Confira [persistência](docs/per
 - Atualize checklists, evidências, dependências e estado no Project. Bloqueios precisam de motivo concreto e condição de desbloqueio. Testes simulados não substituem aceites com ambientes ou modelos reais.
 - Não publique arquivos de execução, cofre, bootstrap, dumps, diretórios privados ou os documentos locais ignorados de planejamento. Issues e documentação versionada precisam ser suficientes para outro contribuidor entender o trabalho.
 
-A licença do projeto ainda precisa de decisão do mantenedor e revisão de dependências antes da primeira release. Essa pendência é acompanhada em BEES-026; não acrescente uma licença escolhida unilateralmente.
+A licença Apache-2.0 foi escolhida pelo mantenedor em 26/10/2026. Preserve LICENSE, NOTICE e os avisos de terceiros nos artefatos distribuídos; repita a revisão de dependências descrita em docs/licensing.md antes de cada release.

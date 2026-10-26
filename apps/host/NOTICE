@@ -1,0 +1,10 @@
+Bees
+Copyright 2026 Bees contributors
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE for the full terms.
+
+Third-party components retain their own licenses and copyright notices.
+The web distribution includes third-party-notices.txt. Python wheels include
+their own license files; system-package notices remain in the runtime images.
+See https://github.com/L0tus-Program/Bees/blob/dev/docs/licensing.md

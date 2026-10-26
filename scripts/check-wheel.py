@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import sys
 import zipfile
+from email.parser import Parser
 from pathlib import Path
 
 ALLOWED_PREFIXES = ("bees_executor/", "bees_executor-")
@@ -37,6 +38,17 @@ def problems(path: Path) -> list[str]:
             text = archive.read(metadata).decode("utf-8")
             if "Name: bees-executor" not in text:
                 found.append("nome inesperado")
+            headers = Parser().parsestr(text)
+            if headers.get_all("License-Expression") != ["Apache-2.0"]:
+                found.append("licença SPDX ausente ou divergente")
+            if sorted(headers.get_all("License-File", [])) != ["LICENSE", "NOTICE"]:
+                found.append("inventário de avisos ausente ou divergente")
+            prefix = metadata.removesuffix("METADATA") + "licenses/"
+            root = Path(__file__).resolve().parent.parent
+            for filename in ("LICENSE", "NOTICE"):
+                member = prefix + filename
+                if member not in names or archive.read(member) != (root / filename).read_bytes():
+                    found.append(f"aviso ausente ou divergente: {filename}")
         entry = next((n for n in names if n.endswith(".dist-info/entry_points.txt")), None)
         if entry is None or "bees-executor = bees_executor.cli:main" not in archive.read(
             entry

@@ -4,6 +4,10 @@
 - Estado: proposta para decisão do mantenedor.
 - Escopo: FUT-001 a FUT-012 (#100–#111).
 
+Em 26/10/2026, o mantenedor confirmou que FUT-001–FUT-012 permanecem no backlog,
+fora do aceite da v1. Isso confirma a fronteira de escopo; não fecha os critérios
+restantes dessas evoluções. A licença Apache-2.0 foi escolhida na mesma revisão.
+
 ## Contexto
 
 A primeira versão utilizável cobre conversa, agente com ferramentas, pesquisa com fontes, computador próprio, conector pessoal, skills e rotinas. As evoluções FUT foram avaliadas pelo critério de “substituir assistentes hospedados (Grok Bot, Dots) para uso individual”: entregar o que aumenta o uso diário sem abrir novas fronteiras de confiança difíceis de comprovar.
@@ -20,7 +24,7 @@ A primeira versão utilizável cobre conversa, agente com ferramentas, pesquisa 
 | FUT-006 (#105) gatilhos | Entregue | Webhook por rotina e rotinas proativas que só avisam com novidade ([rotinas](../routines.md)). |
 | FUT-007 (#106) modelos | Parcial | Seis modelos prontos e arquivo `.bee.json` compartilhável. Catálogo/marketplace público exige moderação e hospedagem: adiado. |
 | FUT-008 (#107) OptioAI | Adiado | Depende de definição do produto/contrato de integração pelo mantenedor. Pontos de extensão disponíveis: MCP (#104) e webhooks (#105). |
-| FUT-009 (#108) npm/pip | Adiado | Publicar pacotes exige licença definida (#93) e conta/nome reservados. `apps/executor` já é instalável por `pip install ./apps/executor`; publicar `bees-executor` no PyPI é o primeiro passo recomendado após a licença. |
+| FUT-009 (#108) npm/pip | Adiado | Apache-2.0 já foi escolhida (#93); publicação ainda exige conta/nome reservados e decisão própria. `apps/executor` já é instalável por `pip install ./apps/executor`; nenhuma publicação é feita pelo aceite da v1. |
 | FUT-010 (#109) ensino por demonstração | Adiado | O controle humano do computador é deliberadamente invisível à abelha (logins privados). Gravar demonstrações exigiria um modo separado e explícito de “gravar passos”, com revisão antes de virar skill; skills já podem ser criadas a partir de processos revisados (BEES-020.2). |
 | FUT-011 (#110) equipes | Adiado | A identidade é individual por desenho (`identity_users` com uma linha, cofre por instalação). Equipes exigem tenants, papéis e cofre por usuário — nova fronteira de segurança; recomendado só após uso individual validado. |
 | FUT-012 (#111) mobile | Parcial | App instalável (PWA) e canais Telegram/Discord. Apps nativos e administração empresarial: adiados. |

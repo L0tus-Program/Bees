@@ -17,6 +17,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
 RUN python3 -m pip install --no-cache-dir --break-system-packages "websockets>=13,<16" "pypdf>=5,<7" "playwright==1.64.1" \
  && sed -i 's/^UID_MIN.*/UID_MIN 20000/; s/^UID_MAX.*/UID_MAX 29999/; s/^GID_MIN.*/GID_MIN 20000/; s/^GID_MAX.*/GID_MAX 29999/' /etc/login.defs \
  && chmod 755 /ms-playwright
+COPY LICENSE NOTICE runtime/computer/README.md /usr/share/doc/bees/
 COPY apps/executor/src/bees_executor /opt/bees/bees_executor
 COPY runtime/computer/entrypoint.sh /opt/bees/entrypoint.sh
 ENV PYTHONPATH=/opt/bees BEES_COMPUTER_MODE=multiuser BEES_COMPUTERS_DIR=/computers \
