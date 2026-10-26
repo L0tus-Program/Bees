@@ -1,4 +1,6 @@
 [project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "bees-core"
 version = "0.1.0"
 description = "Estado e contratos de domínio independentes de modelos e transporte"

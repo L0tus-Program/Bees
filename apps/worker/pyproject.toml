@@ -1,4 +1,6 @@
 [project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "bees-worker"
 version = "0.1.0"
 description = "Executor persistente de tarefas da plataforma Bees"

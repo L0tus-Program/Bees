@@ -14,7 +14,7 @@ O desenvolvimento é acompanhado nas [issues](https://github.com/L0tus-Program/B
 - **Skills e rotinas** agendadas, inclusive em modo agente, com entrega na conversa ([skills](docs/skills.md), [rotinas](docs/routines.md)).
 - **Controle**: autonomia por regras ([políticas](docs/policies.md)), [aprovações](docs/approvals.md), [consumo](docs/budgets.md), parada global, [atenção](docs/attention.md), [exportar/restaurar](docs/portability.md) e [recuperação](docs/recovery.md).
 
-Testes automatizados usam servidores controlados; aceites com modelos reais e hardware físico estão registrados nas issues e na [matriz de regressão](docs/regression-matrix.md). Licença ainda não definida — veja [licenças e dependências](docs/licensing.md).
+Testes automatizados usam servidores controlados; aceites com modelos reais e hardware físico estão registrados nas issues e na [matriz de regressão](docs/regression-matrix.md). O Bees é licenciado sob [Apache-2.0](LICENSE); componentes de terceiros conservam suas [licenças e avisos](docs/licensing.md).
 
 ## Abrir com Docker
 
@@ -179,4 +179,4 @@ Os scripts instalam dependências pelos lockfiles, executam análise/formataçã
 
 Onboarding (BEES-004) integrado aos drivers de BEES-005; conversa e delegação com modelo remoto real comprovadas (BEES-005.1, [matriz](docs/providers.md#modelos-reais-comprovados)); backend local real ainda pendente. Perfis e memória de BEES-006 integram esses contratos. Compose e launcher Windows entregues; primeiro acesso dessa distribuição é autorizado automaticamente no navegador. Setup gráfico nas demais distribuições e integração dos ambientes futuros continuam em BEES-028. Computador próprio e conector pessoal são requisitos do MVP completo.
 
-O projeto pretende ser open source. A licença ainda será escolhida antes da publicação; não presumir direitos de redistribuição sem um arquivo de licença.
+O projeto é distribuído sob [Apache License 2.0](LICENSE), escolhida pelo mantenedor. Veja [NOTICE](NOTICE) e os [avisos de terceiros](docs/licensing.md) para os componentes incluídos.
