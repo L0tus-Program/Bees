@@ -175,7 +175,7 @@ nunca substitui evidência suficiente do executor antigo.
 
 | Superfície | Estado após queda | O que acontece na retomada |
 | --- | --- | --- |
-| Comando de executor na fila (`queued`) | Ação `dispatch_started` | O comando expira (`worker_restart`) na mesma transação que declara o efeito desconhecido (lease vencido ou retomada humana) e o envio recusa comando de ação já encerrada (`action_closed`): nunca sai depois. |
+| Comando de executor na fila (`queued`) | Ação `dispatch_started` | O comando expira (`worker_restart`) na mesma transação que declara o efeito desconhecido (lease vencido ou retomada humana) e o envio recusa comando de ação já encerrada (`action_closed`) ou cuja ferramenta/pacote foi desligado depois do início (`tool_grant_revoked`): nunca sai depois. |
 | Comando enviado (`sent`) | Pode ter executado | Vira `unknown` (`worker_restart`). Recibo que chegar depois é guardado como evidência (`late_confirmed`/`late_failed`) sem mudar o estado; reconciliação é humana. |
 | Journal do executor | `started` sem recibo | O executor marca `unknown` ao reabrir e não repete o comando. |
 | Saída de canal | Registrada como `sending` antes do envio | Queda ou timeout depois do envio vira `unknown`: a mensagem não é reenviada (pode faltar, nunca duplicar). Falha de conexão antes do envio libera nova tentativa. |
