@@ -374,3 +374,56 @@ def test_queued_command_never_leaves_after_worker_loss_closes_its_action(state):
     assert [row["id"] for row in sent] == [alive]
     for command in commands:
         assert status(queue, command) == ("expired", "action_closed")
+
+
+def test_claim_refuses_after_tool_grant_or_plugin_is_disabled(state):
+    from bees_core.tools import ToolService
+
+    database, store, agent, service, clock = state
+    queue = CommandQueue(database, clock=clock)
+    runtime = pair(service)
+    computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+    service.report_computer(runtime["executor_id"], computer["id"], "ready")
+    tools = ToolService(database)
+    manifest = next(item for item in tools.catalog() if item["plugin_key"] == "bees.computer")
+    plugin = tools.install({"client_request_id": uuid4(), "manifest": manifest})
+    plugin = tools.update_plugin(plugin.id, {"expected_revision": 1, "enabled": True})
+    grant = tools.set_grant(
+        agent.id, plugin.id, "computer.shell.run", {"expected_revision": 0, "enabled": True}
+    )
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+
+    def command():
+        return queued(
+            store,
+            runtime["executor_id"],
+            agent,
+            "computer.shell.run",
+            computer_id=computer["id"],
+            generation=generation,
+        )
+
+    allowed = command()
+    assert [row["id"] for row in queue.claim(runtime["executor_id"], "conn-1")] == [allowed]
+    revoked = command()
+    tools.set_grant(
+        agent.id,
+        plugin.id,
+        "computer.shell.run",
+        {"expected_revision": grant.revision, "enabled": False},
+    )
+    assert queue.claim(runtime["executor_id"], "conn-1") == []
+    assert status(queue, revoked) == ("expired", "tool_grant_revoked")
+    tools.set_grant(
+        agent.id,
+        plugin.id,
+        "computer.shell.run",
+        {"expected_revision": grant.revision + 1, "enabled": True},
+    )
+    plugin = tools.update_plugin(
+        plugin.id, {"expected_revision": plugin.revision, "enabled": False}
+    )
+    disabled = command()
+    assert queue.claim(runtime["executor_id"], "conn-1") == []
+    assert status(queue, disabled) == ("expired", "tool_grant_revoked")
