@@ -36,7 +36,8 @@ def test_hyperv_untrusted_output_never_implies_available(monkeypatch, tmp_path, 
     driver, value = probe.diagnose()
     assert driver == "hyperv" and value == {"platform": True, "module": False, "service": False}
     assert len(calls) == 1
-    assert "Get-Module" in calls[0][-1] and "Get-Service" in calls[0][-1]
+    assert calls[0][-1] == probe.HYPERV_DIAGNOSTIC and "Get-Service" in calls[0][-1]
+    assert "$PSModuleAutoLoadingPreference='None'" in calls[0][-1]
     assert not any(word in calls[0][-1] for word in ("Set-", "New-", "Install-", "Enable-"))
     assert calls[0][0] == str(executable)
 
@@ -175,3 +176,8 @@ def test_native_frozen_library_search_restores_after_real_powershell(monkeypatch
         assert restored.value == bundle_directory
     finally:
         assert kernel.SetDllDirectoryW(original)
+
+
+def test_core_preflight_uses_the_same_diagnostic():
+    environments = pytest.importorskip("bees_core.environments")
+    assert environments.HYPERV_DIAGNOSTIC == probe.HYPERV_DIAGNOSTIC

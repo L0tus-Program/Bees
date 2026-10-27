@@ -4,12 +4,14 @@ A configuração do host pertence ao operador. O catálogo descreve um alvo, nã
 uma imagem instalada. Este checkpoint não inicia VMs nem divulga acesso ao host.
 """
 
+import ctypes
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -60,11 +62,55 @@ class HostConfiguration(Contract):
     guest_bridge_ready: Literal[False] = False
 
 
-def _read_command(argv: list[str], timeout: float = 5.0) -> str | None:
+# Igual a bees_host.probe.HYPERV_DIAGNOSTIC (teste de paridade): sem autoload, cmdlets base e
+# Hyper-V somente de $PSHOME, para módulos de terceiros não responderem nem atrasarem o prazo.
+HYPERV_DIAGNOSTIC = (
+    "$ErrorActionPreference='Stop';"
+    "$PSModuleAutoLoadingPreference='None';"
+    "foreach($m in @('Microsoft.PowerShell.Utility','Microsoft.PowerShell.Management')){"
+    "Import-Module -Name ([IO.Path]::Combine($PSHOME,'Modules',$m,($m+'.psd1')))};"
+    "$module=Test-Path -LiteralPath "
+    "([IO.Path]::Combine($PSHOME,'Modules','Hyper-V','Hyper-V.psd1'));"
+    "$service=Get-Service vmms -ErrorAction SilentlyContinue;"
+    "@{module=$module;service=[bool]($service -and $service.Status -eq 'Running')}"
+    "|ConvertTo-Json -Compress"
+)
+
+
+def _system_directory() -> Path | None:
+    """System32 pela API nativa; PATH, cwd e SystemRoot do processo não participam."""
+    try:
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = ctypes.WinDLL("kernel32", use_last_error=True).GetSystemDirectoryW(
+            buffer, len(buffer)
+        )
+        path = Path(buffer.value)
+        return path if 0 < size < len(buffer) and path.is_absolute() else None
+    except OSError, AttributeError:
+        return None
+
+
+def _windows_environment(system_directory: Path) -> dict[str, str]:
+    """Ambiente mínimo: sem segredos do processo nem módulos do usuário."""
+    windows_directory = system_directory.parent
+    powershell_directory = system_directory / "WindowsPowerShell" / "v1.0"
+    return {
+        "SystemRoot": str(windows_directory),
+        "WINDIR": str(windows_directory),
+        "PATH": ";".join(map(str, [system_directory, windows_directory, powershell_directory])),
+        "PSModulePath": str(powershell_directory / "Modules"),
+    }
+
+
+def _read_command(
+    argv: list[str], timeout: float = 5.0, *, env: dict[str, str] | None = None
+) -> str | None:
     """Comandos estáticos, sem shell, stderr privado e saída limitada na leitura."""
     try:
         with tempfile.TemporaryFile() as output:
-            process = subprocess.Popen(argv, stdout=output, stderr=subprocess.DEVNULL, shell=False)
+            process = subprocess.Popen(
+                argv, stdout=output, stderr=subprocess.DEVNULL, shell=False, env=env
+            )
             try:
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -89,22 +135,14 @@ def preflight_host(configuration: HostConfiguration | None = None) -> dict:
     status = "host_setup_required"
     if config.driver == "hyperv":
         probe = {"platform": os.name == "nt", "module": False, "service": False}
-        executable = shutil.which("powershell.exe") if probe["platform"] else None
-        if executable:
-            # Sem interpolação de nomes, caminhos ou entradas do usuário.
+        system = _system_directory() if probe["platform"] else None
+        executable = system / "WindowsPowerShell" / "v1.0" / "powershell.exe" if system else None
+        if executable is not None and executable.is_file():
+            # Sem interpolação de nomes, caminhos ou entradas do usuário; nada do PATH herdado.
             result = _read_command(
-                [
-                    executable,
-                    "-NoLogo",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "$ErrorActionPreference='Stop';"
-                    "$module=[bool](Get-Module -ListAvailable Hyper-V);"
-                    "$service=Get-Service vmms -ErrorAction SilentlyContinue;"
-                    "@{module=$module;service=[bool]($service -and $service.Status -eq 'Running')}"
-                    "|ConvertTo-Json -Compress",
-                ]
+                [str(executable), "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]
+                + [HYPERV_DIAGNOSTIC],
+                env=_windows_environment(system),
             )
             try:
                 data = json.loads(result or "null")
