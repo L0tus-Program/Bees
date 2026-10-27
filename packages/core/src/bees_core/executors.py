@@ -34,6 +34,34 @@ Kind = Literal["computer_runtime", "personal"]
 DESKTOP_ACTIONS = ("browser.",)
 
 
+def is_visual(tool_name: str) -> bool:
+    """Ações que disputam a mesma tela/navegador do computador ou do conector."""
+    return tool_name.split(".", 1)[-1].startswith(DESKTOP_ACTIONS)
+
+
+def visual_holder(unit, task_id, target, tool_name: str) -> str | None:
+    """Outra tarefa ainda viva que já usou o navegador deste computador/conector.
+
+    A posse nasce do primeiro comando visual e vale até a tarefa terminar; pausa ou
+    resultado desconhecido continuam segurando o recurso, sem liberação por prazo.
+    """
+    if not is_visual(tool_name) or target is None:
+        return None
+    prefix = tool_name.split(".", 1)[0]
+    if prefix == "computer":
+        where, key = "c.computer_id=?", target.environment_id
+    else:
+        where, key = "c.executor_id=? AND c.computer_id IS NULL", target.executor_id
+    row = _connection(unit).execute(
+        "SELECT t.id FROM executor_commands c JOIN actions a ON a.id=c.id "
+        "JOIN runs r ON r.id=a.run_id JOIN tasks t ON t.id=r.task_id "
+        f"WHERE {where} AND c.tool_name LIKE ? AND t.id<>? "
+        "AND t.status NOT IN ('completed','failed','cancelled') LIMIT 1",
+        (key, f"{prefix}.{DESKTOP_ACTIONS[0]}%", str(task_id)),
+    ).fetchone()
+    return row[0] if row else None
+
+
 class ExecutorError(RuntimeError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -982,6 +1010,10 @@ class GatewayRunner:
         self.queue = CommandQueue(database)
 
     def on_begin(self, unit, effect, spec, arguments, target):
+        # Mesma transação do início: duas tarefas nunca ficam com a mesma tela.
+        run = unit.runs.get(effect.run_id)
+        if visual_holder(unit, run.task_id, target, spec.name):
+            raise ToolError("resource_busy", "Navegador em uso por outra tarefa.")
         self.queue.enqueue(unit, effect, spec, arguments, target)
 
     async def run(self, spec, arguments, context, target):
