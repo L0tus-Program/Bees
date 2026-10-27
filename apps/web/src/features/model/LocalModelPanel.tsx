@@ -17,6 +17,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
   const [pull, setPull] = useState<LocalModelPull | null>(null)
   const [other, setOther] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const target = endpoint || undefined
@@ -41,12 +42,17 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
     if (!pull || pull.status !== 'running') return
     timer.current = setTimeout(() => {
       getLocalPull(pull.id).then((next) => {
-        setPull(next)
+        setFailure(null); setRetry(0); setPull(next)
         if (next.status === 'completed') { setNotice(t('completed', { model: next.model })); void load() }
-      }).catch((error) => setFailure(asApiError(error)))
-    }, 1000)
+      }).catch((error) => {
+        const failure = asApiError(error)
+        // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
+        if (failure.code === 'pull_not_found') { setPull(null); setNotice(t('interrupted', { model: pull.model })); void load(); return }
+        setFailure(failure); setRetry((value) => value + 1)
+      })
+    }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
     return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [pull, load, t])
+  }, [pull, retry, load, t])
 
   async function download(name: string, suggestion?: SuggestedLocalModel) {
     const message = suggestion
