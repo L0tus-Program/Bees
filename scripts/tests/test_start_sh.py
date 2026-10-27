@@ -80,3 +80,79 @@ def test_refuses_bad_receipt_and_missing_linux_engine(tmp_path):
     env, _, _ = fake(other, '{"configured":true}', ostype="windows")
     assert run(env, other).returncode == 1
     assert run(env, other, "--port", "0").returncode == 1
+
+
+def test_concurrent_start_is_refused_and_stale_lock_recovers(tmp_path):
+    env, _, opened = fake(tmp_path, '{"configured":true}')
+    lock = tmp_path / "logs" / ".start.lock"
+    lock.mkdir(parents=True)
+    holder = subprocess.Popen(["sleep", "30"])
+    try:
+        (lock / "pid").write_text(str(holder.pid))
+        busy = run(env, tmp_path, "--no-build")
+        assert busy.returncode == 1 and str(holder.pid) in busy.stderr
+        assert not opened.exists()
+    finally:
+        holder.kill()
+        holder.wait()
+    # Processo dono encerrado: a trava abandonada é recuperada e removida ao final.
+    result = run(env, tmp_path, "--no-build")
+    assert result.returncode == 0, result.stderr
+    assert not lock.exists()
+
+
+@pytest.mark.parametrize(
+    ("lang", "ready"),
+    [
+        ("en_US.UTF-8", "Bees is ready"),
+        ("es_ES.UTF-8", "Bees listo"),
+        ("pt_BR.UTF-8", "Bees pronto"),
+    ],
+)
+def test_messages_follow_system_language(tmp_path, lang, ready):
+    env, _, _ = fake(tmp_path, '{"configured":true}')
+    env = {k: v for k, v in env.items() if not k.startswith("LC_")} | {"LANG": lang}
+    result = run(env, tmp_path, "--no-build")
+    assert result.returncode == 0 and ready in result.stdout
+    failed = run(env, tmp_path, "--port", "abc")
+    assert failed.returncode == 1
+    assert {"en": "invalid port", "es": "puerto inválido", "pt": "porta inválida"}[
+        lang[:2]
+    ] in failed.stderr
+
+
+def test_paths_with_spaces_and_accents(tmp_path):
+    base = tmp_path / "Área de trabalho" / "Bees ção"
+    (base / "scripts").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts" / "start.sh", base / "scripts" / "start.sh")
+    env, calls, opened = fake(tmp_path, '{"configured":true}')
+    logs = tmp_path / "Registros com espaço"
+    result = subprocess.run(
+        ["bash", str(base / "scripts" / "start.sh"), "--log-dir", str(logs), "--no-build"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"-f {base}/compose.yaml" in calls.read_text()
+    assert (logs / "startup.log").exists() and opened.exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="atalho XDG")
+def test_install_shortcut_quotes_the_path(tmp_path):
+    base = tmp_path / "Meus Apps" / "Bees ção"
+    (base / "scripts").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts" / "start.sh", base / "scripts" / "start.sh")
+    data = tmp_path / "xdg"
+    result = subprocess.run(
+        ["bash", str(base / "scripts" / "start.sh"), "--install-shortcut"],
+        env=os.environ | {"XDG_DATA_HOME": str(data)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    entry = (data / "applications" / "bees.desktop").read_text(encoding="utf-8")
+    assert f'Exec="{base}/scripts/start.sh"' in entry
+    assert "Type=Application" in entry and "Terminal=true" in entry
