@@ -713,11 +713,13 @@ class AgentTaskWorker(TaskWorker):
             return unit.actions.get(effect_id(root_id))
 
     async def _execute(self, claim, task, run, spec, plugin_id, proposal, root_id):
-        """Retorna (payload, incerto, claim); payload None quando aguarda decisão."""
+        """Retorna (payload, incerto, claim); payload None quando aguarda decisão/recurso."""
         try:
             arguments = self.agent_tools.arguments(spec, proposal.arguments)
         except ToolError:
             return {"status": "rejected", "code": "invalid_tool_arguments"}, False, claim
+        if self._wait_visual(claim, task, spec):
+            return None, False, claim
         preparation = self.agent_tools.prepare(
             task.agent_id,
             run.id,
@@ -775,6 +777,92 @@ class AgentTaskWorker(TaskWorker):
                 task.agent_id, effect.id, outcome.code or "executor_result_unknown"
             )
         return self._effect_payload(effect), effect.status == "outcome_unknown", claim
+
+    def _visual_target(self, unit, task, spec):
+        from bees_core.executors import is_visual
+
+        if not is_visual(spec.name):
+            return None
+        try:
+            return self.agent_tools.targets.resolve(unit, task.agent_id, spec)
+        except ToolError:
+            return None  # o preparo normal informa o motivo
+
+    def _wait_visual(self, claim, task, spec) -> bool:
+        """Tela/navegador com outra tarefa viva: aguarda sem consultar o modelo."""
+        from bees_core.executors import visual_holder
+
+        with self.store.transaction(actor="worker", source="agent_resource_wait") as unit:
+            target = self._visual_target(unit, task, spec)
+            holder = visual_holder(unit, task.id, target, spec.name) if target else None
+            if holder is None:
+                return False
+            unit.execution.assert_claim(claim, now=utc_now())
+            current = unit.tasks.get(task.id)
+            run = unit.runs.get(claim.run.id)
+            unit.tasks.update(
+                current.model_copy(update={"status": "waiting_resource"}), current.revision
+            )
+            unit.runs.update(
+                run.model_copy(
+                    update={
+                        "status": "waiting_resource",
+                        "error": "resource_busy",
+                        "checkpoint": run.checkpoint
+                        | {
+                            "progress": "waiting_resource",
+                            "waiting_for": {
+                                "tool": spec.name,
+                                "task_id": holder,
+                                "since": utc_now().isoformat(timespec="seconds"),
+                            },
+                        },
+                    }
+                ),
+                run.revision,
+            )
+            unit.execution.release(claim)
+        return True
+
+    def _wake_waiting(self) -> int:
+        """Devolve à fila as tarefas cujo recurso visual ficou livre (só banco)."""
+        from bees_core.executors import visual_holder
+
+        woken = 0
+        with self.store.transaction(write=False) as unit:
+            if not unit.tasks.list(status="waiting_resource", limit=1):
+                return 0  # caso comum: nenhuma escrita a cada ciclo do worker
+        with self.store.transaction(actor="worker", source="agent_resource_wake") as unit:
+            for task in unit.tasks.list(status="waiting_resource", limit=50):
+                if not self._agent(task):
+                    continue
+                runs = unit.runs.list(task_id=task.id, limit=5, newest_first=True)
+                run = next((r for r in runs if r.status == "waiting_resource"), None)
+                if run is None:
+                    continue
+                waiting = run.checkpoint.get("waiting_for") or {}
+                spec = get_spec(str(waiting.get("tool", "")))
+                target = self._visual_target(unit, task, spec) if spec else None
+                if target is not None and visual_holder(unit, task.id, target, spec.name):
+                    continue
+                unit.tasks.update(task.model_copy(update={"status": "queued"}), task.revision)
+                checkpoint = {k: v for k, v in run.checkpoint.items() if k != "waiting_for"}
+                unit.runs.update(
+                    run.model_copy(
+                        update={
+                            "status": "queued",
+                            "error": None,
+                            "checkpoint": checkpoint | {"progress": "queued"},
+                        }
+                    ),
+                    run.revision,
+                )
+                woken += 1
+        return woken
+
+    async def run_once(self) -> bool:
+        self._wake_waiting()
+        return await super().run_once()
 
     @staticmethod
     def _effect_payload(effect):

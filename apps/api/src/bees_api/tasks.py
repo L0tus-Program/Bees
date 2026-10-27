@@ -70,6 +70,14 @@ _ITEM_FIELDS = (
 )
 
 
+def _waiting_for(task, run) -> dict | None:
+    """Recurso disputado: só a ferramenta e a tarefa dona, sem parâmetros."""
+    waiting = run.checkpoint.get("waiting_for") if run is not None else None
+    if task.status != "waiting_resource" or not isinstance(waiting, dict):
+        return None
+    return {"tool": waiting.get("tool"), "task_id": waiting.get("task_id")}
+
+
 def _deliverables(run) -> dict | None:
     """Projeção fechada do resumo do worker; conteúdo e metadados privados ficam fora."""
     summary = run.checkpoint.get("deliverables") if run is not None else None
@@ -192,6 +200,7 @@ def _view(detail) -> dict:
                 if run
                 else None
             ),
+            "waiting_for": _waiting_for(task, run),
             "progress": {
                 "code": run.checkpoint.get("progress", task.status) if run else task.status,
                 "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
