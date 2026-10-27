@@ -10,6 +10,7 @@ execução no próprio processo, sem isolamento de conta.
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -18,6 +19,8 @@ from pathlib import Path
 
 from bees_executor.journal import Journal
 from bees_executor.tools import ToolHost
+
+log = logging.getLogger("bees_executor")
 
 
 def _short(computer_id: str) -> str:
@@ -71,6 +74,36 @@ class SingleComputers:
     async def close(self):
         for host in self.hosts.values():
             host.close()
+
+
+def account_limits(environ=os.environ) -> list[str]:
+    """Prefixo `prlimit` aplicado já com o UID da conta: processos e arquivos por abelha.
+
+    CPU, memória e PIDs do conjunto ficam no container (compose). Aqui cada conta ganha
+    teto próprio de processos (RLIMIT_NPROC conta todos os processos do UID), tamanho
+    máximo de arquivo e core desligado. Valores inválidos voltam ao padrão.
+    """
+    executable = shutil.which("prlimit")
+    if executable is None:
+        log.warning("prlimit ausente; computadores sem limite por conta.")
+        return []
+
+    def number(name, default, low, high):
+        try:
+            value = int(environ.get(name, default))
+        except ValueError:
+            return default
+        return value if low <= value <= high else default
+
+    processes = number("BEES_COMPUTER_MAX_PROCESSES", 512, 64, 65536)
+    file_mb = number("BEES_COMPUTER_MAX_FILE_MB", 4096, 16, 1048576)
+    return [
+        executable,
+        f"--nproc={processes}",
+        f"--fsize={file_mb * 1024 * 1024}",
+        "--core=0",
+        "--",
+    ]
 
 
 class MultiUserComputers:
@@ -199,10 +232,11 @@ class MultiUserComputers:
             "start_new_session": True,
         }
         processes = []
+        limits = account_limits()
         if shutil.which("Xvfb"):
             processes.append(
                 subprocess.Popen(
-                    ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
+                    limits + ["Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"],
                     **options,
                 )
             )
@@ -210,12 +244,15 @@ class MultiUserComputers:
             session = shutil.which("startxfce4")
             if session:
                 launcher = [shutil.which("dbus-launch") or "", "--exit-with-session", session]
-                processes.append(subprocess.Popen([part for part in launcher if part], **options))
+                processes.append(
+                    subprocess.Popen(limits + [part for part in launcher if part], **options)
+                )
         socket_path = self._socket(computer_id)
         socket_path.unlink(missing_ok=True)
         processes.append(
             subprocess.Popen(
-                [
+                limits
+                + [
                     sys.executable,
                     "-m",
                     "bees_executor.agent_process",
