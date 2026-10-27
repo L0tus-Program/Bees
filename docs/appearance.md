@@ -41,3 +41,7 @@ A leitura visual e a medição de texto não constituem auditoria WCAG completa 
 aceite com leitor de tela humano. Conteúdo de app/VM remoto tem sua própria
 acessibilidade; esta aparência não demonstra controle daquele ambiente. O aceite
 amplo permanece em [BEES-025.3](https://github.com/L0tus-Program/Bees/issues/88).
+
+## Verificação ponta a ponta
+
+`npm --prefix apps/web run build && npm --prefix apps/web run e2e` sobe API, worker e um modelo simulado por HTTP, e percorre no Chromium o primeiro acesso, a criação da abelha e uma conversa. Em cada tela roda o axe-core (WCAG 2.1 A/AA) em 390 e 1280 px e, na conversa, em pt-BR/en/es; falha com qualquer violação séria/crítica, rolagem horizontal ou geração a mais. O próprio script confere antes que o axe acusa falhas conhecidas. O job **Interface ponta a ponta / Chromium** do CI publica capturas e `e2e.json`. Cobre esse fluxo; não substitui revisão com leitor de tela nem as demais telas.
