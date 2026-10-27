@@ -38,6 +38,14 @@ async function render(content: React.ReactNode, language: 'pt-BR' | 'en' | 'es' 
 }
 
 describe('task response presentation', () => {
+  it.each(['pt-BR', 'en', 'es'] as const)('explains the browser wait without exposing the other task in %s', async (language) => {
+    const waiting: TaskRecord = { ...task, status: 'waiting_resource', latest_run: { ...task.latest_run!, status: 'waiting_resource', result: null }, progress: { code: 'waiting_resource', created_at: stamp }, waiting_for: { tool: 'computer.browser.open', task_id: 'task-0' } }
+    const html = await renderTask(waiting, language)
+    expect(html).toContain(taskResources[language].waitingBrowser)
+    expect(html).not.toContain('task-0')
+    expect(await renderTask({ ...waiting, waiting_for: null }, language)).not.toContain(taskResources[language].waitingBrowser)
+  })
+
   it('shows the actual answer immediately after completed status, before instructions and even an empty decision panel', async () => {
     const html = await renderTask()
     expect(html).toContain(task.latest_run!.result!.content)

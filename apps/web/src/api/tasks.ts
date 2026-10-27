@@ -26,6 +26,7 @@ export interface TaskRecord {
   status: TaskStatus; revision: number; created_at: string; updated_at: string; active_run_id: string | null
   control_requested: 'pause' | 'cancel' | null; available_controls: TaskControl[]; latest_run: TaskRun | null
   progress: { code: string; created_at: string } | null
+  waiting_for?: { tool: string | null; task_id: string | null } | null
   unknown_requires_ack: boolean; unknown_model_calls: number; unknown_tool_actions: number; action_in_flight: boolean
   deliverables?: DeliverableKind[]; deliverable_results?: DeliverableResults | null; publication_pending?: boolean
 }

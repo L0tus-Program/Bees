@@ -83,6 +83,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       <TaskArtifacts agentId={agentId} taskId={taskId} />
       {task.latest_run?.model && <p className="quiet-note">{t('usedModel')}: {task.latest_run.model}</p>}
       <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
+      {task.status === 'waiting_resource' && task.waiting_for?.tool?.includes('.browser.') && <p className="transfer-notice" role="status">{t('waitingBrowser')}</p>}
       {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
       {!unknown && task.latest_run?.error_code && <p className="transfer-notice">{i18n.exists(`errors.${task.latest_run.error_code}`, { ns: 'product' }) ? i18n.t(`errors.${task.latest_run.error_code}`, { ns: 'product' }) : t('runFailed')}</p>}
       {['policy_denied', 'policy_approval_required', 'invalid_policy'].includes(task.latest_run?.error_code ?? '') && <p className="quiet-note">{t('policyHelp')}</p>}
