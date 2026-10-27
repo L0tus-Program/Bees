@@ -95,3 +95,20 @@ modelo remoto com credencial, fluxos completos dos ambientes suportados, instala
 limpa e falhas reais não são comprovados apenas pela contagem de testes.
 Os avisos nativos e os fontes correspondentes das imagens/binários finais devem
 ser conferidos pelo responsável antes da publicação, conforme [licenças](licensing.md).
+
+## Conector pessoal em Linux: prova de operações, não do fluxo amplo
+
+Em 27/10/2026, API, worker e conector CLI em processos próprios parearam uma
+instalação descartável nesta nuvem. Apenas uma pasta de teste foi concedida;
+shell e navegador permaneceram desabilitados. Qwen3:1.7b escreveu e leu um arquivo
+real. O pedido que combinava escrita, leitura e publicação repetiu chamadas e
+foi pausado como `task_limit_reached` após seis gerações, sem publicar artefato.
+Esse resultado não satisfaz o aceite do fluxo completo.
+
+Uma tarefa separada, com somente publicação disponível, concluiu em duas gerações
+e publicou os bytes exatos do arquivo anterior. A publicação não reescreveu a
+origem; reiniciar o worker não repetiu as tarefas. O grant pessoal foi revogado
+ao terminar a verificação. Os casos e a falha original foram preservados para
+revisão. Isso comprova operações de arquivo no conector Linux, sem comprovar a
+máquina do mantenedor, Windows, navegador pessoal, controle humano de tela ou
+qualidade geral do modelo.
