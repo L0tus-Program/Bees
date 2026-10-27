@@ -90,6 +90,37 @@ jobs:
           path: failure-matrix.json
           if-no-files-found: ignore
 
+  e2e:
+    name: Interface ponta a ponta / Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.4'
+      - name: Instalar uv
+        run: python -m pip install uv==0.7.21
+      - run: uv sync --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.17.0'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+      - name: Primeiro acesso, abelha e conversa com axe (390/1280, pt/en/es)
+        run: npm run e2e -- e2e-results
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-interface
+          path: apps/web/e2e-results
+
   executor-wheel:
     name: Pacote do executor
     runs-on: ubuntu-latest
