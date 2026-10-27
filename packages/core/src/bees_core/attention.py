@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from pydantic import BaseModel, ConfigDict, Field
 
 from bees_core.models import Action, Approval, ModelCall, Run, Task, utc_now
+from bees_core.routine_results import quiet_completion
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
 
@@ -101,6 +102,8 @@ def project_event(connection, record, previous, event_id: UUID) -> None:
         ).fetchone()
         if run is not None:
             entity_id, entity = run[0], "run"
+            if record.status == "completed" and quiet_completion(connection, record, run[0]):
+                return
     elif isinstance(record, Run) and record.status in ("paused", "failed") and record.error:
         if record.error in (
             "policy_approval_required",

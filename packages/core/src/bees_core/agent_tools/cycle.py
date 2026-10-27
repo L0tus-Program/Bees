@@ -36,6 +36,8 @@ from bees_core.providers.contracts import (
 )
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
+from bees_core.routine_results import QUIET_MARK, quiet_completion
+from bees_core.routine_results import quiet as quiet
 from bees_core.safety import blocked
 from bees_core.storage.store import NotFoundError, RevisionConflict
 from bees_core.tasks import TaskError, TaskInput, TaskService, submission_digest
@@ -120,16 +122,11 @@ def _payload_text(payload: dict, limit: int) -> str:
     )
 
 
-QUIET_MARK = "SEM_NOVIDADES"
 QUIET_INSTRUCTION = (
     "Esta é uma execução automática de rotina. Use memory_search e memory_save para "
     "lembrar o que já foi entregue antes. Se não houver nada novo ou relevante desde a "
     f"última entrega, responda exatamente {QUIET_MARK} e nada mais."
 )
-
-
-def quiet(content: str | None) -> bool:
-    return (content or "").strip().strip(".").upper() == QUIET_MARK
 
 
 class AgentTaskService(TaskService):
@@ -488,8 +485,7 @@ class AgentTaskWorker(TaskWorker):
                 if result is None or not result.content:
                     return
                 origin = task.metadata.get("agent_chat", {}).get("conversation_id")
-                unchanged = bool((run.checkpoint.get("research") or {}).get("unchanged_since"))
-                if task.metadata.get("routine_execution") and (quiet(result.content) or unchanged):
+                if quiet_completion(unit.agents._context.connection, task, run.id):
                     # Rotina sem novidade: resultado fica na tarefa, sem aviso no chat/canal.
                     return
                 delegated = task.metadata.get("delegated_from") or {}

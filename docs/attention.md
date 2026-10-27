@@ -33,6 +33,26 @@ Tipos persistidos:
 - `approval_required`: aprovação criada e vinculada à tarefa textual.
 - `outcome_unknown`: journal de modelo ou ação com resultado desconhecido.
 
+## Silêncio de uma rotina sem novidade
+
+A conclusão de rotina do agente não cria `task_completed` em Atenção quando o
+resultado confirmado é `SEM_NOVIDADES`, ou quando a pesquisa verificou as mesmas
+fontes com o mesmo conteúdo da execução anterior da mesma revisão. Tarefa, run,
+ocorrência, resposta e eventos continuam no histórico. Nenhum registro anterior
+de atenção é apagado para produzir esse silêncio.
+
+A classificação consulta, no mesmo writer da conclusão, o vínculo canônico de
+rotina/ocorrência/abelha e a mensagem da chamada confirmada. Ela é a mesma usada
+para decidir a entrega na conversa. Uma mensagem comum com esse texto, uma nova
+revisão ou uma tarefa que recebeu controle humano não é silenciada por essa regra.
+Sem fontes lidas ou sem revisão confiável, não se presume repetição. Chaves de
+pesquisa antigas continuam preservadas; a primeira comparação após a mudança de
+chave pode gerar aviso conservador em vez de esconder uma entrega.
+
+Falhas que exigem ação, aprovações e `outcome_unknown` continuam nas projeções
+próprias. Uma resposta vazia pausa com erro; ela não é interpretada como ausência
+de novidade. A preferência de silêncio nunca aprova, retoma ou reconhece um efeito.
+
 Espera por aprovação usa o aviso próprio. Negação humana resolve esse aviso e
 preserva `approval_denied` na execução/auditoria, sem gerar outra falha que peça
 atenção. Parada global e unknown não geram outra falha genérica. A identidade

@@ -29,11 +29,15 @@ def _clean(url: str) -> str:
 
 
 def sources(unit, task) -> list[dict]:
-    rows = unit.agents._context.connection.execute(
+    return sources_snapshot(unit.agents._context.connection, task.id)
+
+
+def sources_snapshot(connection, task_id) -> list[dict]:
+    rows = connection.execute(
         "SELECT a.id,a.tool_name,a.result_json,a.updated_at FROM actions a "
         "JOIN runs r ON r.id=a.run_id WHERE r.task_id=? AND a.status='confirmed' "
         "AND a.tool_name IN (?,?,?) ORDER BY a.updated_at,a.id",
-        (str(task.id), *SOURCE_TOOLS),
+        (str(task_id), *SOURCE_TOOLS),
     ).fetchall()
     found: dict[str, dict] = {}
     for action_id, tool, raw, updated in rows:
@@ -73,12 +77,45 @@ def fingerprint(observed: list[dict]) -> str:
 def relevance_key(task) -> str:
     """Mesma rotina ou mesma pergunta: comparáveis entre execuções."""
     if task.routine_id is not None:
-        return f"routine:{task.routine_id}"
+        binding = task.metadata.get("routine_execution")
+        revision = binding.get("revision") if isinstance(binding, dict) else None
+        if type(revision) is int and revision > 0:
+            return f"routine:{task.routine_id}:revision:{revision}"
+        # Without a trusted revision, do not suppress another task's completion.
+        return f"routine:{task.routine_id}:task:{task.id}"
     return "question:" + hashlib.sha256(task.objective.strip().lower().encode()).hexdigest()
 
 
 def previous_fingerprint(unit, task, key: str) -> tuple[str | None, str | None]:
-    row = unit.agents._context.connection.execute(
+    return previous_fingerprint_snapshot(unit.agents._context.connection, task, key)
+
+
+def previous_fingerprint_snapshot(connection, task, key: str) -> tuple[str | None, str | None]:
+    if task.routine_id is not None:
+        # Confirmed actions are already durable at task completion; the research
+        # checkpoint is published later. Compare an immutable task order so a
+        # newer completion cannot change an older task's delivery decision.
+        row = connection.execute(
+            "SELECT prior.id FROM tasks current "
+            "JOIN routine_occurrences current_o ON current_o.task_id=current.id "
+            "JOIN routine_occurrences prior_o ON prior_o.routine_id=current_o.routine_id "
+            "AND prior_o.routine_revision=current_o.routine_revision "
+            "JOIN tasks prior ON prior.id=prior_o.task_id "
+            "WHERE current.id=? "
+            "AND ?=('routine:'||current.routine_id||':revision:'||current_o.routine_revision) "
+            "AND prior.agent_id=current.agent_id "
+            "AND prior.routine_id=current.routine_id AND prior.status='completed' "
+            "AND prior.control_revision=0 "
+            "AND (prior.created_at<current.created_at "
+            "OR (prior.created_at=current.created_at AND prior.id<current.id)) "
+            "ORDER BY prior.created_at DESC,prior.id DESC LIMIT 1",
+            (str(task.id), key),
+        ).fetchone()
+        if row is None:
+            return None, None
+        observed = sources_snapshot(connection, row[0])
+        return row[0], fingerprint(observed) if observed else None
+    row = connection.execute(
         "SELECT r.task_id,json_extract(r.checkpoint_json,'$.research.fingerprint') FROM runs r "
         "JOIN tasks t ON t.id=r.task_id WHERE t.agent_id=? AND t.id<>? AND t.status='completed' "
         "AND json_extract(r.checkpoint_json,'$.research.key')=? "

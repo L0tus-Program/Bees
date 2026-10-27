@@ -8,6 +8,11 @@ As evoluções FUT-001–FUT-012 (#100–#111) permanecem no backlog e não são
 de aceite da v1. Isso não autoriza publicar pacotes, imagens ou release nem
 integrar `dev` em `main`.
 
+O mantenedor também confirmou **v1 com container; Hyper-V no backlog**. Os
+pré-requisitos/provas específicos de VM (#27–#31 e #96) permanecem abertos como
+trabalho posterior. O computador em container ainda exige suas provas próprias
+sob #26; a decisão não comprova seu isolamento nem conclui seu aceite.
+
 O estado global ainda é **em verificação**. Encerrar uma subtarefa não encerra
 automaticamente sua história nem substitui um requisito de ambiente real por mock.
 As ADRs [0003](adr/0003-agent-tools.md) e [0004](adr/0004-computer-runtime.md)
@@ -41,7 +46,10 @@ ser identificadas separadamente, sem atribuir isolamento de VM ao container.
 | #61 | Corpus e rubrica de pesquisa | Corpus versionado, fontes problemáticas e testes de pesquisa |
 | #65 | Contratos/revisões de skills | Imutabilidade, origem, CAS, replay, restart e importação fechada |
 | #66 | Rascunho de skill a partir de processo | Vínculo do resultado/fontes, revisão humana, export/restore e negativos |
+| #67 | Execução de skill com revisão/entradas atuais | Duas entradas com arquivos exatos distintos no modelo local e negativos de autoridade |
 | #69 | Agenda/ocorrências | DST, unicidade, histórico e limitação de atrasos |
+| #70 | Scheduler e worker | Processo real sem frontend, restart/replay e negativos de concorrência, revogação e unknown |
+| #25 | Ferramentas compartilhadas nas rotinas | Dispatcher/journal comuns e bloqueio de versão/recurso/grant obsoletos |
 | #76 | Consumo/atividade na interface | SDK fechado, confirmação canônica, reload, idiomas e prova de API/UI registrada |
 | #78 | Exportação lógica | Snapshot banco/blob, inventário, hashes, sanitização, concorrência e falhas |
 | #79 | Restauração inativa | Publicação atômica, preservação, bloqueios e prova real de continuidade registrada |
@@ -72,6 +80,15 @@ manual habilitada, aviso correto e pausa preservada após reload. Nenhuma tarefa
 manual ou geração nova foi criada nessa prova visual.
 
 ## Pendências de aceite amplo
+
+A revisão de silêncio encontrou atenção de conclusão criada mesmo sem mensagem
+no chat. A correção consulta resultados canônicos no writer, preservando histórico
+e as atenções de erro/decisão/unknown. Integração de API autenticada e worker com
+provedor **HTTP controlado** confirmou zero itens de atenção e nenhuma repetição
+após restart; isso não é prova de geração real de modelo. Nos dois novos cenários
+com Qwen3:1.7b, o modelo retornou resposta vazia antes de produzir o sinal; ambos
+foram pausados com atenção de falha e sem ações de ferramenta. O aceite amplo de
+qualidade continua separado dessas verificações de contrato.
 
 As demais issues precisam de sua própria revisão ou implementação. Em particular,
 modelo remoto com credencial, fluxos completos dos ambientes suportados, instalação
