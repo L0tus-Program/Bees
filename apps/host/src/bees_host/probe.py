@@ -62,6 +62,22 @@ def _external_library_search():
                 raise OSError("Não foi possível restaurar bibliotecas do runtime.")
 
 
+# Mesmo preâmbulo de provisioning/hyperv.ps1: o PS5.1 acrescenta Program Files ao
+# PSModulePath e o autoload varreria módulos de terceiros (lento, e um módulo anterior pode
+# responder no lugar do cmdlet base). Cmdlets base e Hyper-V só de $PSHOME; sem entradas.
+HYPERV_DIAGNOSTIC = (
+    "$ErrorActionPreference='Stop';"
+    "$PSModuleAutoLoadingPreference='None';"
+    "foreach($m in @('Microsoft.PowerShell.Utility','Microsoft.PowerShell.Management')){"
+    "Import-Module -Name ([IO.Path]::Combine($PSHOME,'Modules',$m,($m+'.psd1')))};"
+    "$module=Test-Path -LiteralPath "
+    "([IO.Path]::Combine($PSHOME,'Modules','Hyper-V','Hyper-V.psd1'));"
+    "$service=Get-Service vmms -ErrorAction SilentlyContinue;"
+    "@{module=$module;service=[bool]($service -and $service.Status -eq 'Running')}"
+    "|ConvertTo-Json -Compress"
+)
+
+
 def _windows_environment(system_directory: Path) -> dict[str, str]:
     """Não encaminhar segredos, módulos do usuário ou hooks de empacotamento."""
     windows_directory = system_directory.parent
@@ -129,11 +145,7 @@ def diagnose() -> tuple[str, dict[str, bool]]:
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
-                    "$ErrorActionPreference='Stop';"
-                    "$module=[bool](Get-Module -ListAvailable Hyper-V);"
-                    "$service=Get-Service vmms -ErrorAction SilentlyContinue;"
-                    "@{module=$module;service=[bool]($service -and $service.Status -eq 'Running')}"
-                    "|ConvertTo-Json -Compress",
+                    HYPERV_DIAGNOSTIC,
                 ],
                 cwd=system_directory,
                 env=_windows_environment(system_directory),

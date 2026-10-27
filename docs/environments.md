@@ -57,6 +57,8 @@ Corpos não aceitam driver, URL de imagem, caminho, shell, token ou identidade d
 
 O core oferece preflight somente leitura para configurações confiáveis Hyper-V ou libvirt. Usa argumentos estáticos sem shell, timeout e projeção em booleanos, sem devolver saída bruta. Hyper-V verifica plataforma, módulo e serviço de gerenciamento; libvirt verifica plataforma, acesso a `/dev/kvm` e conexão ao serviço. A presença desses itens ainda não comprova permissões, imagem, rede segura ou ponte de execução; mesmo um diagnóstico positivo mantém `provisionable: false`.
 
+No Windows, core e host executam o mesmo comando fixo pelo `powershell.exe` de System32 (API nativa, sem PATH herdado) com ambiente mínimo. O comando desliga o autoload de módulos e importa Utility/Management pelo manifesto absoluto em `$PSHOME`; o módulo Hyper-V é verificado pelo caminho de `$PSHOME`. Assim, módulos de terceiros em Program Files não atrasam o prazo de 5 s nem respondem no lugar dos cmdlets base. Saída inválida, timeout ou executável ausente continuam resultando em indisponível.
+
 Habilitar Hyper-V exige decisão explícita do operador. Windows 11 Pro é uma edição suportada, mas o hipervisor ativo pode ocultar requisitos no diagnóstico de hardware; veja os [requisitos oficiais](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/host-hardware-requirements). A rede precisa considerar o NAT existente de Docker/WSL; [WinNAT](https://learn.microsoft.com/en-us/windows-server/virtualization/hyper-v/setup-nat-network) não constitui por si uma política de isolamento.
 
 O [kit Linux](guest-image.md) documenta a preparação da imagem e seus limites. A receita não substitui os testes com VM real abaixo.
