@@ -52,13 +52,17 @@ def visual_holder(unit, task_id, target, tool_name: str) -> str | None:
         where, key = "c.computer_id=?", target.environment_id
     else:
         where, key = "c.executor_id=? AND c.computer_id IS NULL", target.executor_id
-    row = _connection(unit).execute(
-        "SELECT t.id FROM executor_commands c JOIN actions a ON a.id=c.id "
-        "JOIN runs r ON r.id=a.run_id JOIN tasks t ON t.id=r.task_id "
-        f"WHERE {where} AND c.tool_name LIKE ? AND t.id<>? "
-        "AND t.status NOT IN ('completed','failed','cancelled') LIMIT 1",
-        (key, f"{prefix}.{DESKTOP_ACTIONS[0]}%", str(task_id)),
-    ).fetchone()
+    row = (
+        _connection(unit)
+        .execute(
+            "SELECT t.id FROM executor_commands c JOIN actions a ON a.id=c.id "
+            "JOIN runs r ON r.id=a.run_id JOIN tasks t ON t.id=r.task_id "
+            f"WHERE {where} AND c.tool_name LIKE ? AND t.id<>? "
+            "AND t.status NOT IN ('completed','failed','cancelled') LIMIT 1",
+            (key, f"{prefix}.{DESKTOP_ACTIONS[0]}%", str(task_id)),
+        )
+        .fetchone()
+    )
     return row[0] if row else None
 
 
