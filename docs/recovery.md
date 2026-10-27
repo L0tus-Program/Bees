@@ -142,6 +142,19 @@ Para uma decisão disponível na interface:
 Leitura e silêncio em **Atenção** não resolvem nenhum desses bloqueios. Unknown
 continua visível como atenção necessária mesmo após leitura ou reconhecimento.
 
+## Roteiro: queda do worker ou do executor
+
+Reproduzido pela [matriz de falhas](../apps/executor/tests/test_failure_matrix.py), com processos reais mortos por `SIGKILL`/`SIGSTOP`:
+
+1. **Reinicie primeiro o worker** (ou o Compose inteiro). Até o lease vencer (30 s), a tarefa ainda aparece em execução. Depois disso, a ação em voo vira **resultado desconhecido** e a tarefa fica **pausada**, com atenção. O comando do executor fica `expired` (não saiu) ou `unknown` (`worker_restart`, pode ter saído). Nenhum dos dois é reenviado.
+2. **Reconecte o executor.** Ele não reexecuta comandos antigos. Um recibo tardio fica guardado como evidência (`late_confirmed`/`late_failed`) e não muda o estado.
+3. **Abra a tarefa → Recuperação.** A coluna do comando mostra o que a fila sabe (`expired`, `unknown`, evidência tardia). Confira o efeito no recurso real, por exemplo se o arquivo existe e quantas linhas tem, antes de decidir.
+4. **Decida**:
+   - efeito ausente: retome a tarefa, que pode propor a ação de novo como um pedido novo;
+   - efeito presente: retome e informe na conversa, ou cancele.
+   Nos dois casos, a decisão é sua. O Bees não repete sozinho.
+5. Uma ação **confirmada** antes da queda não repete após reiniciar tudo; a tarefa continua de onde parou.
+
 ## Acompanhar a continuação
 
 Inicie a API compatível e confirme banco pronto; depois inicie o worker e confira
