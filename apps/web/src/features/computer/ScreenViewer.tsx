@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Computer } from '../../api/computers'
 import { viewUrl } from '../../api/computers'
@@ -8,6 +8,7 @@ type ViewState = 'connecting' | 'connected' | 'disconnected'
 // Tela autenticada pela sessão; entrada só é aceita quando o usuário está no controle.
 export function ScreenViewer({ computer }: { computer: Computer }) {
   const { t } = useTranslation('computer')
+  const hintId = useId()
   const target = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<ViewState>('connecting')
   const [attempt, setAttempt] = useState(0)
@@ -31,6 +32,7 @@ export function ScreenViewer({ computer }: { computer: Computer }) {
       <span role="status">{t(`view_${state}`)} · {t(interactive ? 'viewInteractive' : 'viewReadOnly')}</span>
       {state === 'disconnected' && <button type="button" className="text-button" onClick={() => { setState('connecting'); setAttempt((value) => value + 1) }}>{t('reconnect')}</button>}
     </div>
-    <div className="screen-viewer-canvas" ref={target} aria-label={t('screenLabel')} />
+    {interactive && <p className="quiet-note" id={hintId}>{t('screenKeyboardHint')}</p>}
+    <div className="screen-viewer-canvas" ref={target} role={interactive ? 'application' : 'img'} aria-label={t('screenLabel')} aria-describedby={interactive ? hintId : undefined} />
   </div>
 }

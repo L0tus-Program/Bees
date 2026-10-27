@@ -76,3 +76,28 @@ it('explains how to start Ollama when unreachable and offers no download', async
 it.each(['en', 'es'] as const)('has the same keys in %s', (language) => {
   expect(Object.keys(localModelResources[language]).sort()).toEqual(Object.keys(localModelResources['pt-BR']).sort())
 })
+
+it('recovers when Bees restarts during a download instead of staying stuck', async () => {
+  let installed = false
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('/pulls/p1')) { installed = true; return Response.json({ error: { code: 'pull_not_found', message: 'x' } }, { status: 404 }) }
+    return Response.json(installed ? { ...status, models: [...status.models, { name: 'qwen3:8b', size_bytes: 5200000000, modified_at: null }] } : { ...status, pulls: [pull] })
+  }))
+  await render()
+  await vi.waitFor(() => expect(button('Cancelar download')).toBeTruthy())
+  await vi.waitFor(() => expect(container.textContent).toContain('acompanhamento do download de qwen3:8b foi perdido'), { timeout: 3000 })
+  expect(button('Cancelar download')).toBeFalsy()
+  expect(container.querySelector('progress')).toBeNull()
+  await vi.waitFor(() => expect(container.textContent).toContain('qwen3:8b'))
+})
+
+it('keeps following the download after a transient read failure', async () => {
+  let reads = 0
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.includes('/pulls/p1')) { reads += 1; return reads === 1 ? Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 }) : Response.json({ ...pull, status: 'completed', phase: 'success', completed_bytes: 100 }) }
+    return Response.json({ ...status, pulls: [pull] })
+  }))
+  await render()
+  await vi.waitFor(() => expect(container.textContent).toContain('qwen3:8b está pronto'), { timeout: 5000 })
+  expect(reads).toBe(2)
+})

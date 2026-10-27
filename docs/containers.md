@@ -14,7 +14,7 @@ O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da
 
 ## Uso no Linux e macOS
 
-Com Docker Engine 28+ (ou Docker Desktop) e Compose 2.20+, execute `./scripts/start.sh` na pasta do projeto — no macOS também é possível dar dois cliques em **Iniciar Bees.command**. O script compila e sobe API, worker e computador da abelha, aguarda a saúde dos serviços e abre o navegador com a autorização de primeiro acesso no fragmento privado da URL (o código não aparece no terminal nem em `logs/startup.log`). Opções: `--port 8090`, `--no-build`, `--no-browser`, `--project-name`. Sem `xdg-open`/`open`, o script apenas informa o endereço; gere o código com `docker compose exec bees bees-auth bootstrap`.
+Com Docker Engine 28+ (ou Docker Desktop) e Compose 2.20+, execute `./scripts/start.sh` na pasta do projeto — no macOS também é possível dar dois cliques em **Iniciar Bees.command**. O script compila e sobe API, worker e computador da abelha, aguarda a saúde dos serviços e abre o navegador com a autorização de primeiro acesso no fragmento privado da URL (o código não aparece no terminal nem em `logs/startup.log`). Opções: `--port 8090`, `--no-build`, `--no-browser`, `--project-name`. Sem `xdg-open`/`open`, o script apenas informa o endereço; gere o código com `docker compose exec bees bees-auth bootstrap`. Uma segunda execução simultânea é recusada (trava em `logs/.start.lock`, recuperada se o processo dono terminou). As mensagens seguem o idioma do sistema (`LANG`: pt, en ou es). No Linux, `./scripts/start.sh --install-shortcut` cria o atalho **Bees** no menu de aplicativos (`~/.local/share/applications/bees.desktop`), inclusive com espaços ou acentos no caminho.
 
 ## Operação por Compose
 

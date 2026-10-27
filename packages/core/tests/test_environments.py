@@ -271,7 +271,7 @@ def test_catalog_is_target_and_no_bridge_can_claim_availability(setup, monkeypat
     }
     with pytest.raises(ValidationError):
         HostConfiguration(guest_bridge_ready=True)
-    monkeypatch.setattr(environments.shutil, "which", lambda _: None)
+    monkeypatch.setattr(environments, "_system_directory", lambda: None)
     result = environments.preflight_host(HostConfiguration(driver="hyperv"))
     assert result["status"] == "driver_unavailable" and result["provisionable"] is False
 
@@ -280,13 +280,21 @@ def test_catalog_is_target_and_no_bridge_can_claim_availability(setup, monkeypat
     "output",
     [None, "segredo remoto", '{"module":"yes","service":true}', '{"module":true,"service":true}'],
 )
-def test_hyperv_probe_sanitizes_and_never_provisions(monkeypatch, output):
+def test_hyperv_probe_sanitizes_and_never_provisions(monkeypatch, tmp_path, output):
     monkeypatch.setattr(environments.os, "name", "nt")
-    monkeypatch.setattr(environments.shutil, "which", lambda _: "powershell.exe")
+    system = tmp_path / "System32"
+    executable = system / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"not executed")
+    monkeypatch.setattr(environments, "_system_directory", lambda: system)
+    monkeypatch.setattr(environments.shutil, "which", lambda _: pytest.fail("Consultou PATH"))
+    monkeypatch.setenv("BEES_TEST_SECRET", "do-not-forward")
     calls = []
 
-    def probe(argv):
+    def probe(argv, *, env):
         calls.append(argv)
+        assert "BEES_TEST_SECRET" not in env
+        assert env["PSModulePath"] == str(executable.parent / "Modules")
         return output
 
     monkeypatch.setattr(environments, "_read_command", probe)
@@ -298,7 +306,19 @@ def test_hyperv_probe_sanitizes_and_never_provisions(monkeypatch, output):
         if output == '{"module":true,"service":true}'
         else "driver_unavailable"
     )
+    assert calls[0][0] == str(executable)
+    assert calls[0][-1] == environments.HYPERV_DIAGNOSTIC
+    assert "$PSModuleAutoLoadingPreference='None'" in calls[0][-1]
+    assert "Get-Module" not in calls[0][-1]
     assert "New-VM" not in calls[0][-1] and "Enable-" not in calls[0][-1]
+
+
+def test_hyperv_probe_without_trusted_powershell_fails_closed(monkeypatch, tmp_path):
+    monkeypatch.setattr(environments.os, "name", "nt")
+    monkeypatch.setattr(environments, "_system_directory", lambda: tmp_path / "missing")
+    monkeypatch.setattr(environments, "_read_command", lambda *a, **k: pytest.fail("Executou"))
+    result = environments.preflight_host(HostConfiguration(driver="hyperv"))
+    assert result["probe"] == {"platform": True, "module": False, "service": False}
 
 
 def test_libvirt_probe_static_local_uri_and_read_only_command(monkeypatch):

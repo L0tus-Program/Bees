@@ -31,7 +31,7 @@ export function TemplatePicker({ onApply, disabled }: { onApply: (template: BeeT
       </label>
       {chosen && TOOL_TEMPLATES.has(chosen) && <p className="quiet-note">{t('toolsHint')}</p>}
       <label className="text-button file-import"><span>{t('import')}</span><input type="file" accept="application/json,.json" className="sr-only" disabled={disabled} onChange={(event) => { void importFile(event.target.files?.[0]); event.target.value = '' }} /></label>
-      {notice && <p className={notice.kind === 'ok' ? 'form-success' : 'transfer-notice'} role="status">{notice.text}</p>}
+      {notice && <p className={notice.kind === 'ok' ? 'form-success' : 'transfer-notice'} role={notice.kind === 'ok' ? 'status' : 'alert'}>{notice.text}</p>}
     </div>
   )
 }

@@ -825,10 +825,27 @@ class CommandQueue:
             return "global_stop"
         connection = _connection(unit)
         owner = connection.execute(
-            "SELECT t.status,g.status FROM actions a JOIN runs r ON r.id=a.run_id "
+            "SELECT t.status,g.status,a.status FROM actions a JOIN runs r ON r.id=a.run_id "
             "JOIN tasks t ON t.id=r.task_id JOIN agents g ON g.id=t.agent_id WHERE a.id=?",
             (row["id"],),
         ).fetchone()
+        if owner is not None and owner[2] in (
+            "confirmed",
+            "failed_no_effect",
+            "outcome_unknown",
+            "cancelled",
+        ):
+            # Queda do worker já declarou a ação (ex.: desconhecida); ninguém aguarda o
+            # recibo, então o efeito nunca pode sair depois.
+            return "action_closed"
+        grants = connection.execute(
+            "SELECT g.enabled AND p.enabled FROM tool_grants g JOIN plugins p ON p.id=g.plugin_id "
+            "WHERE g.agent_id=? AND g.tool_name=?",
+            (row["agent_id"], row["tool_name"]),
+        ).fetchall()
+        if grants and not any(value for (value,) in grants):
+            # Ferramenta ou pacote desligado depois do início: nada chega ao executor.
+            return "tool_grant_revoked"
         if owner is not None and owner[0] == "cancelled":
             return "task_cancelled"
         if owner is not None and owner[1] != "active":

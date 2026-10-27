@@ -42,6 +42,7 @@ button, select { font: inherit; }
 button, select, a { -webkit-tap-highlight-color: transparent; }
 button:not(:disabled), select { cursor: pointer; }
 button:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid var(--theme-border, #926414); outline-offset: 4px; }
+.file-import:focus-within { outline: 3px solid var(--theme-border, #926414); outline-offset: 4px; }
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { font-family: 'Segoe UI', system-ui, sans-serif; }
 .app-shell { max-width: 1184px; margin: 0 auto; padding: 0 44px; }

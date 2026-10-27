@@ -594,3 +594,29 @@ exit 0
         timings = [int(phase[2]) for phase in phases]
         assert timings == sorted(timings)
         print(f"Guarda nativa {failure!r}: {time.monotonic() - started:.3f}s; {diagnostic}")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Módulos PowerShell5.1 nativos")
+def test_native_diagnostic_ignores_shadow_base_cmdlets(tmp_path):
+    """Diagnóstico somente leitura não usa autoload: módulo sombra não responde no lugar."""
+    shadow = tmp_path / "BeesShadowDiag"
+    shadow.mkdir()
+    (shadow / "BeesShadowDiag.psm1").write_text(
+        "function ConvertTo-Json { [Console]::Out.WriteLine('shadow') }\n"
+        "function Get-Service { [pscustomobject]@{Status='Running'} }\n",
+        encoding="utf-8",
+    )
+    (shadow / "BeesShadowDiag.psd1").write_text(
+        f"@{{RootModule='BeesShadowDiag.psm1';ModuleVersion='1.0';GUID='{uuid4()}';"
+        "FunctionsToExport=@('ConvertTo-Json','Get-Service')}\n",
+        encoding="utf-8",
+    )
+    env = probe._windows_environment(probe._system_directory())
+    env["PSModulePath"] = f"{tmp_path};{env['PSModulePath']}"
+    # Contraste: sem preâmbulo, o autoload resolve ConvertTo-Json pelo módulo sombra.
+    contrast = _native_powershell("@{a=1} | ConvertTo-Json\nexit 0\n", env=env, timeout=30)
+    assert contrast.returncode == 0 and contrast.stdout.decode().split() == ["shadow"]
+    result = _native_powershell(probe.HYPERV_DIAGNOSTIC + "\nexit 0\n", env=env, timeout=15)
+    assert result.returncode == 0 and not result.stderr, result.stderr
+    data = json.loads(result.stdout)
+    assert set(data) == {"module", "service"} and all(type(v) is bool for v in data.values())

@@ -477,6 +477,15 @@ class _Repository[T: Record]:
         return updated
 
 
+def connection_has_table(connection, name: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
 _ACTION_TRANSITIONS: dict[str, frozenset[str]] = {
     "prepared": frozenset({"awaiting_approval", "ready", "cancelled"}),
     "awaiting_approval": frozenset({"ready", "cancelled"}),
@@ -1190,6 +1199,18 @@ class Execution:
                             update={"active_milliseconds": task.active_milliseconds + duration}
                         ),
                         task.revision,
+                    )
+            # Comandos de executor das ações declaradas desconhecidas: a fila expira sem
+            # efeito e o enviado vira desconhecido (mesma regra de close_for_resume).
+            if connection_has_table(self._context.connection, "executor_commands"):
+                stamp = _timestamp(now)
+                for current, target in (("queued", "expired"), ("sent", "unknown")):
+                    self._context.connection.execute(
+                        f"UPDATE executor_commands SET status='{target}',"
+                        "error_code='worker_restart',updated_at=?,finished_at=? "
+                        f"WHERE status='{current}' AND id IN (SELECT id FROM actions "
+                        "WHERE run_id=? AND status='outcome_unknown')",
+                        (stamp, stamp, str(run.id)),
                     )
             publication = run.checkpoint.get("publication")
             # Gravação de entregável iniciada sem confirmação: repetir exige decisão humana.
