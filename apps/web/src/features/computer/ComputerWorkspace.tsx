@@ -10,7 +10,7 @@ import { PersonalConnectors } from './PersonalConnectors'
 import { confirmAction } from '../../components/confirmAction'
 
 export function ComputerWorkspace({ agentId }: { agentId: string }) {
-  const { t } = useTranslation('computer')
+  const { t, i18n } = useTranslation('computer')
   const [state, setState] = useState<ComputerState | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
@@ -55,7 +55,7 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
       </div>}
       {computer && <div className="computer-card">
         <h3>{computer.name}</h3>
-        <p role="status">{t(`status_${computer.status}`)}{computer.reason_code ? ` · ${computer.reason_code}` : ''}{computer.status === 'ready' && !computer.online ? ` · ${t('offline')}` : ''}</p>
+        <p role="status">{t(`status_${computer.status}`)}{computer.reason_code ? ` · ${i18n.exists(`reason_${computer.reason_code}`, { ns: 'computer' }) ? t(`reason_${computer.reason_code}`) : t('reason_other', { code: computer.reason_code })}` : ''}{computer.status === 'ready' && !computer.online ? ` · ${t('offline')}` : ''}</p>
         {computer.status === 'ready' && <>
           <p className="quiet-note">{t(computer.control_holder === 'human' ? 'humanControlHelp' : 'agentControlHelp')}</p>
           <div className="computer-actions">

@@ -62,7 +62,7 @@ export function ChannelsPanel({ agentId }: { agentId: string }) {
             <div className="channel-heading"><strong>{channel.name}</strong><span className="provider-label">{t(`kind_${channel.kind}`)}</span><span>{t(`status_${channel.status}`)}</span></div>
             {channel.peer_name && <small>{t('pairedWith', { name: channel.peer_name })}</small>}
             {channel.last_activity_at && <small> · {t('lastActivity', { time: time(channel.last_activity_at) })}</small>}
-            {channel.reason_code && <p className="transfer-notice">{t(`reason_${channel.reason_code}`, { defaultValue: channel.reason_code })}</p>}
+            {channel.reason_code && <p className="transfer-notice">{t(`reason_${channel.reason_code}`, { defaultValue: t('reason_other', { code: channel.reason_code }) })}</p>}
             {current?.replayed && <p className="transfer-notice">{t('replayed')}</p>}
             {current?.pairing_code && <div className="channel-pairing" role="status">
               <p><strong>{t('pairTitle')}</strong> — {t('pairCode', { code: current.pairing_code })}</p>
