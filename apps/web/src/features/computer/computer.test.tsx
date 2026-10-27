@@ -5,6 +5,7 @@ import { I18nextProvider } from 'react-i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { computerResources } from '../../locales/computer'
 import { ComputerWorkspace } from './ComputerWorkspace'
+import { ScreenViewer } from './ScreenViewer'
 import { createComputer, getComputers, setComputerControl, viewUrl } from '../../api/computers'
 import type { Computer } from '../../api/computers'
 import { setCsrfToken } from '../../api/client'
@@ -39,5 +40,18 @@ describe('computer workspace', () => {
 
   it('builds a same-origin websocket url for the screen', () => {
     expect(viewUrl(computer)).toMatch(/^wss?:\/\/.+\/api\/v1\/agents\/bee-1\/computers\/c1\/view$/)
+  })
+
+  it.each(['pt-BR', 'en', 'es'] as const)('names the screen and explains keyboard capture under human control in %s', async (language) => {
+    const instance = createInstance()
+    await instance.init({ lng: language, resources: { [language]: { computer: computerResources[language] } }, interpolation: { escapeValue: false } })
+    const view = (value: Computer) => renderToStaticMarkup(<I18nextProvider i18n={instance}><ScreenViewer computer={value} /></I18nextProvider>)
+    const readOnly = view(computer)
+    expect(readOnly).toContain('role="img"')
+    expect(readOnly).not.toContain(computerResources[language].screenKeyboardHint)
+    const human = view({ ...computer, control_holder: 'human' })
+    expect(human).toContain('role="application"')
+    expect(human).toContain(computerResources[language].screenKeyboardHint)
+    expect(human).toMatch(/aria-describedby="[^"]+"/)
   })
 })

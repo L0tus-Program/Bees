@@ -9,6 +9,7 @@ const pt = {
   tools: '{{count}} ferramentas', readOnly: 'somente leitura', refresh: 'Atualizar ferramentas', enable: 'Ativar', disable: 'Desativar',
   remove: 'Remover', removeConfirm: 'Remover o conector apaga a credencial do cofre. Continuar?',
   status_ready: 'pronto', status_failed: 'falhou', disabled: 'desativado',
+  reason_other: 'Outro motivo ({{code}}).',
   reason_mcp_auth_failed: 'Credencial recusada.', reason_mcp_unreachable: 'Servidor inacessível.', reason_mcp_protocol_error: 'Resposta fora do protocolo MCP.',
   needsGrant: 'Ative o pacote “Conectores MCP” em Ferramentas (ou “Ativar ferramentas recomendadas” no chat) para a abelha usar.',
 }
@@ -24,6 +25,7 @@ const en: Translations = {
   tools: '{{count}} tools', readOnly: 'read-only', refresh: 'Refresh tools', enable: 'Enable', disable: 'Disable',
   remove: 'Remove', removeConfirm: 'Removing the connector deletes its credential from the vault. Continue?',
   status_ready: 'ready', status_failed: 'failed', disabled: 'disabled',
+  reason_other: 'Other reason ({{code}}).',
   reason_mcp_auth_failed: 'Credential rejected.', reason_mcp_unreachable: 'Server unreachable.', reason_mcp_protocol_error: 'Response outside the MCP protocol.',
   needsGrant: 'Enable the “MCP connectors” package in Tools (or “Enable recommended tools” in chat) so the bee can use it.',
 }
@@ -38,6 +40,7 @@ const es: Translations = {
   tools: '{{count}} herramientas', readOnly: 'solo lectura', refresh: 'Actualizar herramientas', enable: 'Activar', disable: 'Desactivar',
   remove: 'Eliminar', removeConfirm: 'Eliminar el conector borra la credencial de la bóveda. ¿Continuar?',
   status_ready: 'listo', status_failed: 'falló', disabled: 'desactivado',
+  reason_other: 'Otro motivo ({{code}}).',
   reason_mcp_auth_failed: 'Credencial rechazada.', reason_mcp_unreachable: 'Servidor inaccesible.', reason_mcp_protocol_error: 'Respuesta fuera del protocolo MCP.',
   needsGrant: 'Activa el paquete “Conectores MCP” en Herramientas (o “Activar herramientas recomendadas” en el chat) para que la abeja lo use.',
 }

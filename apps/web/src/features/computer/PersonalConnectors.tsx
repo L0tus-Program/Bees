@@ -39,7 +39,7 @@ function ConnectorGrant({ agentId, executor, onChanged }: { agentId: string; exe
 }
 
 export function PersonalConnectors({ agentId }: { agentId: string }) {
-  const { t } = useTranslation('computer')
+  const { t, i18n } = useTranslation('computer')
   const [items, setItems] = useState<Executor[]>([])
   const [invite, setInvite] = useState<Invite | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
@@ -72,7 +72,7 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
       <p>{t('inviteInstructions')}</p>
       <code className="invite-token">{invite.token}</code>
       <pre>{`bees-executor personal --api ${window.location.origin} --invite ${invite.token} --root Documentos=~/Documents`}</pre>
-      <small>{t('inviteExpires', { time: new Date(invite.expires_at).toLocaleTimeString() })}</small>
+      <small>{t('inviteExpires', { time: new Date(invite.expires_at).toLocaleTimeString(i18n.resolvedLanguage) })}</small>
     </div>}
   </section>
 }

@@ -42,7 +42,7 @@ export function McpServers({ agentId }: { agentId: string }) {
         {servers?.map((server) => <li key={server.id} className="channel-card">
           <div className="channel-heading"><strong>{server.name}</strong>{server.server_name && <small>{server.server_name}</small>}<span>{server.enabled ? t(`status_${server.status}`) : t('disabled')}</span><span>{t('tools', { count: server.tools.length })}</span></div>
           <code>{server.url}</code>
-          {server.reason_code && <p className="transfer-notice">{t(`reason_${server.reason_code}`, { defaultValue: server.reason_code })}</p>}
+          {server.reason_code && <p className="transfer-notice">{t(`reason_${server.reason_code}`, { defaultValue: t('reason_other', { code: server.reason_code }) })}</p>}
           <details><summary>{t('tools', { count: server.tools.length })}</summary><ul>{server.tools.map((tool) => <li key={tool.name}><strong>{tool.name}</strong>{tool.read_only && <small> · {t('readOnly')}</small>}{tool.description && <small className="block">{tool.description}</small>}</li>)}</ul></details>
           <div className="row-actions">
             <button type="button" className="button secondary" disabled={busy} onClick={() => { void act(() => refreshMcpServer(server)) }}>{t('refresh')}</button>

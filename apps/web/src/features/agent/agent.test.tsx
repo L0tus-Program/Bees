@@ -23,6 +23,7 @@ async function render(content: React.ReactNode, language: 'pt-BR' | 'en' | 'es' 
 const agentTask = { ...task, execution_kind: 'agent_task', agent_chat_conversation_id: 'chat-1', agent_steps: [
   { tool: 'web_search', status: 'confirmed', code: null, at: '2026-10-23T10:00:00Z' },
   { tool: 'web_fetch', status: 'failed', code: 'web_timeout', at: '2026-10-23T10:00:05Z' },
+  { tool: 'bees_delegate', status: 'failed', code: 'delegation_depth', at: '2026-10-23T10:00:09Z' },
 ] }
 
 describe('agent task in chat', () => {
@@ -30,7 +31,9 @@ describe('agent task in chat', () => {
     const html = await render(<AgentSteps task={agentTask} />, language)
     expect(html).toContain(agentResources[language].functions.web_search)
     expect(html).toContain(agentResources[language].stepStatus.failed)
-    expect(html).toContain('web_timeout')
+    expect(html).toContain(agentResources[language].stepCodeOther.replace('{{code}}', 'web_timeout'))
+    expect(html).toContain(agentResources[language].stepCode.delegation_depth)
+    expect(html).not.toContain('delegation_depth')
   })
 
   it('does not duplicate the chat reply inside the agent card and shows pending decisions', async () => {
