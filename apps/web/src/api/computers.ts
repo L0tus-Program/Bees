@@ -46,6 +46,12 @@ export async function setComputerControl(computer: Computer, holder: 'agent' | '
   if (!isComputer(value)) throw new ApiError('invalid_response')
   return value
 }
+/** Fecha programas e sobe a área de trabalho de novo; a API aguarda o runtime confirmar. */
+export async function restartComputer(computer: Computer, clientRequestId: string) {
+  const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/restart`, { authenticated: true, body: { client_request_id: clientRequestId }, timeoutMs: 100000 })
+  if (!isComputer(value)) throw new ApiError('invalid_response')
+  return value
+}
 export function viewUrl(computer: Computer) {
   const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${scheme}//${window.location.host}/api/v1${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/view`

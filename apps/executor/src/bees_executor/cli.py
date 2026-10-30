@@ -41,6 +41,29 @@ class ComputerRuntime:
             from bees_executor.view import open_view
 
             await open_view(client, self.computers, message)
+        elif kind == "computer_restart":
+            await self._restart(client, message)
+
+    async def _restart(self, client, message: dict) -> None:
+        """Reinício pedido pela pessoa: mesmo caminho (e lock) do comando da abelha."""
+        request, computer_id = message.get("request"), message.get("computer_id")
+        if not isinstance(request, str) or not isinstance(computer_id, str):
+            return
+        try:
+            receipt = await self.computers.execute(
+                computer_id, {"id": request, "tool": "computer.restart", "arguments": {}}
+            )
+        except Exception as error:
+            log.warning("Falha ao reiniciar computador: %s", type(error).__name__)
+            receipt = {"status": "failed", "code": "computer_restart_failed"}
+        await client.send(
+            {
+                "type": "computer_restarted",
+                "request": request,
+                "status": receipt.get("status"),
+                "code": receipt.get("code"),
+            }
+        )
 
     async def _sync(self, client, computer: dict) -> None:
         computer_id, status = computer.get("id"), computer.get("status")

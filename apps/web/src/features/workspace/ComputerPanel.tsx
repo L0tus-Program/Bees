@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Hand, Loader2, Monitor, Power } from 'lucide-react'
-import { createComputer, getComputers, setComputerControl } from '../../api/computers'
+import { Hand, Loader2, Monitor, Power, RotateCcw } from 'lucide-react'
+import { createComputer, getComputers, restartComputer, setComputerControl } from '../../api/computers'
 import type { Computer, ComputerState } from '../../api/computers'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
@@ -10,13 +10,17 @@ import { ScreenViewer } from '../computer/ScreenViewer'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-/** Tela do computador da abelha ao lado da conversa, com revezamento de controle. */
+/** Tela do computador da abelha ao lado da conversa, com revezamento de controle e reinício. */
 export function ComputerPanel({ agentId, name }: { agentId: string; name: string }) {
   const { t } = useTranslation('workspace')
   const [state, setState] = useState<ComputerState | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
   const request = useRef<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [restarting, setRestarting] = useState(false)
+  const restartRequest = useRef<string | null>(null)
+  const [screen, setScreen] = useState(0)
   const load = useCallback(async (signal?: AbortSignal) => {
     try { setState(await getComputers(agentId, signal)) } catch (failure) { if (!signal?.aborted) setError(asApiError(failure)) }
   }, [agentId])
@@ -38,6 +42,18 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
     setBusy(true); setError(null)
     try { await setComputerControl(computer, holder); await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
   }
+  async function restart() {
+    if (!computer) return
+    setConfirming(false); setRestarting(true); setBusy(true); setError(null)
+    // Mesmo identificador ao repetir após demora: a API devolve o mesmo reinício, sem outro.
+    restartRequest.current ??= crypto.randomUUID()
+    // Tela nova após o reinício: o visualizador reconecta sozinho.
+    try { await restartComputer(computer, restartRequest.current); restartRequest.current = null; setScreen((value) => value + 1); await load() } catch (failure) {
+      const problem = asApiError(failure)
+      if (!['computer_restart_timeout', 'mutation_timeout', 'mutation_network'].includes(problem.code)) restartRequest.current = null
+      setError(problem)
+    } finally { setRestarting(false); setBusy(false) }
+  }
 
   return <div className="flex h-full min-h-0 flex-col gap-3">
     <div className="flex items-center gap-2">
@@ -53,10 +69,23 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
     {computer?.status === 'provisioning' && <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('computerStarting')}</p>}
     {computer?.status === 'failed' && <p className="text-sm text-destructive">{t('computerFailed')}</p>}
     {computer?.status === 'ready' && <>
-      <div className="legacy-scope min-h-0 flex-1 overflow-hidden rounded-xl border bg-black"><ScreenViewer computer={computer} /></div>
-      <Button variant={computer.control_holder === 'human' ? 'default' : 'outline'} disabled={busy} onClick={() => { void control(computer.control_holder === 'human' ? 'agent' : 'human') }}>
-        <Hand />{t(computer.control_holder === 'human' ? 'returnControl' : 'takeControl')}
-      </Button>
+      <div className="legacy-scope min-h-0 flex-1 overflow-hidden rounded-xl border bg-black"><ScreenViewer key={screen} computer={computer} /></div>
+      {confirming
+        ? <div className="flex flex-col gap-2 rounded-xl border p-3" role="group" aria-label={t('restart')}>
+          <p className="text-sm">{t('restartConfirm')}</p>
+          <div className="flex gap-2">
+            <Button variant="destructive" onClick={() => { void restart() }}><RotateCcw />{t('restartConfirmAction')}</Button>
+            <Button variant="outline" onClick={() => { setConfirming(false) }}>{t('cancel')}</Button>
+          </div>
+        </div>
+        : <div className="flex gap-2">
+          <Button className="flex-1" variant={computer.control_holder === 'human' ? 'default' : 'outline'} disabled={busy} onClick={() => { void control(computer.control_holder === 'human' ? 'agent' : 'human') }}>
+            <Hand />{t(computer.control_holder === 'human' ? 'returnControl' : 'takeControl')}
+          </Button>
+          <Button variant="outline" disabled={busy || !computer.online} onClick={() => { setConfirming(true) }}>
+            {restarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw />}{t(restarting ? 'restarting' : 'restart')}
+          </Button>
+        </div>}
     </>}
   </div>
 }

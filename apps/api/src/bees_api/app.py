@@ -31,6 +31,7 @@ from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
 from bees_api.delivery_history import router as delivery_history_router
 from bees_api.environments import router as environments_router
+from bees_api.executors import RestartHub
 from bees_api.executors import router as executors_router
 from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
@@ -146,6 +147,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.receipts = Receipts()
         application.state.settings = config
         application.state.view_hub = ViewHub()
+        application.state.restart_hub = RestartHub()
         application.state.local_models = LocalModelManager()
         application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
         application.state.artifact_upload_slots = BoundedSemaphore(2)

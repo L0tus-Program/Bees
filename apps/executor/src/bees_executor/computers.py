@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,11 @@ from bees_executor.journal import Journal
 from bees_executor.tools import ToolHost
 
 log = logging.getLogger("bees_executor")
+RESTART = "computer.restart"
+
+
+def _restarted() -> dict:
+    return {"status": "confirmed", "result": {"restarted": True}}
 
 
 def _short(computer_id: str) -> str:
@@ -56,8 +62,19 @@ class SingleComputers:
     async def execute(self, computer_id: str, command: dict) -> dict:
         if not self.home(computer_id).exists():
             return {"status": "failed", "code": "computer_not_provisioned"}
+        if command.get("tool") == RESTART:
+            await self.restart(computer_id)
+            return _restarted()
         host = self._host(computer_id)
         return await asyncio.to_thread(host.execute, command)
+
+    async def restart(self, computer_id: str) -> None:
+        """Fecha navegador e journal do ToolHost e cria outro; arquivos continuam."""
+        host = self.hosts.pop(computer_id, None)
+        if host is not None:
+            await asyncio.to_thread(host.close)
+            host.journal.close()
+        self._host(computer_id)
 
     async def remove(self, computer_id: str) -> None:
         host = self.hosts.pop(computer_id, None)
@@ -111,9 +128,10 @@ class MultiUserComputers:
 
     mode = "multiuser"
 
-    def __init__(self, base: Path, state: Path):
+    def __init__(self, base: Path, state: Path, x11: Path = Path("/tmp")):
         self.base = base
         self.state = state
+        self.x11 = x11
         self.registry_path = state / "computers.json"
         self.registry = (
             json.loads(self.registry_path.read_text()) if self.registry_path.exists() else {}
@@ -276,11 +294,48 @@ class MultiUserComputers:
                 break
             await asyncio.sleep(0.1)
 
+    async def restart(self, computer_id: str) -> None:
+        """Encerra toda a sessão da conta e sobe de novo; home, arquivos e perfil ficam.
+
+        Tratado aqui, não no processo agente: o próprio agente (e o navegador dele) é
+        encerrado. Chamar somente com o lock do computador.
+        """
+        entry = self.registry[computer_id]
+        for process in self.processes.pop(computer_id, []):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                process.kill()
+            await asyncio.to_thread(process.wait, 10)
+        # Processos soltos da conta (programas abertos na área de trabalho, navegador).
+        await asyncio.to_thread(
+            subprocess.run, ["pkill", "-KILL", "-u", entry["user"]], check=False
+        )
+        for _ in range(50):
+            remaining = await asyncio.to_thread(
+                subprocess.run, ["pgrep", "-u", entry["user"]], check=False, capture_output=True
+            )
+            if remaining.returncode != 0:
+                break
+            await asyncio.sleep(0.1)
+        # Xvfb morto à força deixa trava e socket: sem limpar, a tela não sobe de novo.
+        display = entry["display"]
+        (self.x11 / f".X{display}-lock").unlink(missing_ok=True)
+        (self.x11 / ".X11-unix" / f"X{display}").unlink(missing_ok=True)
+        await self._start(computer_id)
+
     async def execute(self, computer_id: str, command: dict) -> dict:
         if computer_id not in self.registry:
             return {"status": "failed", "code": "computer_not_provisioned"}
         lock = self.locks.setdefault(computer_id, asyncio.Lock())
         async with lock:
+            if command.get("tool") == RESTART:
+                try:
+                    await self.restart(computer_id)
+                except Exception as error:
+                    log.warning("Falha ao reiniciar computador: %s", type(error).__name__)
+                    return {"status": "failed", "code": "computer_restart_failed"}
+                return _restarted()
             await self._start(computer_id)
             try:
                 reader, writer = await asyncio.open_unix_connection(str(self._socket(computer_id)))

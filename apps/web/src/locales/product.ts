@@ -77,6 +77,7 @@ const pt = {
   limitedHistory: 'Esta prévia mostra até 200 mensagens recentes. Seu histórico completo continua preservado no serviço.',
   limitedAgents: 'Esta lista atingiu o limite da prévia. Os demais registros permanecem preservados.',
   errors: {
+    computer_restart_failed: 'Não foi possível reiniciar o computador. Tente de novo em instantes.', computer_restart_timeout: 'O computador demorou para reiniciar. Aguarde e confira a tela antes de repetir.',
     chat_outcome_unknown: 'Este envio não tem resposta confirmada. Consulte o histórico antes de fazer outro pedido: pode haver consumo de créditos. O Bees não o repete.',
     chat_incomplete: 'A resposta deste envio ficou incompleta. Confira o histórico e as tarefas. Não repetimos a chamada automaticamente; um novo pedido pode consumir créditos novamente.',
     policy_denied: 'Uma regra de autonomia bloqueia esta geração. Revise a aba Autonomia antes de enviar novamente.',
@@ -212,6 +213,7 @@ const en: ProductStrings = {
   noTextContent: 'No text content. No tool was executed by this interface.', waitingModel: 'Waiting for the model to respond. This call can take up to a minute.', messageLabel: 'Message to the bee', messagePlaceholder: 'Tell your bee what you need help with…',
   chatCost: 'This message uses the configured model and may consume provider credits.', send: 'Send', sending: 'Sending…', limitedHistory: 'This preview displays up to 200 recent messages. Your full history remains preserved in the service.', limitedAgents: 'This list reached the preview limit. Other records remain preserved.',
   errors: {
+    computer_restart_failed: 'Could not restart the computer. Try again in a moment.', computer_restart_timeout: 'The computer took too long to restart. Wait and check the screen before repeating.',
     chat_outcome_unknown: 'This message has no confirmed response. Check history before making another request: credits may have been consumed. Bees will not repeat it.',
     chat_incomplete: 'This send has an incomplete response. Check history and tasks. Calls are never repeated automatically; a new request may consume credits again.',
     policy_denied: 'An autonomy rule blocks this generation. Review the Autonomy tab before sending again.',
@@ -313,6 +315,7 @@ const es: ProductStrings = {
   nextStepTitle: 'Conversa y delega una tarea.', nextStepDescription: ' Activa el modo agente para buscar en la web, usar el ordenador de la abeja o tu máquina. Las acciones sensibles piden tu aprobación; los resultados quedan en Entregas.', conversation: 'Conversación', conversationHistory: 'Historial de conversación', refreshHistory: 'Actualizar historial', chatScope: 'Conversa y, si quieres, permite que la abeja cree una tarea de texto en segundo plano. Su resultado aparece aquí, incluso después de volver a abrir la página.', chatEmptyTitle: '¿Qué vamos a pensar juntos?', chatEmptyDescription: 'Pide una explicación, organiza una idea o compara alternativas con el contexto que envíes.',
   you: 'Tú', systemMessage: 'Sistema', noTextContent: 'El modelo no devolvió texto en este mensaje. Revisa las tareas registradas en esta conversación.', waitingModel: 'Esperando la respuesta del modelo. Puede tardar hasta un minuto.', messageLabel: 'Mensaje para la abeja', messagePlaceholder: 'Cuéntale a tu abeja en qué necesitas ayuda…', chatCost: 'El mensaje usa el modelo configurado y puede consumir créditos del proveedor.', send: 'Enviar', sending: 'Enviando…', limitedHistory: 'Esta versión muestra hasta 200 mensajes recientes. Tu historial completo permanece en el servicio.', limitedAgents: 'Esta lista alcanzó el límite de la versión previa. Los demás registros se conservan.',
   errors: {
+    computer_restart_failed: 'No se pudo reiniciar el ordenador. Inténtalo de nuevo en un momento.', computer_restart_timeout: 'El ordenador tardó en reiniciarse. Espera y revisa la pantalla antes de repetir.',
     chat_outcome_unknown: 'Este envío no tiene respuesta confirmada. Revisa el historial antes de hacer otro pedido: puede haber consumo de créditos. Bees no lo repite.',
     chat_incomplete: 'La respuesta de este envío quedó incompleta. Revisa el historial y las tareas. No repetimos llamadas automáticamente; un nuevo pedido puede consumir créditos de nuevo.',
     policy_denied: 'Una regla de autonomía bloquea esta generación. Revisa la pestaña Autonomía antes de enviar de nuevo.',

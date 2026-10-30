@@ -61,6 +61,21 @@ class AgentMessageBody(Input):
         return value.strip()
 
 
+def _current_bundles(plugins) -> dict:
+    """Instalação por pacote recomendado que já contém todas as ferramentas atuais."""
+    found = {}
+    for plugin in plugins:
+        try:
+            manifest = ToolService._manifest(plugin)
+        except Exception:
+            continue
+        names = {tool.tool_name for tool in manifest.tools}
+        for bundle in bundles():
+            if bundle["plugin_key"] == manifest.plugin_key and set(bundle["tools"]) <= names:
+                found.setdefault(bundle["plugin_key"], plugin)
+    return found
+
+
 def _tools_view(unit, agent_id):
     return [
         {
@@ -86,9 +101,7 @@ def capabilities(agent_id: UUID, request: Request, session: _SESSION) -> dict:
         except ProviderError:
             tool_calls = False
         tools = _tools_view(unit, agent.id)
-        installed = {
-            ToolService._manifest(plugin).plugin_key for plugin in unit.plugins.list(limit=1000)
-        }
+        installed = _current_bundles(unit.plugins.list(limit=1000))
     status = worker_status(store)
     return {
         "tool_calls_supported": tool_calls,
@@ -111,23 +124,25 @@ def enable_recommended(
         if unit.agents.get(agent_id) is None:
             raise NotFoundError("Abelha não encontrada.")
         plugins = unit.plugins.list(limit=1000)
-    by_key = {}
+    keys = set()
     for plugin in plugins:
         try:
-            key = ToolService._manifest(plugin).plugin_key
+            keys.add(ToolService._manifest(plugin).plugin_key)
         except Exception:
             continue
-        by_key.setdefault(key, plugin)
+    by_key = _current_bundles(plugins)
     granted = []
     for bundle in bundles():
         manifest = PluginManifest.model_validate(manifest_for(bundle)).model_dump(mode="json")
         plugin = by_key.get(bundle["plugin_key"])
         if plugin is None:
+            # Pacote instalado antes de ganhar ferramentas (ex.: computer.restart): manifestos
+            # são imutáveis, então a versão atual entra ao lado e as concessões antigas ficam.
+            name = bundle["plugin_key"]
+            if name in keys:
+                name = f"{name}@{bundle['version']}"
             plugin = tools.install(
-                {
-                    "client_request_id": uuid5(body.client_request_id, bundle["plugin_key"]),
-                    "manifest": manifest,
-                }
+                {"client_request_id": uuid5(body.client_request_id, name), "manifest": manifest}
             )
         if not plugin.enabled:
             plugin = tools.update_plugin(

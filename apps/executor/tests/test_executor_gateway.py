@@ -253,6 +253,77 @@ def test_offline_executor_expires_without_effect_and_revocation(server, tmp_path
         resolve_target(unit, agent.id, spec("computer.files.list"))
 
 
+def human_session(server):
+    human = httpx.Client(base_url=server.url, headers={"Origin": server.url}, timeout=60)
+    setup = human.post(
+        "/api/v1/auth/setup",
+        json={
+            "bootstrap_token": server.app.state.identity.issue_bootstrap(),
+            "name": "Teste",
+            "password": "senha teste reinicio 123456",
+        },
+    )
+    assert setup.status_code == 200, setup.text
+    human.headers["X-Bees-CSRF"] = human.get("/api/v1/auth/status").json()["csrf_token"]
+    return human
+
+
+def test_human_restart_reaches_the_runtime_once(server, tmp_path):
+    database = server.database
+    service = ExecutorService(database)
+    invite = service.invite({"kind": "computer_runtime", "name": "Runtime"})
+    credential = exchange(server.url, invite["token"], tmp_path / "runtime")
+    agent = agent_with_tools(database, "bees.computer")
+    computers = SingleComputers(tmp_path / "computers")
+    restarts = []
+    original = computers.restart
+
+    async def counted(computer_id):
+        restarts.append(computer_id)
+        await original(computer_id)
+
+    computers.restart = counted
+    client = ExecutorClient(
+        server.url, tmp_path / "runtime", "computer_runtime", ComputerRuntime(computers)
+    )
+    human = human_session(server)
+
+    async def scenario():
+        connection = asyncio.create_task(client.run_forever(credential))
+        await wait_for(lambda: service.list("computer_runtime")[0]["online"])
+        computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+        await wait_for(lambda: service.computers(agent.id)[0]["status"] == "ready")
+        path = f"/api/v1/agents/{agent.id}/computers/{computer['id']}/restart"
+        body = {"client_request_id": str(uuid4())}
+        first = await asyncio.to_thread(human.post, path, json=body)
+        replay = await asyncio.to_thread(human.post, path, json=body)
+        forged = await asyncio.to_thread(
+            httpx.post,
+            server.url + path,
+            json={"client_request_id": str(uuid4())},
+            headers={"Origin": server.url, "X-Bees-CSRF": "x"},
+            cookies=human.cookies,
+        )
+        other = await asyncio.to_thread(
+            human.post,
+            f"/api/v1/agents/{uuid4()}/computers/{computer['id']}/restart",
+            json={"client_request_id": str(uuid4())},
+        )
+        client.stopped.set()
+        connection.cancel()
+        await asyncio.gather(connection, return_exceptions=True)
+        return computer, first, replay, forged, other
+
+    computer, first, replay, forged, other = asyncio.run(scenario())
+    human.close()
+    assert first.status_code == 200, first.text
+    assert first.json()["restarted"] is True and first.json()["id"] == computer["id"]
+    # Mesmo pedido repetido devolve o mesmo recibo sem reiniciar de novo.
+    assert replay.status_code == 200 and restarts == [computer["id"]]
+    assert forged.status_code == 403
+    assert other.status_code == 404
+
+
 def test_personal_connector_scope_and_roots(server, tmp_path):
     database = server.database
     service = ExecutorService(database)

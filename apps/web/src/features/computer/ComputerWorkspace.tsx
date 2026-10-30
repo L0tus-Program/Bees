@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
-import { createComputer, createInvite, getComputers, removeComputer, setComputerControl } from '../../api/computers'
+import { createComputer, createInvite, getComputers, removeComputer, restartComputer, setComputerControl } from '../../api/computers'
 import type { Computer, ComputerState } from '../../api/computers'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { ScreenViewer } from './ScreenViewer'
@@ -63,6 +63,7 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
             {computer.control_holder === 'agent'
               ? <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'human'), 'controlTaken'); setViewing(true) }}>{t('takeControl')}</button>
               : <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'agent'), 'controlReturned') }}>{t('returnControl')}</button>}
+            <button type="button" className="button secondary" disabled={busy || !computer.online} onClick={() => { void confirmAction(t('restartConfirm')).then((ok) => { if (ok) void mutate(() => restartComputer(computer, crypto.randomUUID()), 'restarted') }) }}>{t('restart')}</button>
             <button type="button" className="button secondary" disabled={busy} onClick={() => { void confirmAction(t('removeConfirm')).then((ok) => { if (ok) void mutate(() => removeComputer(computer), 'removed') }) }}>{t('remove')}</button>
           </div>
           {viewing && computer.online && <ScreenViewer key={`${computer.id}:${computer.control_revision}`} computer={computer} />}

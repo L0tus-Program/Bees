@@ -921,9 +921,29 @@ TEAM_SPECS: tuple[ToolSpec, ...] = (
     ),
 )
 
+# Só no computador próprio: a máquina pessoal do usuário nunca é reiniciada pela abelha.
+COMPUTER_RESTART = ToolSpec(
+    name="computer.restart",
+    function="computer_restart",
+    action="restart",
+    target="computer",
+    effect="external",
+    default_effect="allow",
+    description=(
+        "Reinicia o computador da abelha: fecha navegador e programas e sobe a área de "
+        "trabalho de novo; arquivos e logins são preservados. Use quando o navegador ou a "
+        "tela travarem."
+    ),
+    schema=_schema({}, []),
+    input_model=EmptyInput,
+    timeout_seconds=120,
+    capabilities=("desktop",),
+)
+
 SPECS = (
     SPECS
     + _executor_specs("computer", "computer_", "computer", COMPUTER)
+    + (COMPUTER_RESTART,)
     + _executor_specs("personal", "personal_", "personal", PERSONAL)
     + MCP_SPECS
     + TEAM_SPECS
@@ -964,7 +984,7 @@ BUNDLES: tuple[dict, ...] = (
     {
         "plugin_key": "bees.computer",
         "name": "Computador próprio da abelha",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "tools": tuple(spec.name for spec in SPECS if spec.target == "computer"),
     },
     {

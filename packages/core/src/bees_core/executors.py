@@ -31,7 +31,8 @@ ONLINE_SECONDS = 45
 INVITE_SECONDS = 900
 CREDENTIAL_PREFIX = "be_"
 Kind = Literal["computer_runtime", "personal"]
-DESKTOP_ACTIONS = ("browser.",)
+# Reiniciar derruba a tela e o navegador: disputa o recurso como as ações do navegador.
+DESKTOP_ACTIONS = ("browser.", "restart")
 
 
 def computer_startable(unit, agent_id) -> bool:
@@ -68,14 +69,15 @@ def visual_holder(unit, task_id, target, tool_name: str) -> str | None:
         where, key = "c.computer_id=?", target.environment_id
     else:
         where, key = "c.executor_id=? AND c.computer_id IS NULL", target.executor_id
+    visual = " OR ".join("c.tool_name LIKE ?" for _ in DESKTOP_ACTIONS)
     row = (
         _connection(unit)
         .execute(
             "SELECT t.id FROM executor_commands c JOIN actions a ON a.id=c.id "
             "JOIN runs r ON r.id=a.run_id JOIN tasks t ON t.id=r.task_id "
-            f"WHERE {where} AND c.tool_name LIKE ? AND t.id<>? "
+            f"WHERE {where} AND ({visual}) AND t.id<>? "
             "AND t.status NOT IN ('completed','failed','cancelled') LIMIT 1",
-            (key, f"{prefix}.{DESKTOP_ACTIONS[0]}%", str(task_id)),
+            (key, *(f"{prefix}.{action}%" for action in DESKTOP_ACTIONS), str(task_id)),
         )
         .fetchone()
     )
@@ -139,6 +141,10 @@ class ControlInput(_Input):
 
 class RevisionInput(_Input):
     expected_revision: int = Field(ge=1, strict=True)
+
+
+class RestartInput(_Input):
+    client_request_id: UUID
 
 
 class GrantInput(_Input):
@@ -540,6 +546,17 @@ class ExecutorService:
                 self._executor(unit, computer["executor_id"]),
             )
 
+    def restart_target(self, agent_id: UUID, computer_id: UUID) -> dict:
+        """Reinício humano: computador pronto e runtime conectado; nada muda no banco."""
+        with self.store.transaction(write=False) as unit:
+            computer = self._owned_computer(unit, agent_id, computer_id)
+            if computer["status"] != "ready":
+                raise ExecutorError("computer_unavailable")
+            executor = self._executor(unit, computer["executor_id"])
+            if not online(executor, self.clock()):
+                raise ExecutorError("executor_offline")
+            return computer_view(computer, executor, self.clock())
+
     def runtime_computers(self, executor_id: str) -> list[dict]:
         with self.store.transaction(write=False) as unit:
             return _select(
@@ -748,7 +765,7 @@ def require_online(unit, agent_id, spec: ToolSpec, target) -> None:
         computer = _select(unit, "computers", COMPUTER_COLUMNS, "id=?", (target.environment_id,))
         if not computer or computer[0]["status"] != "ready":
             raise ToolError("environment_unavailable", "Computador indisponível.")
-        if computer[0]["control_holder"] == "human" and spec.name.startswith("computer.browser."):
+        if computer[0]["control_holder"] == "human" and is_visual(spec.name):
             # Durante controle humano (ex.: login privado) o agente não observa nem age na tela.
             raise ToolError("human_control", "Usuário está no controle da tela.")
 
