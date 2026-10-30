@@ -33,7 +33,13 @@ const modelServer = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
     if (request.method === 'GET' && request.url.endsWith('/models')) { response.end(JSON.stringify({ data: [{ id: 'modelo-e2e' }] })); return }
     model.requests += 1
-    const messages = JSON.parse(body || '{}').messages ?? []
+    const payload = JSON.parse(body || '{}')
+    const messages = payload.messages ?? []
+    if (payload.tools?.length && !messages.some((item) => item.role === 'tool')) {
+      const call = { id: 'call-1', type: 'function', function: { name: 'publish_file', arguments: JSON.stringify({ name: 'relatorio-e2e', kind: 'markdown', content: '# Relatório\n\nConteúdo de teste.' }) } }
+      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
+      return
+    }
     const last = messages.filter((item) => item.role === 'user').at(-1)?.content ?? ''
     response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${String(last).slice(0, 40)}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
   })
@@ -69,6 +75,12 @@ async function audit(page, name) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   for (const item of result) violations.push({ page: name, ...item })
   if (overflow > 1) violations.push({ page: name, id: 'horizontal-overflow', impact: 'serious', nodes: 1, sample: `${overflow}px` })
+  // A área de trabalho ocupa a janela: nada rola por fora da lista de mensagens (sem faixa vazia embaixo).
+  const shell = await page.evaluate(() => {
+    const root = document.querySelector('[data-shell]')
+    return root ? { shifted: root.scrollTop + document.documentElement.scrollTop, extra: document.documentElement.scrollHeight - document.documentElement.clientHeight } : null
+  })
+  if (shell && (shell.shifted > 0 || shell.extra > 1)) violations.push({ page: name, id: 'page-scroll', impact: 'serious', nodes: 1, sample: JSON.stringify(shell) })
   await page.screenshot({ path: join(out, `${name}.png`), fullPage: true })
 }
 
@@ -134,18 +146,77 @@ try {
   await page.getByRole('button', { name: 'Enviar' }).click()
   await page.getByText(marker).first().waitFor({ timeout: 60_000 })
   await auditWidths(page, '4-conversa-respondida')
+  await page.setViewportSize({ width: 1280, height: 900 })
   for (const language of ['en', 'es']) {
     await page.locator('.language-select select').selectOption(language)
     await page.waitForTimeout(300)
     await audit(page, `5-conversa-${language}`)
   }
+  // Modo agente: abelha com ferramentas publica um arquivo, que aparece na resposta para baixar.
+  const before = model.requests
+  await page.locator('.language-select select').first().selectOption('pt-BR')
+  await page.getByRole('button', { name: 'Nova abelha' }).click()
+  await page.getByRole('heading', { name: 'Crie sua abelha.' }).waitFor()
+  await page.getByLabel('Provedor').selectOption('custom')
+  await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${modelPort}/v1`)
+  await page.getByLabel(/^Digitar outro modelo/).check()
+  await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-agente')
+  await page.getByLabel(/declara suporte a chamadas de ferramentas/).evaluate((element) => { if (!element.checked) element.click() })
+  await page.getByLabel('Nome da abelha').fill('Abelha Agente')
+  await page.getByRole('textbox', { name: 'Propósito' }).fill('Gerar relatórios de teste.')
+  await page.getByRole('button', { name: 'Criar abelha' }).click()
+  await page.locator('#chat-input').waitFor({ timeout: 30_000 })
+  await page.getByText('Pesquise as novidades', { exact: false }).first().waitFor({ timeout: 30_000 })
+  await page.locator('#chat-input').fill('Gere um relatório de teste')
+  await page.locator('#chat-input').press('Enter')
+  await page.getByRole('link', { name: /relatorio-e2e/ }).waitFor({ timeout: 90_000 })
+  await page.getByText(marker).last().waitFor({ timeout: 60_000 })
+  await page.getByText('Usou 1 ferramenta').waitFor()
+  await auditWidths(page, '6-agente-arquivo')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  // Conversa maior que a janela: nada fora da lista pode esticar a página (rolando a lista para cima e para baixo).
+  await page.setViewportSize({ width: 1280, height: 300 })
+  for (const position of ['top', 'bottom']) {
+    const shell = await page.evaluate((where) => {
+      const log = document.querySelector('[role="log"]')
+      // Simula conversa longa: texto só para leitor de tela (sr-only, posição absoluta) no fim de uma lista alta.
+      if (!document.getElementById('e2e-long')) log.insertAdjacentHTML('beforeend', '<div id="e2e-long"><div style="height:4000px"></div><span class="sr-only">fim</span></div>')
+      const list = log.parentElement
+      list.scrollTop = where === 'top' ? 0 : list.scrollHeight
+      return { list: list.scrollHeight - list.clientHeight, extra: document.documentElement.scrollHeight - document.documentElement.clientHeight }
+    }, position)
+    if (shell.list <= 0 || shell.extra > 1) violations.push({ page: `janela-baixa-${position}`, id: 'page-scroll', impact: 'serious', nodes: 1, sample: JSON.stringify(shell) })
+  }
+  await page.evaluate(() => document.getElementById('e2e-long')?.remove())
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByRole('button', { name: 'Atividade', exact: true }).click()
+  await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
+  await audit(page, '7-atividade-lateral')
+  await page.getByRole('button', { name: 'Computador', exact: true }).click()
+  await page.getByText(/Nenhum runtime de computador|computador desta abelha está desligado/).first().waitFor()
+  await audit(page, '7-computador-lateral')
+  await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
+  await page.getByRole('button', { name: 'Voltar à conversa' }).waitFor()
+  await audit(page, '8-configuracoes')
+  await page.getByRole('button', { name: 'Voltar à conversa' }).click()
+  if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))
   console.log(JSON.stringify({ model_requests: model.requests, violations: violations.length, serious: serious.length }))
-  if (model.requests !== 1) throw new Error(`Esperava 1 geração, houve ${model.requests}.`)
+  if (model.requests !== 3) throw new Error(`Esperava 3 gerações (1 conversa + 2 do agente), houve ${model.requests}.`)
   if (serious.length) { console.error(JSON.stringify(serious, null, 2)); process.exitCode = 1 }
 } catch (error) {
   console.error(error)
+  await browser?.contexts()[0]?.pages().at(-1)?.screenshot({ path: join(out, 'falha.png'), fullPage: true }).catch(() => undefined)
+  console.error('gerações do modelo:', model.requests)
+  const debug = await browser?.contexts()[0]?.pages().at(-1)?.evaluate(async () => {
+    const data = await (await fetch('/api/v1/onboarding')).json()
+    const agent = data.agents.at(-1)
+    const delegations = await (await fetch(`/api/v1/agents/${agent.id}/delegations?conversation_id=${agent.conversation_id}&offset=0&limit=100`)).json()
+    const messages = await (await fetch(`/api/v1/agents/${agent.id}/conversations/${agent.conversation_id}/messages`)).json()
+    return JSON.stringify({ delegations, messages: messages.messages?.map((m) => ({ id: m.id, role: m.role })) }).slice(0, 3000)
+  }).catch((failure) => String(failure))
+  console.error('depuração:', debug)
   process.exitCode = 1
 } finally {
   await browser?.close()

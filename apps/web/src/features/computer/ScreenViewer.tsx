@@ -26,7 +26,9 @@ export function ScreenViewer({ computer }: { computer: Computer }) {
       rfb = client
     }, () => setState('disconnected'))
     return () => { cancelled = true; rfb?.disconnect() }
-  }, [computer, interactive, attempt])
+    // Só reconecta quando muda o computador ou o modo; atualizações do mesmo registro não piscam a tela.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [computer.id, computer.agent_id, interactive, attempt])
   return <div className="screen-viewer">
     <div className="screen-viewer-bar">
       <span role="status">{t(`view_${state}`)} · {t(interactive ? 'viewInteractive' : 'viewReadOnly')}</span>

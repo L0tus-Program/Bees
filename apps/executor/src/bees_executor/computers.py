@@ -95,7 +95,7 @@ def account_limits(environ=os.environ) -> list[str]:
             return default
         return value if low <= value <= high else default
 
-    processes = number("BEES_COMPUTER_MAX_PROCESSES", 512, 64, 65536)
+    processes = number("BEES_COMPUTER_MAX_PROCESSES", 8192, 64, 65536)
     file_mb = number("BEES_COMPUTER_MAX_FILE_MB", 4096, 16, 1048576)
     return [
         executable,
@@ -249,6 +249,11 @@ class MultiUserComputers:
                 )
         socket_path = self._socket(computer_id)
         socket_path.unlink(missing_ok=True)
+        log_path = home / ".bees" / "agent.log"
+        if log_path.exists() and log_path.stat().st_size > 5 * 1024 * 1024:
+            log_path.replace(log_path.with_suffix(".log.1"))
+        agent_log = open(log_path, "ab")
+        os.fchown(agent_log.fileno(), uid, gid)
         processes.append(
             subprocess.Popen(
                 limits
@@ -261,9 +266,10 @@ class MultiUserComputers:
                     "--home",
                     str(home),
                 ],
-                **options,
+                **(options | {"stderr": agent_log}),
             )
         )
+        agent_log.close()
         self.processes[computer_id] = processes
         for _ in range(100):
             if socket_path.exists():

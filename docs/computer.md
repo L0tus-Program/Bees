@@ -35,7 +35,7 @@ Caminhos relativos partem de `~/workspace`; o executor resolve o caminho real e 
 - Uma conta Linux por computador (home `0700`), processo agente e desktop com esse UID; o supervisor não executa ferramentas.
 - Filtro de rede no container: as contas das abelhas não alcançam redes privadas, link-local/metadados, CGNAT, a API do Bees nem as portas VNC; a internet pública continua disponível.
 - Sem portas publicadas, socket Docker ou pastas do host. Remover o computador apaga conta e arquivos.
-- Recursos: o serviço `computer` tem teto de CPU, memória e processos para todos os computadores (`BEES_COMPUTER_CPUS`, padrão 2; `BEES_COMPUTER_MEMORY`, padrão `4g`; `BEES_COMPUTER_PIDS`, padrão 2048). Cada conta recebe ainda, via `prlimit`, limite próprio de processos (`BEES_COMPUTER_MAX_PROCESSES`, padrão 512), tamanho máximo de arquivo (`BEES_COMPUTER_MAX_FILE_MB`, padrão 4096) e core desligado; valores inválidos voltam ao padrão. Não há cota de disco por conta: o volume `bees-computers` é compartilhado.
+- Recursos: o serviço `computer` tem teto de CPU, memória e processos para todos os computadores (`BEES_COMPUTER_CPUS`, padrão 2; `BEES_COMPUTER_MEMORY`, padrão `4g`; `BEES_COMPUTER_PIDS`, padrão 16384). Cada conta recebe ainda, via `prlimit`, limite próprio de processos (`BEES_COMPUTER_MAX_PROCESSES`, padrão 8192; no Linux cada thread conta, e o Chromium sozinho abre centenas), tamanho máximo de arquivo (`BEES_COMPUTER_MAX_FILE_MB`, padrão 4096) e core desligado; valores inválidos voltam ao padrão. Não há cota de disco por conta: o volume `bees-computers` é compartilhado.
 - É um container (kernel compartilhado). A VM continua sendo a fronteira mais forte prevista em [ambientes](environments.md).
 
 ## Operação

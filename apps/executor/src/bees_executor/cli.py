@@ -111,12 +111,18 @@ async def _run(args, handler, kind, roots=()):
                 log.info("Aguardando convite do Bees…")
                 await asyncio.sleep(3)
                 continue
-            used = token
             try:
                 credential = exchange(args.api, token, state)
                 log.info("Executor pareado.")
-            except (CredentialRejected, OSError) as error:
+            except CredentialRejected as error:
+                # Recusado pela API: não tenta de novo o mesmo convite.
+                used = token
                 log.warning("Convite recusado: %s", error)
+                await asyncio.sleep(3)
+                continue
+            except OSError as error:
+                # API ainda subindo ou rede instável: o convite continua válido; tenta de novo.
+                log.warning("API indisponível ao parear: %s", type(error).__name__)
                 await asyncio.sleep(3)
                 continue
         client = ExecutorClient(

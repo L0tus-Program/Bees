@@ -5,7 +5,7 @@ import type { ApiError } from './api/client'
 import { authStatus, logout } from './api/onboarding'
 import { ErrorNotice, LoadingNotice } from './components/Feedback'
 import { AuthForm } from './features/auth/AuthForm'
-import { Dashboard } from './features/dashboard/Dashboard'
+import { Workspace } from './features/workspace/Workspace'
 import { useResource } from './hooks/useResource'
 import { setupAuthorization } from './features/auth/setupAuthorization'
 import { AppearanceSelect } from './components/AppearanceSelect'
@@ -53,6 +53,14 @@ export function App() {
   }
 
   const authenticated = resource.state === 'ready' && resource.data.authenticated
+  if (authenticated && !dataOpen && !signingOut) {
+    return <>
+      <a className="skip-link" href="#main">{t('skip')}</a>
+      <ConfirmHost />
+      {error && <ErrorNotice error={error} />}
+      <Workspace onSignOut={() => { void signOut() }} onData={() => setDataOpen(true)} signingOut={signingOut} />
+    </>
+  }
   return (
     <div className="app-shell product-shell">
       <a className="skip-link" href="#main">{t('skip')}</a>
@@ -66,7 +74,7 @@ export function App() {
         {(resource.state === 'loading' || signingOut) && <LoadingNotice />}
         {resource.state === 'error' && <div className="surface resource-error"><h1>{t('serviceUnavailable')}</h1><ErrorNotice error={resource.error} /><button className="button secondary" type="button" onClick={reload}>{t('retry')}</button></div>}
         {resource.state === 'ready' && !signingOut && (resource.data.authenticated
-          ? dataOpen ? <Suspense fallback={<LoadingNotice />}><ExportPanel onClose={() => setDataOpen(false)} onBusy={setDataBusy} /></Suspense> : <Dashboard userName={resource.data.user?.name ?? ''} />
+          ? dataOpen ? <Suspense fallback={<LoadingNotice />}><ExportPanel onClose={() => setDataOpen(false)} onBusy={setDataBusy} /></Suspense> : null
           : <AuthForm configured={resource.data.configured} onAuthenticated={reload} />)}
       </main>
       <footer><span>{t('footer')}</span><span className="footer-mark" aria-hidden="true">✳</span></footer>

@@ -20,8 +20,15 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages "websockets>=1
 COPY LICENSE NOTICE runtime/computer/README.md /usr/share/doc/bees/
 COPY apps/executor/src/bees_executor /opt/bees/bees_executor
 COPY runtime/computer/entrypoint.sh /opt/bees/entrypoint.sh
+# Navegador padrão do desktop: sem isso o ícone do painel falha ("Failed to execute default Web Browser").
+COPY runtime/computer/bees-browser.sh /usr/local/bin/bees-browser
+COPY runtime/computer/bees-browser.desktop /usr/share/applications/bees-browser.desktop
 ENV PYTHONPATH=/opt/bees BEES_COMPUTER_MODE=multiuser BEES_COMPUTERS_DIR=/computers \
     BEES_EXECUTOR_STATE=/var/lib/bees-executor
-RUN chmod 755 /opt/bees/entrypoint.sh && mkdir -p /computers /var/lib/bees-executor \
+RUN chmod 755 /opt/bees/entrypoint.sh /usr/local/bin/bees-browser \
+ && update-alternatives --install /usr/bin/x-www-browser x-www-browser /usr/local/bin/bees-browser 200 \
+ && update-alternatives --set x-www-browser /usr/local/bin/bees-browser \
+ && (update-desktop-database /usr/share/applications 2>/dev/null || true) \
+ && mkdir -p /computers /var/lib/bees-executor \
  && chmod 711 /computers && chmod 700 /var/lib/bees-executor
 ENTRYPOINT ["/opt/bees/entrypoint.sh"]

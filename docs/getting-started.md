@@ -28,14 +28,14 @@ Para o Ollama na instalação Docker: `docker compose --profile local-model up -
 Dica: ao criar a abelha, **Começar de um modelo** preenche propósito e instruções (assistente, pesquisa, notícias, redação, documentos, organização). Em **Perfil**, **Exportar como modelo** gera um arquivo `.bee.json` para compartilhar — sem credenciais, memórias ou permissões.
 
 
-- **Conversa:** escreva normalmente. A abelha lembra preferências salvas em **Memórias** e no perfil.
-- **Agente com ferramentas:** no chat, clique **Ativar ferramentas recomendadas** uma vez e escolha o modo **Agente com ferramentas**. A abelha pesquisa na web, lê páginas/PDFs, salva memórias, publica arquivos e usa computadores. Ações sensíveis aparecem como cartões de decisão: **Permitir uma vez**, **Sempre permitir esta ferramenta** ou **Recusar**. Veja [agente](agent.md).
-- **Pesquisa com fontes:** escolha o modo **Pesquisa com fontes**. A resposta cita as fontes lidas e gera `pesquisa.md` e `pesquisa-fontes.json` em **Entregas**, com links não verificados destacados.
-- **Tarefas em segundo plano:** acompanhe em **Conversa → Tarefas**; resultados e arquivos ficam em **Entregas** mesmo após fechar o navegador.
+- **Conversa:** escreva e pressione **Enter** (Shift+Enter quebra linha). Não há modos para escolher: com um modelo que suporta chamadas de ferramenta, as ferramentas recomendadas são ativadas sozinhas e a abelha decide se só responde, pesquisa na web com fontes, salva memórias, usa o computador ou gera arquivos.
+- **Enquanto trabalha:** a resposta mostra **Trabalhando…** com os passos em tempo real (pesquisa, leitura, computador…). Ao terminar, os passos ficam recolhidos em **Usou N ferramentas** e os arquivos gerados aparecem logo abaixo da resposta, prontos para baixar.
+- **Decisões:** ações sensíveis aparecem dentro da própria conversa como cartões de decisão: **Permitir uma vez**, **Sempre permitir esta ferramenta** ou **Recusar**. Veja [agente](agent.md).
+- **Tudo o mais:** o ícone de engrenagem abre as **Configurações da abelha** (perfil, modelo, entregas, atividade, memórias, skills, rotinas, autonomia, ferramentas, computador, canais, atenção e consumo). O ícone de pasta mostra os arquivos da conversa.
 
 ## 4. Dar um computador à abelha
 
-Na aba **Computador**: **Parear runtime** → **Criar computador**. Em segundos há um desktop Linux exclusivo com Chromium, terminal e LibreOffice. Use **Ver tela** para acompanhar e **Assumir controle** para fazer logins; a abelha não age no navegador enquanto você estiver no controle. Veja [computador da abelha](computer.md).
+O ícone de monitor no topo da conversa abre o **computador da abelha ao lado do chat**; ele também se abre sozinho quando a abelha começa a usá-lo. Com o runtime pareado, **Ligar computador** prepara em segundos um desktop Linux exclusivo com Chromium, terminal e LibreOffice. Use **Assumir controle** para fazer logins e **Devolver à abelha** para ela continuar; a abelha não age no navegador enquanto você estiver no controle. O pareamento fica em **Configurações → Computador**. Veja [computador da abelha](computer.md).
 
 ## 5. Conectar sua máquina (opcional)
 
