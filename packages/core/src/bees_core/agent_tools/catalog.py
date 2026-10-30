@@ -201,6 +201,14 @@ class ShellParameters(AgentToolParameters):
 class BrowserOpenInput(_Input):
     url: str = Field(min_length=8, max_length=2048)
 
+    @field_validator("url", mode="before")
+    @classmethod
+    def with_scheme(cls, value):
+        # Modelos menores mandam "g1.com.br": completa com https:// em vez de recusar.
+        if isinstance(value, str) and value.strip() and "://" not in value:
+            return "https://" + value.strip()
+        return value
+
     @field_validator("url")
     @classmethod
     def http_url(cls, value):

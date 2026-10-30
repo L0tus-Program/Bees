@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, ChevronRight, ListTodo, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
-import { asApiError } from '../../api/client'
+import { ArrowUp, ChevronRight, FileText, ListTodo, Loader2, Mic, MicOff, Paperclip, Volume2, VolumeX, X } from 'lucide-react'
+import { ApiError as ApiErrorClass, asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import { messages as loadMessages, sendChat } from '../../api/onboarding'
 import type { AgentSummary, Message } from '../../api/onboarding'
@@ -11,6 +11,9 @@ import type { Delegation, DelegationCollection } from '../../api/delegations'
 import { enableRecommendedTools, getAgentCapabilities, sendAgentMessage } from '../../api/agent'
 import type { AgentCapabilities } from '../../api/agent'
 import { ErrorNotice } from '../../components/Feedback'
+import { publishArtifact } from '../artifacts/api'
+import type { ArtifactRecord } from '../artifacts/api'
+import { checkedReceipt, MAX_CONTEXT_BYTES, prepareFile } from '../artifacts/mutations'
 import { useResource } from '../../hooks/useResource'
 import { useTaskPolling } from '../tasks/useTaskPolling'
 import { commandIdentity } from '../tasks/state'
@@ -37,7 +40,10 @@ function mergeDelegations(incoming: DelegationCollection, previous: DelegationCo
 function Bubble({ message, name }: { message: Message; name: string }) {
   const { t } = useTranslation('workspace')
   if (message.role === 'user') {
-    return <div className="flex justify-end"><div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-accent-foreground"><span className="sr-only">{t('you')}: </span>{message.content}</div></div>
+    return <div className="flex flex-col items-end gap-1.5">
+      {!!message.attachments?.length && <ul className="flex flex-wrap justify-end gap-1.5">{message.attachments.map((file) => <li key={file.artifact_id} className="flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1 text-xs"><FileText className="size-3.5 text-primary" aria-hidden="true" />{file.name}</li>)}</ul>}
+      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-accent-foreground"><span className="sr-only">{t('you')}: </span>{message.content}</div>
+    </div>
   }
   return <div className="flex gap-3">
     <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />
@@ -93,6 +99,10 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   useEffect(() => { if (computerTask) onComputerActivity?.() }, [computerTask, onComputerActivity])
 
   const [draft, setDraft] = useState('')
+  // Arquivos escolhidos para esta mensagem: enviados à conversa e anexados como dados do turno.
+  const [files, setFiles] = useState<ArtifactRecord[]>([])
+  const [uploading, setUploading] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const [identity] = useState(commandIdentity)
@@ -127,6 +137,25 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   const since = list[0] ? Date.parse(list[0].created_at) : -Infinity
   const orphanTurns = agentTurns.filter((item) => !ids.has(item.source_message_id) && Date.parse(item.task.created_at) > since).reverse()
 
+  async function attach(chosen: FileList | null) {
+    if (!chosen?.length) return
+    setError(null); setUploading(true)
+    try {
+      const added: ArtifactRecord[] = []
+      for (const file of Array.from(chosen)) {
+        const candidate = await prepareFile(file)
+        const all = [...files, ...added]
+        if (all.length >= 4 || all.reduce((sum, item) => sum + item.size_bytes, candidate.size_bytes) > MAX_CONTEXT_BYTES) { setError(new ApiErrorClass('attachment_limit')); break }
+        const intent = { id: crypto.randomUUID(), agentId: agent.id, conversationId: agent.conversation_id, name: candidate.name, media_type: candidate.media_type, size_bytes: candidate.size_bytes, sha256: candidate.sha256, previous: null }
+        added.push(checkedReceipt(intent, await publishArtifact(intent, candidate.bytes)))
+      }
+      setFiles((current) => [...current, ...added])
+    } catch (failure) { setError(asApiError(failure)) } finally {
+      setUploading(false)
+      if (fileInput.current) fileInput.current.value = ''
+    }
+  }
+
   async function submit(event?: FormEvent) {
     event?.preventDefault()
     const content = draft.trim()
@@ -135,9 +164,12 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
     try {
       if (useAgent) {
         // Mesmo UUID enquanto o texto não mudar: reenvio reconcilia sem criar outra mensagem.
-        if (agentIdentity.current?.content !== content) agentIdentity.current = { content, id: crypto.randomUUID() }
-        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, undefined, 'agent')
+        const key = `${content}\u0000${files.map((file) => file.id).join(',')}`
+        if (agentIdentity.current?.content !== key) agentIdentity.current = { content: key, id: crypto.randomUUID() }
+        const attachments = files.length ? { attachments: files.map((file) => ({ artifact_id: file.id, revision: file.revision, sha256: file.sha256! })), attachment_consent: { expected_agent_revision: agent.revision } } : undefined
+        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, undefined, 'agent', attachments)
         agentIdentity.current = null
+        setFiles([])
       } else {
         const requestId = identity.forPayload({ conversation_id: resource.data.conversation_id, content, allow_delegation: false })
         await sendChat(agent.id, resource.data.conversation_id, content, undefined, false, requestId)
@@ -182,20 +214,31 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
     </div>
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">
       <form className="mx-auto w-full max-w-3xl" onSubmit={(event) => { void submit(event) }}>
-        {error && <div className="legacy-scope mb-2"><ErrorNotice error={error} /></div>}
+        {error && (error.code === 'attachment_limit' ? <p className="mb-2 text-xs text-destructive" role="alert">{t('attachLimit')}</p> : <div className="legacy-scope mb-2"><ErrorNotice error={error} /></div>)}
         {capabilities && !capabilities.tool_calls_supported && <p className="mb-2 text-xs text-muted-foreground">{t('noTools')}</p>}
         {useAgent && capabilities?.worker && !capabilities.worker.available && <p className="mb-2 text-xs text-muted-foreground" role="status">{t('workerOffline')}</p>}
         <div className={cn('flex flex-col rounded-2xl border bg-card shadow-sm focus-within:ring-3 focus-within:ring-ring/40', busy && 'opacity-80')}>
+          {(files.length > 0 || uploading) && <ul className="flex flex-wrap gap-1.5 px-3 pt-3" aria-live="polite">
+            {files.map((file) => <li key={file.id} className="flex max-w-60 items-center gap-1.5 rounded-lg border bg-muted/50 py-1 pr-1 pl-2.5 text-xs">
+              <FileText className="size-3.5 shrink-0 text-primary" aria-hidden="true" /><span className="truncate">{file.name}</span>
+              <Button variant="ghost" size="icon-sm" className="size-6" aria-label={t('removeAttachment', { name: file.name })} onClick={() => setFiles((current) => current.filter((item) => item.id !== file.id))}><X /></Button>
+            </li>)}
+            {uploading && <li className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t('uploading')}</li>}
+          </ul>}
           <label htmlFor="chat-input" className="sr-only">{t('placeholder', { name: agent.name })}</label>
           <Textarea id="chat-input" ref={inputRef} value={draft} rows={1} maxLength={16000} disabled={agent.status !== 'active'} placeholder={t('placeholder', { name: agent.name })} className="max-h-60 px-4 pt-3" aria-describedby="chat-enter-hint"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
           <div className="flex items-center gap-1 px-2 pb-2">
+            {useAgent && <>
+              <input ref={fileInput} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void attach(event.target.files) }} />
+              <Tooltip label={`${t('attach')} — ${t('attachHint')}`}><Button variant="ghost" size="icon-sm" aria-label={t('attach')} disabled={uploading || busy || files.length >= 4} onClick={() => fileInput.current?.click()}><Paperclip /></Button></Tooltip>
+            </>}
             {dictation.supported && <Tooltip label={t(dictation.listening ? 'stopDictation' : 'dictate')}><Button variant="ghost" size="icon-sm" aria-label={t(dictation.listening ? 'stopDictation' : 'dictate')} aria-pressed={dictation.listening} onClick={() => { if (dictation.listening) { dictation.stop() } else { dictation.start() } }}>{dictation.listening ? <MicOff /> : <Mic />}</Button></Tooltip>}
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>

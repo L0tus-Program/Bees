@@ -17,9 +17,19 @@ import { useTaskPolling } from '../tasks/useTaskPolling'
 import { agent as baseAgent, task as baseTask } from '../chat/testFixtures'
 import { agentId, artifact, conversationId, page, taskId } from '../artifacts/fixtures'
 import { ChatView } from './ChatView'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 vi.mock('../tasks/useTaskPolling', () => ({ useTaskPolling: vi.fn() }))
 vi.mock('../../hooks/useResource', () => ({ useResource: vi.fn() }))
+vi.mock('../artifacts/api', async (original) => ({
+  ...(await original<typeof import('../artifacts/api')>()),
+  // Recibo coerente com a intenção: o servidor guardou exatamente o arquivo escolhido.
+  publishArtifact: vi.fn(async (intent: { id: string; agentId: string; conversationId: string; name: string; media_type: string; size_bytes: number; sha256: string }) => ({
+    id: intent.id, agent_id: intent.agentId, conversation_id: intent.conversationId, task_id: null, run_id: null, name: intent.name, media_type: intent.media_type,
+    size_bytes: intent.size_bytes, sha256: intent.sha256, source: 'user_upload', version: 1, series_id: intent.id, previous_id: null, status: 'ready', revision: 1,
+    created_at: '2026-10-30T12:00:00Z', updated_at: '2026-10-30T12:00:00Z',
+  })),
+}))
 
 const agent = { ...baseAgent, id: agentId, conversation_id: conversationId }
 const stamp = '2026-10-30T12:00:00Z'
@@ -54,7 +64,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 async function show() {
   const i18n = createInstance()
   await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { workspace: workspaceResources['pt-BR'], agent: agentResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
-  await act(async () => root.render(<I18nextProvider i18n={i18n}><ChatView agent={agent} onTaskDetails={vi.fn()} /></I18nextProvider>))
+  await act(async () => root.render(<I18nextProvider i18n={i18n}><TooltipProvider><ChatView agent={agent} onTaskDetails={vi.fn()} /></TooltipProvider></I18nextProvider>))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
 }
 const calls = (fragment: string) => fetcher.mock.calls.filter(([url]) => String(url).includes(fragment))
@@ -134,5 +144,34 @@ describe('chat as an assistant conversation', () => {
   it('leaves the tools alone when the recommended bundle is current', async () => {
     await show()
     expect(calls('/agent/recommended-tools')).toHaveLength(0)
+  })
+
+  it('attaches a text file to the message and sends its exact version with consent', async () => {
+    await show()
+    const picker = container.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['col1,col2\n1,2\n'], 'dados.csv', { type: 'text/csv' })
+    Object.defineProperty(picker, 'files', { value: [file], configurable: true })
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)) })
+    expect(container.textContent).toContain('dados.csv')
+    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Analise'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
+    const body = JSON.parse((calls('/agent-messages')[0] as [string, RequestInit])[1].body as string)
+    expect(body.attachments).toHaveLength(1)
+    expect(body.attachments[0]).toMatchObject({ revision: 1 })
+    expect(body.attachment_consent).toEqual({ expected_agent_revision: agent.revision })
+    expect(container.querySelector('[aria-label^="Remover"]')).toBeNull()
+  })
+
+  it('refuses formats the bee cannot read as data', async () => {
+    await show()
+    const picker = container.querySelector('input[type="file"]') as HTMLInputElement
+    Object.defineProperty(picker, 'files', { value: [new File(['x'], 'foto.png', { type: 'image/png' })], configurable: true })
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+    expect(container.textContent).not.toContain('foto.png')
+    expect(container.querySelector('[role="alert"], .notice, [class*="error"]')).not.toBeNull()
   })
 })

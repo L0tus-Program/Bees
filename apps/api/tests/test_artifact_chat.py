@@ -287,3 +287,37 @@ def test_legacy_binary_or_invalid_utf8_cannot_be_silently_previewed_or_sent(
     response = send(state, submission(state, client.get(base).json()))
     assert response.status_code == 422 and response.json()["error"]["code"] == "invalid_request"
     assert records(state) == [] and requests == []
+
+
+def test_agent_message_carries_the_selected_file_to_the_bee(state):
+    from bees_core.agent_tools.cycle import AgentTaskWorker
+
+    client, _, agent, _, conversation, _, _ = state
+    artifact = upload(state, b"linha 1\nvalor secreto do arquivo").json()
+    body = submission(state, artifact)
+    body.pop("conversation_id")
+    url = f"/api/v1/agents/{agent.id}/conversations/{conversation.id}/agent-messages"
+    response = client.post(url, json=body, headers=headers(client))
+    assert response.status_code == 200, response.text
+    # Repetir o mesmo pedido reconcilia; outro arquivo com o mesmo id é conflito.
+    assert client.post(url, json=body, headers=headers(client)).json() == response.json()
+    [record] = [item for item in records(state) if item["role"] == "user"]
+    assert [item["name"] for item in record["attachments"]] == ["arquivo.md"]
+    with client.app.state.store.transaction(write=False) as unit:
+        task = unit.tasks.get(UUID(response.json()["task_id"]))
+        run = unit.runs.latest(task.id)
+    prompt = AgentTaskWorker(client.app.state.database)._instruction(task, run)
+    assert "bees_attachment_data" in prompt and "valor secreto do arquivo" in prompt
+
+
+def test_agent_message_attachment_requires_current_consent(state):
+    client, _, agent, _, conversation, _, _ = state
+    artifact = upload(state, b"dados").json()
+    url = f"/api/v1/agents/{agent.id}/conversations/{conversation.id}/agent-messages"
+    stale = submission(state, artifact, attachment_consent={"expected_agent_revision": 999})
+    stale.pop("conversation_id")
+    assert client.post(url, json=stale, headers=headers(client)).status_code == 409
+    missing = submission(state, artifact)
+    missing.pop("conversation_id")
+    missing.pop("attachment_consent")
+    assert client.post(url, json=missing, headers=headers(client)).status_code in (400, 422)

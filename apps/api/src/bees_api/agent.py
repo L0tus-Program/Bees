@@ -23,6 +23,12 @@ from bees_core.agent_tools.cycle import (
     available_tools,
 )
 from bees_core.agent_tools.service import AgentToolDecision, AgentToolRevoke, AgentToolService
+from bees_core.attachments import (
+    AttachmentConsent,
+    AttachmentRef,
+    prepare_attachment_data,
+    validate_selection,
+)
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
 from bees_core.security.identity import Session
@@ -52,6 +58,8 @@ class AgentMessageBody(Input):
     mode: Literal["agent", "research"] = "agent"
     max_calls: int = Field(default=DEFAULT_MAX_CALLS, ge=1, le=50, strict=True)
     max_active_seconds: int = Field(default=DEFAULT_ACTIVE_SECONDS, ge=30, le=1800, strict=True)
+    attachments: list[AttachmentRef] = Field(default_factory=list, max_length=4)
+    attachment_consent: AttachmentConsent | None = None
 
     @field_validator("content")
     @classmethod
@@ -212,7 +220,20 @@ def agent_message(
     session: _SESSION,
 ) -> dict:
     """Mensagem no chat executada pelo agente; a resposta volta para esta conversa."""
+    validate_selection(body.attachments, body.attachment_consent)
+    # Arquivos lidos e verificados antes da transação: entram na tarefa como dados do turno.
+    views, entries = (
+        prepare_attachment_data(
+            request.app.state.artifacts, agent_id, conversation_id, body.attachments
+        )
+        if body.attachments
+        else ([], [])
+    )
     with request.app.state.store.transaction(source="agent_chat_message") as unit:
+        if body.attachment_consent is not None:
+            agent = unit.agents.get(agent_id)
+            if agent is None or agent.revision != body.attachment_consent.expected_agent_revision:
+                raise ProviderError("state_conflict")
         return submit_agent_message(
             request.app.state.database,
             unit,
@@ -223,6 +244,7 @@ def agent_message(
             mode=body.mode,
             max_calls=body.max_calls,
             max_active_seconds=body.max_active_seconds,
+            attachments=(views, entries),
         )
 
 
