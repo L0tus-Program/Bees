@@ -95,7 +95,7 @@ def account_limits(environ=os.environ) -> list[str]:
             return default
         return value if low <= value <= high else default
 
-    processes = number("BEES_COMPUTER_MAX_PROCESSES", 512, 64, 65536)
+    processes = number("BEES_COMPUTER_MAX_PROCESSES", 8192, 64, 65536)
     file_mb = number("BEES_COMPUTER_MAX_FILE_MB", 4096, 16, 1048576)
     return [
         executable,
