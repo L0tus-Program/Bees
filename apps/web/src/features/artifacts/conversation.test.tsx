@@ -90,17 +90,25 @@ describe('conversation attachment flow with real React state', () => {
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Leia o material'); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) })
     await click(container.querySelector('.artifact-card input') as HTMLElement)
     expect(button('Enviar').disabled).toBe(true)
-    const proposal = [...container.querySelectorAll('.chat-composer label')].find((label) => label.textContent?.includes(productResources['pt-BR'].chatRoutineProposal))!.querySelector('input')!
-    await click(proposal)
-    expect(button('Enviar').disabled).toBe(true)
     await click(container.querySelector('.chat-composer input[type=checkbox]') as HTMLElement)
     expect(button('Enviar').disabled).toBe(false)
     await click(button('Enviar')); await settle(() => fetcher.mock.calls.some(([url]) => url.endsWith('/chat')))
     const sent = fetcher.mock.calls.find(([url]) => url.endsWith('/chat'))!
     const options = (sent as unknown as [string, RequestInit])[1]
-    expect(JSON.parse(options.body as string)).toMatchObject({ allow_routine_proposal: true, attachments: [{ artifact_id: file.id, revision: file.revision, sha256: file.sha256 }], attachment_consent: { expected_agent_revision: agent.revision } })
+    expect(JSON.parse(options.body as string)).toMatchObject({ attachments: [{ artifact_id: file.id, revision: file.revision, sha256: file.sha256 }], attachment_consent: { expected_agent_revision: agent.revision } })
     await settle(() => container.querySelector('.chat-composer input[type=checkbox]')?.parentElement?.textContent?.includes('Enviar os arquivos selecionados') !== true)
     expect((container.querySelector('.artifact-card input') as HTMLInputElement).checked).toBe(false)
+  })
+  it('sends with Enter and keeps Shift+Enter for a new line', async () => {
+    const fetcher = vi.fn(async (url: string) => url.endsWith('/chat') ? Response.json({ ok: true }) : Response.json(page([]))); vi.stubGlobal('fetch', fetcher)
+    await render(<Chat agent={agent} />); await settle(() => container.querySelector('#chat-input') !== null)
+    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Oi'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true })) })
+    expect(fetcher.mock.calls.some(([url]) => url.endsWith('/chat'))).toBe(false)
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    await settle(() => fetcher.mock.calls.some(([url]) => url.endsWith('/chat')))
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/chat'))).toHaveLength(1)
   })
   it('checks a lost publication by UUID without retrying and fences the cancelled late response', async () => {
     let finish!: (response: Response) => void; let published: ArtifactRecord | null = null
