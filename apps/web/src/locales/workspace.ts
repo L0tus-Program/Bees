@@ -14,6 +14,9 @@ const pt = {
   computerTitle: 'Computador de {{name}}', computerOff: 'O computador desta abelha está desligado.', computerStart: 'Ligar computador', computerStarting: 'Ligando o computador…',
   computerNoRuntime: 'Nenhum runtime de computador está pareado. Abra Configurações → Computador para parear.', computerFailed: 'O computador falhou. Veja os detalhes em Configurações → Computador.',
   takeControl: 'Assumir controle', returnControl: 'Devolver à abelha', inUse: 'Em uso agora', retry: 'Tentar de novo', loadError: 'Não foi possível carregar a conversa.',
+  activityEmpty: 'Nenhuma tarefa ainda. O que a abelha fizer aparece aqui.', needsYou: 'Precisam de você', inProgress: 'Em andamento', recent: 'Recentes',
+  activityCount_one: '{{count}} tarefa ativa', activityCount_other: '{{count}} tarefas ativas', panel: 'Painel lateral', showAll: 'Mostrar todas ({{count}})',
+  status: { queued: 'Na fila', running: 'Em andamento', waiting_approval: 'Precisa de você', waiting_resource: 'Aguardando navegador', paused: 'Pausada', completed: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada' },
 }
 type Translations = typeof pt
 const en: Translations = {
@@ -32,6 +35,9 @@ const en: Translations = {
   computerTitle: '{{name}}’s computer', computerOff: 'This bee’s computer is off.', computerStart: 'Turn on computer', computerStarting: 'Turning on the computer…',
   computerNoRuntime: 'No computer runtime is paired. Open Settings → Computer to pair one.', computerFailed: 'The computer failed. See details in Settings → Computer.',
   takeControl: 'Take control', returnControl: 'Return to the bee', inUse: 'In use now', retry: 'Try again', loadError: 'Could not load the conversation.',
+  activityEmpty: 'No tasks yet. What the bee does shows up here.', needsYou: 'Need you', inProgress: 'In progress', recent: 'Recent',
+  activityCount_one: '{{count}} active task', activityCount_other: '{{count}} active tasks', panel: 'Side panel', showAll: 'Show all ({{count}})',
+  status: { queued: 'Queued', running: 'Running', waiting_approval: 'Needs you', waiting_resource: 'Waiting for browser', paused: 'Paused', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' },
 }
 const es: Translations = {
   bees: 'Tus abejas', newBee: 'Nueva abeja', menu: 'Abrir menú', settings: 'Configuración de la abeja', backToChat: 'Volver a la conversación',
@@ -49,5 +55,8 @@ const es: Translations = {
   computerTitle: 'Ordenador de {{name}}', computerOff: 'El ordenador de esta abeja está apagado.', computerStart: 'Encender ordenador', computerStarting: 'Encendiendo el ordenador…',
   computerNoRuntime: 'No hay un runtime de ordenador emparejado. Abre Configuración → Ordenador para emparejarlo.', computerFailed: 'El ordenador falló. Mira los detalles en Configuración → Ordenador.',
   takeControl: 'Tomar el control', returnControl: 'Devolver a la abeja', inUse: 'En uso ahora', retry: 'Intentar de nuevo', loadError: 'No se pudo cargar la conversación.',
+  activityEmpty: 'Aún no hay tareas. Lo que haga la abeja aparece aquí.', needsYou: 'Te necesitan', inProgress: 'En curso', recent: 'Recientes',
+  activityCount_one: '{{count}} tarea activa', activityCount_other: '{{count}} tareas activas', panel: 'Panel lateral', showAll: 'Mostrar todas ({{count}})',
+  status: { queued: 'En cola', running: 'En curso', waiting_approval: 'Te necesita', waiting_resource: 'Esperando navegador', paused: 'En pausa', completed: 'Completada', failed: 'Falló', cancelled: 'Cancelada' },
 }
 export const workspaceResources = { 'pt-BR': pt, en, es }

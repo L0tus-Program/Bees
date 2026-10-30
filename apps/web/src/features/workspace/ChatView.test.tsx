@@ -102,4 +102,25 @@ describe('chat as an assistant conversation', () => {
     await show()
     expect(calls('/agent/recommended-tools')).toHaveLength(1)
   })
+
+  it('keeps the newest message last: old turns outside the window and standalone tasks never pile up at the end', async () => {
+    const old = { ...turn, id: 'old', source_message_id: 'gone', task: { ...turnTask, id: 'old', created_at: '2026-10-29T10:00:00Z' } }
+    const standalone = { id: 'side', source_message_id: user.id, response_message_id: reply.id, task: { ...baseTask, id: 'side', agent_id: agentId, title: 'Planilha de custos', status: 'running' as const } }
+    const later: Message = { id: 'message-later', role: 'user', content: 'Mensagem nova', created_at: '2026-10-30T12:05:00Z' }
+    messages = [user, reply, later]; delegations = { delegations: [standalone, old], has_more: false, next_offset: null }
+    await show()
+    const text = container.querySelector('[role="log"]')?.textContent ?? ''
+    expect(text.trimEnd().endsWith('Mensagem nova')).toBe(true)
+    expect(text.indexOf('Planilha de custos')).toBeGreaterThan(text.indexOf('Gere um relatório'))
+    expect(text.indexOf('Planilha de custos')).toBeLessThan(text.indexOf('Mensagem nova'))
+    expect(container.querySelectorAll('[aria-expanded]')).toHaveLength(0)
+  })
+
+  it('scrolls only the message list, never the page around it', async () => {
+    const spy = vi.fn()
+    Element.prototype.scrollIntoView = spy
+    messages = [user, reply]
+    await show()
+    expect(spy).not.toHaveBeenCalled()
+  })
 })

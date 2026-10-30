@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
+import { ArrowUp, ChevronRight, ListTodo, Loader2, Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import { messages as loadMessages, sendChat } from '../../api/onboarding'
 import type { AgentSummary, Message } from '../../api/onboarding'
 import { getDelegations } from '../../api/delegations'
-import type { DelegationCollection } from '../../api/delegations'
+import type { Delegation, DelegationCollection } from '../../api/delegations'
 import { enableRecommendedTools, getAgentCapabilities, sendAgentMessage } from '../../api/agent'
 import type { AgentCapabilities } from '../../api/agent'
 import { ErrorNotice } from '../../components/Feedback'
 import { useResource } from '../../hooks/useResource'
 import { useTaskPolling } from '../tasks/useTaskPolling'
 import { commandIdentity } from '../tasks/state'
-import { DelegationCard } from '../chat/DelegationCard'
 import { useDictation } from '../voice/useDictation'
 import { canSpeak, readVoicePreference, speak, writeVoicePreference } from '../voice/speech'
 import { AgentTurn, TurnFiles } from './AgentTurn'
@@ -44,6 +43,18 @@ function Bubble({ message, name }: { message: Message; name: string }) {
     <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />
     <div className="min-w-0 flex-1"><span className="sr-only">{name}: </span>{message.content ? <Markdown>{message.content}</Markdown> : null}</div>
   </div>
+}
+
+/** Tarefa avulsa ligada à mensagem: um chip; os detalhes ficam no painel de atividade. */
+function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
+  const { t } = useTranslation('workspace')
+  const live = ['queued', 'running'].includes(item.task.status)
+  return <button type="button" onClick={onOpen} className="group inline-flex max-w-full cursor-pointer items-center gap-2 self-start rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground">
+    {live ? <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" /> : <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />}
+    <span className="min-w-0 truncate text-foreground">{item.task.title}</span>
+    <span className="shrink-0">· {t(`status.${item.task.status}`)}</span>
+    <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
+  </button>
 }
 
 /** Conversa no estilo assistente: uma rolagem, campo fixo embaixo, a abelha decide o que fazer. */
@@ -86,7 +97,6 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   const [identity] = useState(commandIdentity)
   const agentIdentity = useRef<{ content: string; id: string } | null>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const endRef = useRef<HTMLDivElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
 
@@ -96,21 +106,25 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   const [voiceReplies, setVoiceReplies] = useState(readVoicePreference)
   const spoken = useRef<string | null | undefined>(undefined)
 
-  const list = useMemo(() => resource.state === 'ready' ? resource.data.messages.slice(-200).filter((message) => message.role !== 'tool') : [], [resource])
+  const list = useMemo(() => resource.state === 'ready' ? resource.data.messages.filter((message) => message.role !== 'tool').slice(-200) : [], [resource])
   useEffect(() => {
     if (resource.state !== 'ready') return
     const last = [...list].reverse().find((item) => item.role === 'assistant' && item.content)
     if (spoken.current !== undefined && voiceReplies && last && last.id !== spoken.current) speak(last.content ?? '', i18n.resolvedLanguage ?? 'pt-BR')
     spoken.current = last?.id ?? null
   }, [resource.state, list, voiceReplies, i18n.resolvedLanguage])
-  useEffect(() => { if (follow.current) endRef.current?.scrollIntoView({ block: 'end' }) }, [list, delegations])
+  // Rola só a lista; scrollIntoView também moveria ancestrais com overflow oculto (a tela inteira).
+  useEffect(() => { const node = scroller.current; if (follow.current && node) node.scrollTop = node.scrollHeight }, [list, delegations])
 
   const ids = new Set(list.map((message) => message.id))
   const agentTurns = delegations.filter((item) => item.task.execution_kind === 'agent_task')
   // O turno da abelha nasce da mensagem do usuário que o originou e aparece logo depois dela.
   const turnFor = (message: Message) => message.role === 'user' ? agentTurns.find((item) => item.source_message_id === message.id) : undefined
-  const otherCards = delegations.filter((item) => item.task.execution_kind !== 'agent_task')
-  const orphanTurns = agentTurns.filter((item) => !ids.has(item.source_message_id))
+  const chipsFor = (message: Message) => delegations.filter((item) => item.task.execution_kind !== 'agent_task' && item.source_message_id === message.id)
+  // Sem a mensagem de origem na tela: só o turno recém-enviado (ainda não recarregado) aparece no fim;
+  // turnos antigos, fora da janela, ficam no painel de atividade e nunca embaralham a ordem.
+  const since = list[0] ? Date.parse(list[0].created_at) : -Infinity
+  const orphanTurns = agentTurns.filter((item) => !ids.has(item.source_message_id) && Date.parse(item.task.created_at) > since).reverse()
 
   async function submit(event?: FormEvent) {
     event?.preventDefault()
@@ -159,11 +173,10 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
             <Bubble message={message} name={agent.name} />
             {turn && <div className={cn('flex gap-3', !live && 'pl-10')}>{live && <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />}<div className="min-w-0 flex-1"><AgentTurn task={turn.task} hasReply={!live} showFiles={!hasReply} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(turn.task.id)} /></div></div>}
             {replyFiles && <div className="pl-10"><TurnFiles task={replyFiles.task} /></div>}
+            {chipsFor(message).map((item) => <TaskChip key={item.id} item={item} onOpen={() => onTaskDetails(item.task.id)} />)}
           </div>
         })}
         {orphanTurns.map((item) => <div key={item.id} className="flex gap-3"><img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><AgentTurn task={item.task} hasReply={false} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(item.task.id)} /></div></div>)}
-        {otherCards.length > 0 && <div className="legacy-scope flex flex-col gap-2">{otherCards.map((item) => <DelegationCard key={item.id} task={item.task} selected={false} onSelect={() => onTaskDetails(item.task.id)} onChanged={monitor.refresh} />)}</div>}
-        <div ref={endRef} />
       </div>
     </div>
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">
@@ -181,7 +194,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-2 rounded-full" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>

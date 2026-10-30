@@ -75,6 +75,12 @@ async function audit(page, name) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   for (const item of result) violations.push({ page: name, ...item })
   if (overflow > 1) violations.push({ page: name, id: 'horizontal-overflow', impact: 'serious', nodes: 1, sample: `${overflow}px` })
+  // A área de trabalho ocupa a janela: nada rola por fora da lista de mensagens (sem faixa vazia embaixo).
+  const shell = await page.evaluate(() => {
+    const root = document.querySelector('[data-shell]')
+    return root ? { shifted: root.scrollTop + document.documentElement.scrollTop, extra: document.documentElement.scrollHeight - document.documentElement.clientHeight } : null
+  })
+  if (shell && (shell.shifted > 0 || shell.extra > 1)) violations.push({ page: name, id: 'page-scroll', impact: 'serious', nodes: 1, sample: JSON.stringify(shell) })
   await page.screenshot({ path: join(out, `${name}.png`), fullPage: true })
 }
 
@@ -168,6 +174,9 @@ try {
   await page.getByText('Usou 1 ferramenta').waitFor()
   await auditWidths(page, '6-agente-arquivo')
   await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByRole('button', { name: 'Atividade', exact: true }).click()
+  await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
+  await audit(page, '7-atividade-lateral')
   await page.getByRole('button', { name: 'Computador', exact: true }).click()
   await page.getByText(/Nenhum runtime de computador|computador desta abelha está desligado/).first().waitFor()
   await audit(page, '7-computador-lateral')
