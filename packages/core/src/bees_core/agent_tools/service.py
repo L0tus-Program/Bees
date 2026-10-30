@@ -151,7 +151,14 @@ class AgentToolService:
     def arguments(spec: ToolSpec, raw: dict) -> BaseModel:
         try:
             value = spec.input_model.model_validate(raw)
-        except ValidationError, ValueError, TypeError:
+        except ValidationError as error:
+            # Campo e motivo (sem os valores enviados): o modelo corrige e tenta de novo.
+            problems = [
+                f"{'.'.join(str(part) for part in item['loc']) or 'argumentos'}: {item['msg']}"
+                for item in error.errors(include_input=False, include_url=False)[:5]
+            ]
+            raise ToolError("invalid_tool_input", "; ".join(problems)[:500]) from None
+        except ValueError, TypeError:
             raise ToolError("invalid_tool_input", "Argumentos incompatíveis.") from None
         encoded = json.dumps(value.model_dump(mode="json"), ensure_ascii=False)
         if len(encoded.encode("utf-8")) > MAX_ARGUMENT_BYTES:
