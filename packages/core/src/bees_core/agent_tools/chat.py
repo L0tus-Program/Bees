@@ -5,6 +5,7 @@ cria a tarefa do agente na mesma transação, com replay idempotente por pedido.
 """
 
 import hashlib
+import json
 from typing import Literal
 from uuid import UUID, uuid5
 
@@ -55,7 +56,15 @@ def submit_agent_message(
     max_calls: int = DEFAULT_MAX_CALLS,
     max_active_seconds: int = DEFAULT_ACTIVE_SECONDS,
     message_metadata: dict | None = None,
+    attachments: tuple[list[dict], list[dict]] = ([], []),
 ) -> dict:
+    views, entries = attachments
+    # Idempotência cobre texto e versões exatas dos anexos.
+    fingerprint = (
+        content_hash(content)
+        if not views
+        else content_hash(content + json.dumps(views, sort_keys=True, ensure_ascii=False))
+    )
     agent = ProviderService._agent(unit, agent_id)
     conversation = ProviderService._conversation(unit, agent, conversation_id)
     if conversation.metadata.get("execution_kind"):
@@ -66,7 +75,7 @@ def submit_agent_message(
         if (
             prior.agent_id != agent.id
             or origin.get("conversation_id") != str(conversation.id)
-            or origin.get("content_hash") != content_hash(content)
+            or origin.get("content_hash") != fingerprint
         ):
             raise ProviderError("state_conflict")
         return {
@@ -81,7 +90,9 @@ def submit_agent_message(
         ChatMessage(role="user", content=content),
         records,
         source="user",
-        metadata={"agent_request": {"id": str(client_request_id)}} | (message_metadata or {}),
+        metadata={"agent_request": {"id": str(client_request_id)}}
+        | ({"attachments": views} if views else {})
+        | (message_metadata or {}),
     ).model_copy(update={"id": uuid5(client_request_id, "bees.agent-chat-message/v1")})
     unit.messages.create(message)
     unit.conversations.update(conversation, conversation.revision)
@@ -101,9 +112,10 @@ def submit_agent_message(
             "agent_chat": {
                 "conversation_id": str(conversation.id),
                 "source_message_id": str(message.id),
-                "content_hash": content_hash(content),
+                "content_hash": fingerprint,
                 "context": context,
-            },
+            }
+            | ({"attachments": entries} if entries else {}),
             "delegation": {
                 "origin_conversation_id": str(conversation.id),
                 "source_message_id": str(message.id),

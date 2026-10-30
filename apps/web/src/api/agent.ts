@@ -34,9 +34,10 @@ export async function enableRecommendedTools(agentId: string, clientRequestId: s
   return value.granted as string[]
 }
 
-export async function sendAgentMessage(agentId: string, conversationId: string, content: string, clientRequestId: string, signal?: AbortSignal, mode: 'agent' | 'research' = 'agent') {
+export interface AgentAttachments { attachments: { artifact_id: string; revision: number; sha256: string }[]; attachment_consent: { expected_agent_revision: number } }
+export async function sendAgentMessage(agentId: string, conversationId: string, content: string, clientRequestId: string, signal?: AbortSignal, mode: 'agent' | 'research' = 'agent', files?: AgentAttachments) {
   const value = await request(`${base(agentId)}/conversations/${encodeURIComponent(conversationId)}/agent-messages`, {
-    authenticated: true, signal, body: { client_request_id: clientRequestId, content, ...(mode === 'research' ? { mode } : {}) }, timeoutMs: 20000,
+    authenticated: true, signal, body: { client_request_id: clientRequestId, content, ...(mode === 'research' ? { mode } : {}), ...(files?.attachments.length ? files : {}) }, timeoutMs: 20000,
   })
   if (!record(value) || !text(value.task_id)) throw new ApiError('invalid_response')
   return { task_id: value.task_id, message_id: value.message_id as string | null, status: value.status as string }
