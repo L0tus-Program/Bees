@@ -37,7 +37,9 @@ export function ChatHistory({ agent, messages, refreshVersion, onAgentResult }: 
   const delegations = monitor.data?.delegations ?? noDelegations
   const finished = delegations.filter((item) => item.task.execution_kind === 'agent_task' && item.task.status === 'completed').map((item) => item.id).join(',')
   const seenFinished = useRef<string | null>(null)
-  useEffect(() => { if (seenFinished.current !== null && seenFinished.current !== finished) onAgentResult?.(); seenFinished.current = finished }, [finished, onAgentResult])
+  const loaded = monitor.data !== null
+  // Só avisa conclusões novas: a primeira leitura (inclusive após remontar) apenas marca o ponto de partida.
+  useEffect(() => { if (!loaded) return; if (seenFinished.current !== null && seenFinished.current !== finished) onAgentResult?.(); seenFinished.current = finished }, [loaded, finished, onAgentResult])
   useEffect(() => { if (listRef.current && followLatest.current) listRef.current.scrollTop = listRef.current.scrollHeight }, [messages, delegations])
   const messageIds = new Set(visibleMessages.map((message) => message.id))
   const attached = (id: string) => delegations.filter((item) => (messageIds.has(item.response_message_id) ? item.response_message_id : item.source_message_id) === id)
