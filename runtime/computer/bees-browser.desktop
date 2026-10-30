@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Navegador
+Comment=Chromium da abelha
+Exec=/usr/local/bin/bees-browser %U
+Icon=web-browser
+Categories=Network;WebBrowser;
+MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true

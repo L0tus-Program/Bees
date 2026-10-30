@@ -7,6 +7,7 @@ um comando; a resposta é o recibo correspondente.
 import argparse
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -36,6 +37,9 @@ async def serve(socket_path: Path, home: Path) -> None:
             await writer.drain()
         except (ValueError, KeyError):
             writer.write(b'{"status":"failed","code":"executor_protocol_invalid"}\n')
+        except Exception:
+            logging.getLogger("bees_executor").exception("Comando sem recibo")
+            raise
         finally:
             writer.close()
 
@@ -50,6 +54,10 @@ def main() -> None:
     parser.add_argument("--socket", required=True)
     parser.add_argument("--home", required=True)
     args = parser.parse_args()
+    # stderr vai para ~/.bees/agent.log (aberto pelo supervisor): falhas ficam rastreáveis.
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     asyncio.run(serve(Path(args.socket), Path(args.home)))
 
 

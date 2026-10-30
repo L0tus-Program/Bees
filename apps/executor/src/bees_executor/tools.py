@@ -5,6 +5,7 @@ início interrompido nunca é repetido. Escopos pessoais (raízes, escrita, shel
 navegador) chegam com o comando e são conferidos aqui também.
 """
 
+import logging
 import os
 from pathlib import Path
 
@@ -89,6 +90,7 @@ class ToolHost:
         except (PermissionError, FileNotFoundError, IsADirectoryError, NotADirectoryError) as error:
             receipt = {"status": "failed", "code": "os_error", "detail": type(error).__name__}
         except Exception as error:  # efeito pode ter começado: nunca afirmar ausência
+            logging.getLogger("bees_executor").exception("Falha inesperada em %s", tool)
             receipt = {
                 "status": "unknown",
                 "code": "executor_error",
