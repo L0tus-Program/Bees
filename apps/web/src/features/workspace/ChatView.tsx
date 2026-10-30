@@ -150,7 +150,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
 
   const empty = resource.state === 'ready' && list.length === 0 && delegations.length === 0
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
+    <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6" role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions">
         {resource.state === 'loading' && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('thinking')}</p>}
         {resource.state === 'error' && <div className="legacy-scope"><ErrorNotice error={resource.error} /><Button variant="outline" size="sm" onClick={reload}>{t('retry')}</Button></div>}
