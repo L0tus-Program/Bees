@@ -16,16 +16,34 @@ Implementação de BEES-003 em `packages/core`, independente de FastAPI e dos fo
 | plugins / tool_grants | Manifestos locais imutáveis e concessões por ferramenta/abelha; revisão, habilitação e vínculo canônico (migração 0004). |
 | environments / host_jobs | Pedidos de computador e journal da operação no host, sem provisionador ativo (migração 0005). |
 | host_link_installation / host_link_invites / host_links / host_link_commands / host_link_report_receipts | Pareamento de diagnóstico com hashes, TTL, revisão humana, sequência de relatórios e receipts; não executa jobs de VM (migração 0006). |
-| routines | Agenda declarada, fuso IANA e opções de atraso/sobreposição. |
+| routines / routine_definitions / routine_cursors / routine_commands / routine_occurrences | Agenda diária/semanal, revisões humanas imutáveis, cursor separado e ocorrências limitadas (migração 0015); veja [rotinas](routines.md). |
 | memories | Memória de usuário, agente ou tarefa, conteúdo e origem. |
-| artifacts | Metadados versionados de resultado, referência de armazenamento e hash. |
+| skills / skill_revisions / skill_commands / skill_events | Procedimentos por abelha, revisões imutáveis com origem/hash, habilitação de versão exata e intenções humanas com UUID/CAS (migração 0014); veja [skills](skills.md). |
+| skill_process_origins | Conversão humana rastreável ao resultado exato, com fontes/revisão/limites e vínculos imutáveis de versão/abelha/tarefa/execução/mensagem (0018). |
+| artifacts / artifact_commands | Blobs fora do SQLite, hash/tamanho, versões imutáveis (0009), vínculo de conversa/tarefa e origem; intenções humanas append-only com UUID e hash do pedido (0013). |
+| budget_limits / usage_entries | Limite de tokens por abelha e registro de consumo: reserva antes da rede e liquidação final informada/incerta/liberada (0010), com integridade da cadeia chamada/execução/tarefa/conversa/abelha (0016). |
+| provisioning_rejections | Recusas imutáveis de UUIDs que não aceitaram intent, inclusive após retomada ou rotação de credencial (0017); veja [recusas do provisionador](provision-rejection.md). |
+| safety_control / safety_commands | Parada global durável: estado único com geração/revisão e comandos humanos idempotentes (migração 0011). |
+| attention_items / attention_preferences / attention_commands | Avisos de tarefas ligados ao evento canônico, leitura/preferências humanas por abelha/tipo e UUIDs idempotentes (migração 0012). |
 | domain_events | Ledger de criação/edição/reconciliação com IDs, revisão e estado. |
 
 UUIDs, datas UTC com timezone, validação de tipos e revisões fazem parte dos contratos. SQLite também verifica FKs, vínculos entre agentes/tarefas, estados e JSON. `tzdata` acompanha as dependências para validar fusos no Windows.
 
-Os repositórios armazenam **registros**; não executam agenda ou autorização por si. [Políticas](policies.md) e [aprovações](approvals.md) compõem a autorização das gerações no executor. Rotinas ainda não possuem agenda em execução. Metadados de artefato `ready` exigem referência/hash, mas não comprovam a presença do blob: publicação/download de arquivos entram na implementação do ArtifactStore. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
+Os repositórios armazenam **registros**; não executam agenda ou autorização por si. [Políticas](policies.md) e [aprovações](approvals.md) compõem a autorização das gerações no executor. O [scheduler](routines.md) do worker compõe ocorrências e tarefas em uma transação; somente definições com execução programada explicitamente habilitada participam. Metadados de artefato `ready` exigem referência/hash. Pelo [ArtifactStore](artifacts.md), `ready` só é gravado depois de o blob ser publicado e relido com o mesmo hash/tamanho; registros gravados diretamente pelo repositório continuam sem essa prova. A camada de persistência não chama modelos nem executa ferramentas. O [driver de modelos](providers.md) usa essas transações para guardar conversas, com a chamada HTTP fora da unidade de trabalho.
 
 ## Transações e revisões
+
+A execução manual de rotina usa as tabelas existentes do schema18: comando humano,
+ocorrência, tarefa, run e vínculo são confirmados em uma única transação. O recibo
+imutável identifica aquela criação; histórico e tarefa mostram o estado atual.
+Recuperar o mesmo UUID não altera a revisão humana nem o cursor da agenda.
+
+Na criação a partir da conversa, `routines.metadata.proposal_source` guarda somente
+IDs de conversa/mensagem e SHA-256 UTF8 do conteúdo original. A mensagem continua
+append-only; não há cópia mutável que substitua a fonte. A definição revisada pode
+diferir da sugestão e nasce pausada. A referência de origem não concede permissões,
+não certifica qualidade e não cria ocorrência. Os contratos estão em
+[rotinas](routines.md) e na [gestão pela interface](routines-ui.md).
 
 `Database.transaction()` cria e fecha uma conexão própria. Escritas usam BEGIN IMMEDIATE; leituras usam snapshot e query_only. As conexões aplicam WAL, synchronous=FULL, FKs e timeout de lock. Banco e processos API/worker devem ficar no mesmo host, em filesystem local; não usar pasta de rede ou sincronização para o estado ativo.
 
@@ -80,11 +98,39 @@ A migração 0007 acrescenta vínculo imutável de execução às ações e a da
 
 A migração 0008 acrescenta a autoridade própria de provisionamento: planos imutáveis, autorizações pontuais, credenciais em hash, gerações e claims exclusivos, intents/receipts, comandos e vínculo do VMID observado. Atualizações preservam as tabelas e checksums anteriores. Unknown mantém a instalação em quarentena, inclusive após novo pareamento de host; reconhecimento humano não libera efeitos. Hardware confirmado continua sem uso/boot. Consulte [provisionamento](provisioning.md).
 
+A migração 0009 acrescenta a linhagem de versões dos artefatos: `series_id`, `previous_id`, unicidade de `storage_key` e de `(series_id, version)` entre registros não `failed`. Gatilhos exigem linhagem coerente na inserção e tornam imutáveis identidade, vínculos, chave de armazenamento, conteúdo declarado (hash/tamanho/tipo, já no rascunho), retorno de `ready` e estados terminais; linhas não podem ser apagadas. Linhas anteriores ficam sem série e preservam seus metadados; uma nova versão de um registro legado inicia a série pelo id dele. Uma base com `storage_key` legado duplicado não migra: a transação é revertida, a versão 8 e o backup ficam preservados, e a duplicidade precisa de decisão do operador. Consulte [artefatos](artifacts.md).
+
+A migração 0010 acrescenta `budget_limits` e `usage_entries`. Identidade e reserva do consumo são imutáveis, a liquidação é final e as linhas são append-only. Limites são desativados, não apagados. Nenhum dado anterior é alterado. Consulte [consumo e limites](budgets.md).
+
+A migração 0011 acrescenta `safety_control`, com uma única linha iniciada em execução, e `safety_commands`. Gatilhos aceitam apenas parar/retomar com revisão +1, aumentam a geração somente na parada, impedem apagar o estado e tornam os comandos imutáveis. `provisioning_claims` recebe `safety_generation` imutável; linhas anteriores ficam sem valor (geração 0). Índices parciais aceleram a contagem de chamadas e reservas em andamento. Nenhum outro dado é alterado. Consulte [parada global](safety.md).
+
+A migração 0012 acrescenta avisos de tarefa, preferências e comandos humanos. O writer de eventos projeta fatos no mesmo savepoint/transação; GET não materializa. Identidades/vínculos são imutáveis, fatos e comandos não podem ser apagados, leitura/preferências usam CAS e replay retorna estado atual. Índices atendem paginação por sequência e contagem de não lidos. Nenhum evento anterior é retroprojetado nem alterado. Consulte [atenção](attention.md).
+
+A migração 0013 permite artefato de conversa sem tarefa fictícia. Reconstrói
+`artifacts` numa transação, mantendo foreign keys ativas e preservando IDs,
+metadados, revisões, hashes e linhagem. Abelha/conversa dos registros anteriores
+vêm da tarefa canônica; a origem fica `legacy_unknown`. Blobs e eventos anteriores
+não são reescritos. Vínculos compostos e gatilhos verificam abelha/conversa/tarefa/
+execução e a linhagem das novas versões. Nome com hash declarado, origem e
+identidade são imutáveis. `artifact_commands` confirma a intenção humana junto
+do rascunho e fecha o replay pelo hash do pedido. Falha de upgrade reverte a
+transação e conserva backup e versão anterior. Consulte [artefatos](artifacts.md).
+
+A migração 0014 acrescenta a biblioteca e suas revisões imutáveis, sem ativar
+procedimentos automaticamente; consulte [skills](skills.md). A 0015 preserva
+rotinas legadas e separa definições humanas de cursores e ocorrências; não inicia
+um scheduler. A 0016 recusa upgrade com consumo incoerente sem modificar sua
+evidência e protege a cadeia também em SQL direto; consulte
+[integridade de consumo](usage-integrity.md). A 0017 grava recusas definitivas de
+provisionamento em um ledger imutável, sem reclassificar efeitos aceitos ou incertos.
+A 0018 acrescenta a origem da conversão humana de processo em skill; conserva
+conteúdo/revisões/habilitação anteriores e não cria permissões ou origens retroativas.
+
 **Atualização de esquema exige API, worker e outros escritores parados.** O lock de manutenção coordena migradores do Bees, mas não impede processos externos de abrir SQLite diretamente. Não é isolamento universal de manutenção.
 
 Uma base existente recebe backup coerente pela Backup API antes de uma migração pendente. O arquivo aparece ao lado da base como `bees.sqlite3.backup-<instante-UTC>.sqlite3`; falha de backup impede a migração. O backup é verificado e preservado quando uma migração falha. Reinício sem migração pendente não cria outro backup.
 
-Backups contêm os dados privados da base e não têm limpeza automática nesta etapa. Para restaurar, pare todos os processos e use um backup conhecido em um diretório limpo, sem reaproveitar WAL/SHM de outra versão. Restore operacional guiado e exportação lógica são entregas posteriores. Não copiar apenas o arquivo principal de uma base ativa. [Backup SQLite](https://sqlite.org/backup.html), [APSW Backup API](https://rogerbinns.github.io/apsw/connection.html#apsw.Connection.backup).
+Backups contêm os dados privados da base e não têm limpeza automática nesta etapa. Para restaurar, pare todos os processos e use um backup conhecido em um diretório limpo, sem reaproveitar WAL/SHM de outra versão. A [exportação lógica privada](portability.md) possui formato próprio e exclui credenciais operacionais; não substitui o backup de manutenção. A [restauração lógica](restoration.md) exige um destino novo e inativo; não reconecta autoridade operacional. Não copiar apenas o arquivo principal de uma base ativa. [Backup SQLite](https://sqlite.org/backup.html), [APSW Backup API](https://rogerbinns.github.io/apsw/connection.html#apsw.Connection.backup).
 
 No Linux, diretórios novos são privados e a base usa permissões restritas. No Windows, as permissões dependem das ACLs da pasta do usuário; a biblioteca não modifica ACLs do sistema nem criptografa o banco. Escolha uma pasta privada.
 
@@ -96,7 +142,7 @@ Dados canônicos e ledger ficam preservados por padrão. Apenas `cache_entries` 
 - BEES_CACHE_TTL_SECONDS / --cache-ttl-seconds: TTL padrão de 86400 segundos; de 1 a 31536000.
 - BEES_CACHE_PRUNE_LIMIT / --cache-prune-limit: até 1000 entradas expiradas por inicialização; de 1 a 1000.
 
-Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Memórias possuem exclusão explícita com revisão: registro removido e evento sem conteúdo confirmados na mesma transação. Isso não elimina backups, páginas livres ou WAL; veja [memória](memory.md). Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
+Repositórios não oferecem deleção genérica nem TTL para histórico, aprovações, efeitos desconhecidos ou arquivos. Memórias possuem exclusão explícita com revisão: registro removido e evento sem conteúdo confirmados na mesma transação. Isso não elimina backups, páginas livres ou WAL; veja [memória](memory.md). Artefatos não têm exclusão nem retenção: linhas são append-only e blobs publicados não são removidos. Retenção de artefatos/logs/exportações será tratada com os recursos correspondentes. Caches e backups também podem conter dados privados.
 
 ## Serviço e validação
 
@@ -108,4 +154,4 @@ Testes usam bases reais em pastas temporárias: grafo inteiro reaberto em outro 
 
 A migração 0002 acrescenta identidade individual, bootstrap de uso único, sessões e limites de tentativas. Senhas são hashes Argon2id; tokens de sessão/bootstrap são armazenados por hash. Sessões têm validade absoluta e revogação persistida. Os códigos de teste de conexão ficam em memória por cinco minutos; uma criação confirmada possui evidência de idempotência no banco, permitindo reconhecer o mesmo pedido após reinício.
 
-Chaves de modelo são arquivos cifrados em `BEES_DATA_DIR/vault`; o banco guarda referências opacas. Backup da base sozinho não inclui o cofre. Preserve os arquivos e o acesso à chave externa no Linux ou ao perfil DPAPI original no Windows. Copiar blobs DPAPI para outro usuário/máquina não constitui restauração portável. Não há exportação/restauração guiada de segredos nesta etapa.
+Chaves de modelo são arquivos cifrados em `BEES_DATA_DIR/vault`; o banco guarda referências opacas. Backup da base sozinho não inclui o cofre nem os blobs de `BEES_DATA_DIR/artifacts`; copie a pasta de dados inteira com os serviços parados. Preserve os arquivos e o acesso à chave externa no Linux ou ao perfil DPAPI original no Windows. Copiar blobs DPAPI para outro usuário/máquina não constitui restauração portável. Não há exportação/restauração guiada de segredos nesta etapa.

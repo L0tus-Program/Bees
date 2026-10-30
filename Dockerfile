@@ -12,11 +12,11 @@ FROM python:3.14.4-slim-bookworm@sha256:fc74d22ffd0d5ac395a4b7bdda75a4539758862c
 COPY --from=ghcr.io/astral-sh/uv:0.7.21@sha256:a64333b61f96312df88eafce95121b017cbff72033ab2dbc6398edb4f24a75dd /uv /bin/uv
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
 WORKDIR /app
-COPY pyproject.toml uv.lock ./
-COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
-COPY apps/worker/pyproject.toml ./apps/worker/pyproject.toml
-COPY apps/host/pyproject.toml ./apps/host/pyproject.toml
-COPY packages/core/pyproject.toml ./packages/core/pyproject.toml
+COPY pyproject.toml uv.lock LICENSE NOTICE ./
+COPY apps/api/pyproject.toml apps/api/LICENSE apps/api/NOTICE ./apps/api/
+COPY apps/worker/pyproject.toml apps/worker/LICENSE apps/worker/NOTICE ./apps/worker/
+COPY apps/host/pyproject.toml apps/host/LICENSE apps/host/NOTICE ./apps/host/
+COPY packages/core/pyproject.toml packages/core/LICENSE packages/core/NOTICE ./packages/core/
 COPY apps/api/src ./apps/api/src
 COPY apps/worker/src ./apps/worker/src
 COPY apps/host/src ./apps/host/src
@@ -29,10 +29,11 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     BEES_WEB_DIST=/app/web BEES_DATA_DIR=/var/lib/bees \
     BEES_VAULT_KEY_FILE=/run/bees-secrets/vault.key
 RUN groupadd --gid 10001 bees && useradd --uid 10001 --gid bees --no-create-home bees \
-    && mkdir -p /var/lib/bees /run/bees-secrets \
-    && chown bees:bees /var/lib/bees /run/bees-secrets \
-    && chmod 700 /var/lib/bees /run/bees-secrets
+    && mkdir -p /var/lib/bees /run/bees-secrets /run/bees-computer-link \
+    && chown bees:bees /var/lib/bees /run/bees-secrets /run/bees-computer-link \
+    && chmod 700 /var/lib/bees /run/bees-secrets && chmod 750 /run/bees-computer-link
 WORKDIR /app
+COPY LICENSE NOTICE /usr/share/doc/bees/
 COPY --from=python-build /app/.venv /app/.venv
 COPY --from=web /build/dist /app/web
 COPY containers/healthcheck.py /app/healthcheck.py

@@ -74,10 +74,15 @@ class HTTPAdapter:
         resolver: SecretResolver | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         before_generation: Callable[[], None] | None = None,
+        *,
+        tool_proposals: bool = False,
     ) -> None:
+        if type(tool_proposals) is not bool:
+            raise ValueError("Modo de propostas exige composição explícita.")
         self._resolver = resolver
         self._transport = transport
         self._generation_guard = before_generation
+        self._tool_proposals = tool_proposals
 
     def _authorize_generation(self) -> None:
         if self._generation_guard is not None:
@@ -104,8 +109,13 @@ class HTTPAdapter:
                     headers=headers,
                 ) as client:
                     yield client
+        except httpx.ConnectTimeout:
+            raise ProviderError("timeout", retryable=True, undelivered=True) from None
         except TimeoutError, httpx.TimeoutException:
             raise ProviderError("timeout", retryable=True) from None
+        except httpx.ConnectError:
+            # Falha ao estabelecer a conexão: o pedido nunca foi enviado.
+            raise ProviderError("connection_failed", retryable=True, undelivered=True) from None
         except httpx.RequestError:
             raise ProviderError("connection_failed", retryable=True) from None
 
@@ -173,12 +183,15 @@ def create_adapter(
     *,
     transport: httpx.AsyncBaseTransport | None = None,
     before_generation: Callable[[], None] | None = None,
+    tool_proposals: bool = False,
 ) -> ProviderAdapter:
     from bees_core.providers.ollama import OllamaAdapter
     from bees_core.providers.openai import OpenAICompatibleAdapter
 
     if kind == "openai_compatible":
-        return OpenAICompatibleAdapter(resolver, transport, before_generation)
+        return OpenAICompatibleAdapter(
+            resolver, transport, before_generation, tool_proposals=tool_proposals
+        )
     if kind == "ollama":
-        return OllamaAdapter(resolver, transport, before_generation)
+        return OllamaAdapter(resolver, transport, before_generation, tool_proposals=tool_proposals)
     raise ProviderError("invalid_config")

@@ -16,6 +16,7 @@ export function useResource<T>(load: (signal: AbortSignal) => Promise<T>) {
     )
     return () => { active = false; controller.abort() }
   }, [load, attempt])
-  const reload = useCallback(() => { setResource({ state: 'loading' }); refresh() }, [])
+  // Recarregar mantém os dados atuais na tela (sem trocar por "carregando"), evitando saltos de layout.
+  const reload = useCallback(() => { setResource((current) => current.state === 'ready' ? current : { state: 'loading' }); refresh() }, [])
   return { resource, reload }
 }

@@ -50,7 +50,8 @@ describe('delegation in chat', () => {
     const html = await render(<Chat agent={{ ...agent, provider_config: { ...agent.provider_config!, capabilities: { text: true, tool_calls: false } } }} />)
     expect(html).toContain(productResources['pt-BR'].chatDelegationUnavailable)
     expect(html).toContain('id="chat-input"')
-    expect(html).not.toContain('type="checkbox"')
+    expect(html).not.toContain(productResources['pt-BR'].chatAllowDelegation)
+    expect(html).toContain(productResources['pt-BR'].chatRoutineProposal)
   })
 
   it('places a recovered canonical response at its assistant turn without displaying raw tool JSON or misleading no-text notices', async () => {

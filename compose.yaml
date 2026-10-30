@@ -11,9 +11,12 @@ services:
       - "127.0.0.1:${BEES_HTTP_PORT:-8080}:8000"
     environment:
       BEES_BROWSER_PORT: "${BEES_HTTP_PORT:-8080}"
+      BEES_EXECUTOR_HOSTS: bees
+      BEES_COMPUTER_LINK_DIR: /run/bees-computer-link
     volumes:
       - bees-data:/var/lib/bees
       - bees-secrets:/run/bees-secrets
+      - bees-computer-link:/run/bees-computer-link
     read_only: true
     tmpfs:
       - /tmp:mode=1777,size=64m
@@ -49,6 +52,47 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 6
+  # Computadores das abelhas: uma conta Linux, desktop e navegador por abelha.
+  # Sem portas publicadas nem dados do host; a rede das abelhas é filtrada no entrypoint.
+  computer:
+    image: bees-computer:0.1.0
+    build:
+      context: .
+      dockerfile: runtime/computer/Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      BEES_API_URL: http://bees:8000
+      BEES_EXECUTOR_INVITE_FILE: /run/bees-computer-link/invite.json
+      BEES_COMPUTER_MAX_PROCESSES: ${BEES_COMPUTER_MAX_PROCESSES:-512}
+      BEES_COMPUTER_MAX_FILE_MB: ${BEES_COMPUTER_MAX_FILE_MB:-4096}
+    # Teto do conjunto de computadores; cada conta ainda recebe limite próprio (prlimit).
+    cpus: ${BEES_COMPUTER_CPUS:-2}
+    mem_limit: ${BEES_COMPUTER_MEMORY:-4g}
+    pids_limit: ${BEES_COMPUTER_PIDS:-2048}
+    volumes:
+      - bees-computers:/computers
+      - bees-computer-state:/var/lib/bees-executor
+      - bees-computer-link:/run/bees-computer-link:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - KILL
+      - NET_ADMIN
+      - SETPCAP
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 1gb
+    stop_grace_period: 20s
+    depends_on:
+      bees:
+        condition: service_healthy
+        restart: true
   ollama:
     image: ollama/ollama:latest@sha256:292ee7945dfc3d5840a181f3ab86fedb1e66703e02c8af98b50f4da56b7e278c
     profiles: [local-model]
@@ -64,6 +108,9 @@ services:
         restart: true
     restart: unless-stopped
 volumes:
+  bees-computers:
+  bees-computer-state:
+  bees-computer-link:
   bees-data:
   bees-secrets:
   ollama-models:

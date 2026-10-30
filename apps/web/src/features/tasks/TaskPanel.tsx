@@ -8,18 +8,20 @@ import { TaskDetail } from './TaskDetail'
 import { TaskTime } from './TaskTime'
 import { mergeTaskSnapshot } from './state'
 import { useTaskPolling } from './useTaskPolling'
+import { restoreToolTask } from './toolTaskRecovery'
 
 function mergeCollection(incoming: TaskCollection, previous: TaskCollection) { return { ...incoming, tasks: mergeTaskSnapshot(incoming.tasks, previous.tasks) } }
 
 export function TaskPanel({ agent }: { agent: AgentSummary }) {
   const { t } = useTranslation('tasks')
-  const [creating, setCreating] = useState(false)
+  const { t: tools } = useTranslation('toolTasks')
+  const [creating, setCreating] = useState(() => { const stored = restoreToolTask(agent.id); return !!stored.intent || stored.corrupt })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const load = useCallback((signal: AbortSignal) => getTasks(agent.id, signal), [agent.id])
   const monitor = useTaskPolling(load, mergeCollection)
   return <section className="surface task-panel" aria-labelledby="tasks-heading">
     <div className="form-heading"><div><p className="section-label">{t('background')}</p><h2 id="tasks-heading">{t('heading')}</h2></div><button type="button" className="button secondary" disabled={creating || agent.status !== 'active' || !agent.provider_config} onClick={() => setCreating(true)}>{t('delegate')}</button></div>
-    <p className="form-introduction">{t('scope')}</p>
+    <p className="form-introduction">{tools('scope')}</p>
     {monitor.data?.worker?.available === false && <p className="transfer-notice" role="status">{t('workerUnavailable')}</p>}
     {creating && <TaskForm agent={agent} onClose={() => setCreating(false)} onRefresh={monitor.refresh} onCreated={(task) => { setCreating(false); setSelectedId(task.id); monitor.refresh() }} />}
     {monitor.loading && <p className="quiet-note" role="status">{t('loading')}</p>}

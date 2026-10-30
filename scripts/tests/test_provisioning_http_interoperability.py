@@ -24,6 +24,14 @@ from test_provisioning_interoperability import integration as integration
 
 from bees_core.provisioning import OPERATIONS
 
+# O filho é a API real com SQLite/fsync num runner compartilhado. A CI registrou paradas
+# isoladas acima de 2 s nesse servidor (ReadTimeout em /receipt e /renew), que viravam
+# unknown sem relação com a semântica testada. Estas interops verificam posse, sequência
+# e quarentena; os prazos de produção têm testes de deadline próprios, que não usam
+# este servidor nem herdam estes valores.
+LOOPBACK_PHASE_TIMEOUT = 10.0
+LOOPBACK_REQUEST_BUDGET = 15.0
+
 
 @contextmanager
 def api_process(
@@ -71,7 +79,13 @@ def api_process(
                     time.sleep(0.05)
                 else:
                     pytest.fail("Servidor descartável não ficou disponível.")
-            yield origin, child
+            previous = (http_authority.PHASE_TIMEOUT, http_authority.REQUEST_BUDGET)
+            http_authority.PHASE_TIMEOUT = LOOPBACK_PHASE_TIMEOUT
+            http_authority.REQUEST_BUDGET = LOOPBACK_REQUEST_BUDGET
+            try:
+                yield origin, child
+            finally:
+                http_authority.PHASE_TIMEOUT, http_authority.REQUEST_BUDGET = previous
         finally:
             if child.poll() is None:
                 child.terminate()
@@ -92,6 +106,18 @@ def remote(integration, *, drop_receipt=False, drop_renew=False):
             provisioner_id=claim.provisioner_id,
         ) as authority:
             yield authority, child
+
+
+def test_loopback_leniency_is_scoped_and_production_budget_is_unchanged(integration):
+    production = (http_authority.PHASE_TIMEOUT, http_authority.REQUEST_BUDGET)
+    assert production == (2.0, 5.0)
+    with remote(integration) as (authority, _):
+        assert (http_authority.PHASE_TIMEOUT, http_authority.REQUEST_BUDGET) == (
+            LOOPBACK_PHASE_TIMEOUT,
+            LOOPBACK_REQUEST_BUDGET,
+        )
+        assert authority.session().status == "active"
+    assert (http_authority.PHASE_TIMEOUT, http_authority.REQUEST_BUDGET) == production
 
 
 def test_http_actual_runner_completes_closed_sequence_without_ready_environment(integration):
@@ -120,6 +146,43 @@ def test_http_revocation_before_go_prevents_effect_and_keeps_unknown(integration
         with pytest.raises(ProvisionError, match="reconciliation_required"):
             runner.execute_next()
     assert hardware.effects == []
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_http_global_stop_keeps_started_step_receipt_and_refuses_next(integration, resume):
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    core, _, _, _, journal, _, hardware = integration
+    safety = SafetyService(core.database)
+
+    def stop():
+        stopped = safety.command(
+            SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1)
+        )
+        if resume:
+            # Retomar não revalida o claim da geração anterior para a próxima etapa.
+            safety.command(
+                SafetyCommand(
+                    client_request_id=uuid4(),
+                    kind="resume",
+                    expected_revision=stopped["revision"],
+                )
+            )
+
+    hardware.before_go = stop
+    with remote(integration) as (authority, _):
+        runner = Runner(journal, authority, hardware, Template())
+        # O corte é o commit do intent: a etapa iniciada termina e publica o recibo.
+        assert runner.execute_next().verified
+        hardware.before_go = lambda: None
+        with pytest.raises(ProvisionError):
+            runner.execute_next()
+    assert hardware.effects == ["create_vhd"]
+    assert journal.operations()["create_vhd"]["status"] == "confirmed"
+    with core.database.transaction(write=False) as connection:
+        assert connection.execute("SELECT status FROM provisioning_effects").fetchall() == [
+            ("confirmed",)
+        ]
 
 
 def test_http_failed_response_after_committed_receipt_never_repeats(integration):

@@ -1,4 +1,6 @@
 [project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "bees-workspace"
 version = "0.1.0"
 description = "Fundação local da plataforma Bees"
@@ -27,8 +29,8 @@ bees-worker = { workspace = true }
 bees-host = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "apps/worker/tests", "apps/host/tests", "apps/guest/tests", "packages/core/tests", "scripts/tests"]
-pythonpath = ["apps/guest/src"]
+testpaths = ["apps/api/tests", "apps/executor/tests", "apps/worker/tests", "apps/host/tests", "apps/guest/tests", "packages/core/tests", "scripts/tests"]
+pythonpath = ["apps/guest/src", "apps/executor/src"]
 addopts = "-ra"
 
 [tool.ruff]
@@ -37,9 +39,14 @@ line-length = 100
 
 [tool.ruff.per-file-target-version]
 "apps/guest/**/*.py" = "py313"
+"apps/executor/**/*.py" = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["bees_api", "bees_core", "bees_guest", "bees_worker"]
+known-first-party = ["bees_api", "bees_core", "bees_executor", "bees_guest", "bees_worker"]
+
+[tool.ruff.lint.per-file-ignores]
+# Script de página embutido (JavaScript) mantém linhas legíveis.
+"apps/executor/src/bees_executor/browser.py" = ["E501"]

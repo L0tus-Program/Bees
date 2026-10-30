@@ -30,9 +30,23 @@ ErrorCode = Literal[
     "chat_outcome_unknown",
     "policy_denied",
     "policy_approval_required",
+    "budget_exhausted",
+    "global_stop",
+    "task_limit_reached",
+    "tool_result_too_large",
+    "skill_unavailable",
+    "routine_unavailable",
 ]
 
 MESSAGES: dict[str, str] = {
+    "routine_unavailable": "A rotina ou sua ocorrência mudou; revise a tarefa antes de continuar.",
+    "skill_unavailable": (
+        "A revisão ou as entradas da skill não estão mais disponíveis para executar."
+    ),
+    "task_limit_reached": "A tarefa atingiu seu limite de chamadas, operações ou tempo.",
+    "tool_result_too_large": (
+        "O resultado da ferramenta não cabe no próximo contexto; nenhuma nova geração foi iniciada."
+    ),
     "invalid_config": "Configuração do provedor inválida.",
     "invalid_request": "Histórico ou ferramentas inválidos para o contrato de conversa.",
     "unsupported_capability": "O backend não atende às capacidades solicitadas.",
@@ -65,6 +79,14 @@ MESSAGES: dict[str, str] = {
     "policy_approval_required": (
         "Esta geração exige decisão. Revise a regra de autonomia antes de continuar."
     ),
+    "budget_exhausted": (
+        "O limite de consumo desta abelha não comporta outra geração agora. Revise o limite "
+        "ou aguarde a janela; nenhuma geração foi solicitada ao provedor."
+    ),
+    "global_stop": (
+        "O Bees está parado. Nenhuma nova geração foi solicitada ao provedor; retome a "
+        "execução antes de enviar novamente."
+    ),
 }
 
 
@@ -76,11 +98,14 @@ class ProviderError(RuntimeError):
         *,
         retryable: bool = False,
         upstream_status: int | None = None,
+        undelivered: bool = False,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
         self.message = MESSAGES[code]
         self.retryable = retryable
+        # Conexão não estabelecida: nenhum byte do pedido chegou ao provedor.
+        self.undelivered = undelivered
         if upstream_status is not None and (
             type(upstream_status) is not int or not 400 <= upstream_status <= 599
         ):

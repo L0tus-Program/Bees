@@ -1,6 +1,11 @@
 # Tarefas em segundo plano
 
-Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurado na abelha. O usuário fornece objetivo e resultado esperado, acompanha o estado e consulta a resposta. Navegação, arquivos, aplicativos, ferramentas e rotinas dependem das próximas histórias; uma resposta do modelo não comprova execução dessas ações.
+O [modo opcional de transformação local](tool-cycle.md) acrescenta um ciclo limitado separado das tarefas e do chat textuais. A aprovação da geração não autoriza a ferramenta.
+
+A [reexecução de skill](skills.md#reexecutar-em-tarefa-nova) cria uma tarefa nesse
+ciclo com revisão e entradas fixas, sem herdar grants ou decisões de outra execução.
+
+Este checkpoint de BEES-007 entrega tarefas **textuais** com o modelo configurado na abelha. O usuário fornece objetivo e resultado esperado, acompanha o estado e consulta a resposta. O [scheduler](routines.md) pode criar tarefas nesse mesmo ciclo, com rotina/revisão/ocorrência fixadas. Navegação, aplicativos e demais executores mantêm seus aceites próprios; uma resposta do modelo não comprova efeito externo.
 
 ## Uso
 
@@ -12,6 +17,8 @@ A correção de 07/10/2026 inclui o título nas novas preparações do worker; a
 
 Validação da correção: 1.313 testes Python Windows (27 skips), 630 testes Linux de core/API/worker afetados (quatro skips), 413 testes web, lint, tipos, build e Ruff aprovados. Regressões verificam tema presente somente no título, perfil permanente distinto, isolamento entre tarefas/abelhas, redirecionamento e reuso de snapshots. A interface foi conferida em instalação descartável com provedor falso explícito, incluindo resposta antes das decisões e viewport de 390 px sem overflow. A atualização local conservou o hash da resposta anterior e o contador de chamadas; nenhuma chamada real adicional validou a qualidade da nova redação.
 
+Opcionalmente, marque **Relatório editável (.md)** e/ou **Tabela (.csv)** ao delegar. A tarefa só conclui depois que o Bees valida e publica esses arquivos a partir da resposta; arquivo ausente ou inválido pausa a tarefa com o motivo, e falha de armazenamento permite retomar a publicação sem nova chamada ao modelo. Detalhes em [artefatos](artifacts.md#entregáveis-de-tarefas--checkpoint-bees-0183).
+
 O painel consulta estado por GET a cada cinco segundos enquanto está visível. Consultas, reload e novas sessões não disparam gerações. Se o executor estiver indisponível, a fila permanece no banco; reiniciar o executor permite consumir tarefas ainda não despachadas.
 
 ## Delegação pela conversa
@@ -20,7 +27,7 @@ No chat, marque **Permitir tarefa em segundo plano nesta mensagem** e peça, por
 
 A capacidade de chamadas de ferramentas precisa estar declarada no modelo da abelha. A declaração não comprova suporte do provedor: se o modelo não oferecer essa capacidade, a interface mantém a delegação manual em **Tarefas**. Não há troca automática de modelo. A seleção permite delegar, mas não obriga o modelo a escolher a ferramenta.
 
-O serviço aceita no máximo uma tarefa por turno, com uma chamada de geração e 120 segundos ativos. Há limite de cinco tarefas não terminadas por abelha para essa modalidade, incluindo tarefas criadas manualmente. O modelo fornece apenas título, objetivo e resultado esperado; não escolhe orçamento, provedor, permissões ou ambiente. A geração inicial do chat é separada da chamada do worker, e ambas podem consumir créditos. Esses limites não são orçamento financeiro.
+O serviço aceita no máximo uma tarefa por turno, com uma chamada de geração e 120 segundos ativos. Toda geração também passa pelo [limite de consumo da abelha](budgets.md); limite esgotado pausa a tarefa com `budget_exhausted` antes do despacho. Há limite de cinco tarefas não terminadas por abelha para essa modalidade, incluindo tarefas criadas manualmente. O modelo fornece apenas título, objetivo e resultado esperado; não escolhe orçamento, provedor, permissões ou ambiente. A geração inicial do chat é separada da chamada do worker, e ambas podem consumir créditos. Esses limites não são orçamento financeiro.
 
 O chat mostra um cartão com estado e resposta da tarefa, preservados ao recarregar ou voltar à conversa. A tarefa mantém sua conversa exclusiva e os controles do painel **Tarefas**. Autorizar delegação não substitui as regras de autonomia: o worker reavalia a geração e pode aguardar uma decisão ou ser bloqueado. Nenhuma tarefa textual executa navegador, arquivos ou aplicativos.
 
@@ -33,6 +40,8 @@ A consulta autenticada `GET /api/v1/agents/{id}/delegations?conversation_id=UUID
 O vínculo usa metadados nas entidades existentes do schema 8, sem alterar migrações anteriores. Mensagens permanecem append-only: a composição confirma vínculos, resposta e resultados de ferramenta na mesma unidade de trabalho, antes de criar a mensagem final. A execução não exige uma segunda geração para anunciar o resultado da ferramenta. A interface consulta as 100 delegações mais recentes; registros anteriores continuam preservados e a API permite paginação. Não há criação de rotinas, delegação recursiva ou executor genérico de funções neste checkpoint.
 
 Validação de 07/10/2026: 1.343 testes Windows (27 skips), 923 testes Linux de core/API/worker (12 skips), 72 testes Linux do transporte do host e 433 testes web aprovados, além de Ruff/formatação, lint, tipos e build. Os 30 novos casos Python e 20 web cobrem consentimento, limites, isolamento, CAS/replay, falha após commit, rollback, contexto alterado, políticas, protocolo completo de resultados e resposta persistida. A revisão gráfica descartável comprovou criação pelo chat, atualização da resposta, reload, continuação do chat, pt-BR/en/es e viewport de 390 px sem overflow. A suíte completa revelou EOF sem progresso no servidor de teste do transporte; seu encerramento foi corrigido, preservando o prazo e os controles do produto. A repetição completa passou. Testes e revisão usaram modelos falsos; a qualidade e a escolha da ferramenta pelo modelo real continuam para aceite manual.
+
+Aceite com modelo real de 09/10/2026 (BEES-005.1): com `gpt-5.4-nano` via `openai_compatible`, o modelo escolheu `create_text_task` quando a permissão foi marcada. O serviço confirmou uma única tarefa com o tema no título, objetivo e resultado esperado, e o worker concluiu em uma chamada. O resultado persistiu após recarregar a página; uma delegação real anterior também persistiu após reiniciar os containers. O mesmo pedido sem a permissão não criou tarefa. O uso informado pelo provedor ficou registrado nas três chamadas. Argumentos inválidos e timeout não foram induzidos no provedor real e permanecem comprovados pelos testes de falha controlada. Matriz, consumo e limitações de qualidade estão em [providers.md](providers.md#modelos-reais-comprovados).
 
 Docker local atualizado pelo launcher em `localhost:8080`, com API e worker saudáveis. A comparação de hashes preservou os agentes, conversas, mensagens, tarefas, runs e chamadas anteriores, além do cofre e fingerprint da chave; integridade SQLite e foreign keys válidas. Nenhuma identidade de teste foi criada na instalação padrão. O schema permanece 8 e não há VM criada ou ferramenta externa ativada por esta entrega.
 
@@ -47,7 +56,9 @@ Tarefas possuem os estados `queued`, `running`, `waiting_approval`, `waiting_res
 
 ## Limites e falhas
 
-Uma tarefa faz uma geração final por padrão. Novas instruções e retomadas podem consumir chamadas adicionais: os limites padrão são três chamadas e 120 segundos ativos, com máximos de 50 chamadas e 1.800 segundos. Os contadores não reiniciam ao pausar/retomar. Esses limites não equivalem a orçamento financeiro ou limite de tokens; BEES-022 complementará esse controle.
+Uma tarefa faz uma geração final por padrão. Novas instruções e retomadas podem consumir chamadas adicionais: os limites padrão são três chamadas e 120 segundos ativos, com máximos de 50 chamadas e 1.800 segundos. Os contadores não reiniciam ao pausar/retomar. Esses limites não equivalem a orçamento financeiro ou limite de tokens; veja [consumo e limites](budgets.md).
+
+Com a [parada global](safety.md) ativa, o worker não reivindica tarefas. Uma tarefa já reivindicada volta para a fila sem iniciar a chamada, e a autorização final recusa uma preparação de geração anterior mesmo após a retomada. A retomada reavalia políticas e limites; pausa e resultado desconhecido continuam exigindo decisão humana.
 
 O journal distingue chamada preparada, despacho iniciado, resposta confirmada, falha sem efeito comprovada e resultado desconhecido. Timeout, cancelamento ou queda após iniciar o despacho podem deixar consumo no provedor sem resposta registrada. **Nenhuma chamada desconhecida é repetida automaticamente.** Uma nova tentativa exige decisão explícita, com aviso sobre possível consumo adicional; o registro anterior continua desconhecido.
 
@@ -60,6 +71,10 @@ O destino/configuração do modelo é registrado por referência, sem valor da c
 Uma resposta concluída enquanto a tarefa está pausada pode ser aproveitada ao retomar, sem outra chamada, desde que agente, memória e histórico continuem válidos. Se mudaram, a retomada usa uma nova execução e preserva a proveniência da anterior. A interface apresenta o modelo e destino atuais antes de confirmar a retomada.
 
 ## Operação
+
+Para resposta perdida, resultado desconhecido ou manutenção após interrupção, siga
+o [roteiro de recuperação operacional](recovery.md). Ele separa consulta, decisão
+humana, quiescência/backup e retomada, preservando journals e efeitos anteriores.
 
 O Compose sobe API/interface e `worker` como processos separados, com o mesmo estado e cofre. Ambos usam usuário restrito, filesystem somente leitura e volumes explícitos. O worker compartilha o namespace de rede da API para preservar o endereço loopback de Ollama. Seu healthcheck verifica um heartbeat derivado; não afirma que tarefas concluíram.
 
@@ -94,3 +109,10 @@ BEES-007 permanece em andamento para integrar esperas de aprovação/recurso e c
 Uma política Perguntar cria um cartão persistente na conversa e no detalhe da tarefa. Permitir uma vez ou salvar autorização no escopo concreto coloca a mesma execução na fila, preservando seu contexto. Sempre perguntar e bloquear salvam regras sem gerar. [Aprovações](approvals.md) descreve validade, efeitos e revogação. Retomar continua sem conceder autorização; uma execução nova não carrega os IDs da aprovação anterior. Recuperação após queda preserva também o journal da ação autorizada.
 
 BEES-007 passa a ter espera e decisão humana para gerações textuais. Recursos e coordenação dos ambientes reais permanecem pendentes; não se trata de execução de ferramentas ou modelo real comprovado.
+
+## Sugestão de rotina pelo chat
+
+A opção **Pedir uma sugestão de agenda nesta mensagem** orienta apenas a resposta
+textual; não delega tarefa nem concede acesso. Ela é independente da opção de
+delegação e do consentimento dos anexos. A [revisão da sugestão](routines-ui.md#rascunho-vindo-da-conversa)
+exige seleção humana de procedimento e confirmação para salvar uma agenda pausada.

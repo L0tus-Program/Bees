@@ -10,12 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from bees_api.artifact_transport import artifact_upload
+from bees_api.restoration_transport import restoration_upload
 from bees_core.security.identity import AuthError, IdentityService, IssuedSession, Session
 
 COOKIE_NAME = "bees_session"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 AUTH_HTTP_CODES = {
     "already_configured": 409,
+    "not_configured": 409,
     "bootstrap_invalid": 401,
     "credentials_invalid": 401,
     "invalid_identity": 422,
@@ -30,6 +33,11 @@ class Input(BaseModel):
 class SetupInput(Input):
     bootstrap_token: SecretStr = Field(min_length=43, max_length=43)
     name: str = Field(min_length=1, max_length=80)
+    password: SecretStr = Field(min_length=12, max_length=256)
+
+
+class RecoverInput(Input):
+    recovery_token: SecretStr = Field(min_length=43, max_length=43)
     password: SecretStr = Field(min_length=12, max_length=256)
 
 
@@ -64,8 +72,10 @@ class AuthBoundaryMiddleware:
         allowed_origins: tuple[str, ...],
         secure_cookie: bool,
         health_authorities: tuple[str, ...],
+        executor_authorities: tuple[str, ...] = (),
     ) -> None:
         self.app = app
+        self.executor_authorities = frozenset(executor_authorities)
         self.origins = frozenset(allowed_origins)
         self.authorities = frozenset(urlsplit(origin).netloc.lower() for origin in allowed_origins)
         self.secure_cookie = secure_cookie
@@ -85,6 +95,9 @@ class AuthBoundaryMiddleware:
         valid_authorities = (
             self.authorities | self.health_authorities if health_read else self.authorities
         )
+        if path == "/api/v1/executors/exchange" or health_read:
+            # Executores internos (Compose) usam o nome do serviço; nenhuma rota humana.
+            valid_authorities = valid_authorities | self.executor_authorities
         if len(hosts) != 1 or hosts[0].lower() not in valid_authorities:
             await _error("host_rejected", "Host não permitido.", 400)(scope, receive, send)
             return
@@ -92,6 +105,14 @@ class AuthBoundaryMiddleware:
             origins = request.headers.getlist("origin")
             origin = origins[0] if len(origins) == 1 else None
             unsafe = scope["method"] not in SAFE_METHODS
+            # A troca do executor e os webhooks são chamados por processos, não por
+            # navegador: sem Origin, sem cookies e autenticados só pelo segredo próprio.
+            machine = (
+                path == "/api/v1/executors/exchange"
+                or (path.startswith("/api/v1/hooks/") and scope["method"] == "POST")
+            ) and not origins
+            if machine:
+                unsafe = False
             if (
                 len(origins) > 1
                 or (origins and origin not in self.origins)
@@ -102,10 +123,23 @@ class AuthBoundaryMiddleware:
                 return
             if unsafe:
                 content_types = request.headers.getlist("content-type")
-                if len(content_types) != 1 or content_types[0].split(";", 1)[0].strip().lower() != (
-                    "application/json"
-                ):
-                    await _error("json_required", "Envie conteúdo JSON.", 415)(scope, receive, send)
+                expected_type = (
+                    "application/octet-stream"
+                    if artifact_upload(scope)
+                    else "application/zip"
+                    if restoration_upload(scope)
+                    else "application/json"
+                )
+                actual_type = content_types[0].strip().lower() if len(content_types) == 1 else ""
+                if not (artifact_upload(scope) or restoration_upload(scope)):
+                    actual_type = actual_type.split(";", 1)[0].strip()
+                if actual_type != expected_type:
+                    response = (
+                        _error("restoration_zip_required", "Envie um pacote ZIP.", 415)
+                        if restoration_upload(scope)
+                        else _error("json_required", "Envie conteúdo JSON.", 415)
+                    )
+                    await response(scope, receive, send)
                     return
             if self.secure_cookie and not health_read and scope["scheme"] != "https":
                 await _error("https_required", "HTTPS é obrigatório.", 403)(scope, receive, send)
@@ -186,6 +220,15 @@ def setup(body: SetupInput, request: Request, response: Response) -> AuthStatus:
     return _status(session)
 
 
+@router.post("/recover", response_model=AuthStatus, response_model_exclude_none=True)
+def recover(body: RecoverInput, request: Request, response: Response) -> AuthStatus:
+    session = _identity(request).recover(
+        body.recovery_token.get_secret_value(), body.password.get_secret_value()
+    )
+    _set_cookie(request, response, session)
+    return _status(session)
+
+
 @router.post("/login", response_model=AuthStatus, response_model_exclude_none=True)
 def login(body: LoginInput, request: Request, response: Response) -> AuthStatus:
     session = _identity(request).login(
@@ -215,6 +258,7 @@ def install_auth(
     allowed_origins: tuple[str, ...],
     secure_cookie: bool = False,
     health_authorities: tuple[str, ...] = (),
+    executor_authorities: tuple[str, ...] = (),
 ) -> None:
     if not allowed_origins:
         raise ValueError("Origens explícitas são obrigatórias.")
@@ -237,6 +281,7 @@ def install_auth(
         allowed_origins=allowed_origins,
         secure_cookie=secure_cookie,
         health_authorities=health_authorities,
+        executor_authorities=executor_authorities,
     )
     app.include_router(router)
 

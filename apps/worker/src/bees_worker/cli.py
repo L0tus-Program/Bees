@@ -8,11 +8,14 @@ from bees_api.config import Settings
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.worker_status import HEARTBEAT_KEY, HEARTBEAT_TTL, worker_status
-from bees_core.execution import TaskWorker
+from bees_core.artifacts import ArtifactStore
+from bees_core.channels.service import ChannelWorker
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.vault import FernetBackend, FileSecretVault
+from bees_core.routine_scheduler import RoutineScheduler
 from bees_core.storage.database import Database
 from bees_core.storage.store import StateStore
+from bees_core.tool_runtime import ToolQueueWorker as TaskWorker
 
 
 def existing_database(settings: Settings) -> Database:
@@ -27,7 +30,7 @@ def existing_database(settings: Settings) -> Database:
     return database
 
 
-def create_worker(settings: Settings, database: Database) -> TaskWorker:
+def create_resolver(settings: Settings, database: Database):
     if settings.deployment_mode == "container":
         key = managed_vault_key(
             settings.vault_key_file, settings.data_dir, database, provision=False
@@ -35,7 +38,15 @@ def create_worker(settings: Settings, database: Database) -> TaskWorker:
         vault = FileSecretVault(settings.data_dir / "vault", backend=FernetBackend(key))
     else:
         vault = FileSecretVault(settings.data_dir / "vault", key=settings.vault_key)
-    return TaskWorker(database, build_secret_resolver(vault))
+    return build_secret_resolver(vault)
+
+
+def create_worker(settings: Settings, database: Database) -> TaskWorker:
+    return TaskWorker(
+        database,
+        create_resolver(settings, database),
+        artifacts=ArtifactStore(database, settings.data_dir / "artifacts", actor="worker"),
+    )
 
 
 async def serve(settings: Settings) -> None:
@@ -47,7 +58,14 @@ async def serve(settings: Settings) -> None:
         while True:
             store.put_cache(
                 HEARTBEAT_KEY,
-                {"last_seen": datetime.now(UTC).isoformat()},
+                {
+                    "last_seen": datetime.now(UTC).isoformat(),
+                    "tool_cycle_version": 1,
+                    "agent_cycle_version": 1,
+                    "routine_scheduler_version": 1,
+                    "routine_manual_version": 1,
+                    "channels_version": 1,
+                },
                 ttl_seconds=HEARTBEAT_TTL,
             )
             await asyncio.sleep(3)
@@ -55,6 +73,12 @@ async def serve(settings: Settings) -> None:
     async with asyncio.TaskGroup() as group:
         group.create_task(heartbeat())
         group.create_task(worker.run_forever())
+        group.create_task(RoutineScheduler(database).run_forever())
+        group.create_task(
+            ChannelWorker(
+                database, create_resolver(settings, database), app_url=settings.public_url
+            ).run_forever()
+        )
 
 
 def main() -> None:

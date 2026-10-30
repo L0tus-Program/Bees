@@ -3,15 +3,38 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field, ValidationError
 
 from bees_api.auth import require_session
 from bees_api.onboarding import Input
-from bees_api.worker_status import worker_status
+from bees_api.worker_status import HEARTBEAT_KEY, worker_status
+from bees_core.executor_transport.contracts import TransportError
+from bees_core.providers.errors import ProviderError
+from bees_core.recovery import RecoveryActionPage, RecoveryInventory, RecoveryInventoryService
+from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
+from bees_core.skill_context import SkillTaskInput
+from bees_core.skill_tasks import (
+    AgentSkillTaskInput,
+    AgentSkillTaskService,
+    SkillTaskService,
+    is_agent_skill,
+    replay_skill_task,
+)
 from bees_core.storage.store import NotFoundError
-from bees_core.tasks import TaskCommand, TaskInput, TaskService
+from bees_core.tasks import (
+    TaskCommand,
+    TaskError,
+    TaskInput,
+    TaskService,
+    request_digest,
+    submission_digest,
+)
+from bees_core.tool_cycle import MAX_TOOL_CALLS, ToolTaskInput, ToolTaskService
+from bees_core.tool_runtime import available_runtime
+from bees_core.tools import ToolError
+from bees_core.tools import digest as context_digest
 
 _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1/agents", tags=["tasks"])
@@ -33,6 +56,51 @@ def _service(request: Request) -> TaskService:
     return TaskService(request.app.state.database)
 
 
+_ITEM_FIELDS = (
+    "kind",
+    "status",
+    "error_code",
+    "artifact_id",
+    "sha256",
+    "size_bytes",
+    "version",
+    "rows",
+    "columns",
+    "formula_like_cells",
+)
+
+
+def _waiting_for(task, run) -> dict | None:
+    """Recurso disputado: só a ferramenta e a tarefa dona, sem parâmetros."""
+    waiting = run.checkpoint.get("waiting_for") if run is not None else None
+    if task.status != "waiting_resource" or not isinstance(waiting, dict):
+        return None
+    return {"tool": waiting.get("tool"), "task_id": waiting.get("task_id")}
+
+
+def _deliverables(run) -> dict | None:
+    """Projeção fechada do resumo do worker; conteúdo e metadados privados ficam fora."""
+    summary = run.checkpoint.get("deliverables") if run is not None else None
+    if not isinstance(summary, dict) or not isinstance(summary.get("items"), list):
+        return None
+    return {
+        "items": [
+            {key: item.get(key) for key in _ITEM_FIELDS}
+            for item in summary["items"]
+            if isinstance(item, dict)
+        ],
+        "partial": summary.get("partial") is True,
+        "missing_data": [
+            value for value in summary.get("missing_data") or [] if isinstance(value, str)
+        ],
+    }
+
+
+def _publication_pending(run) -> bool:
+    publication = run.checkpoint.get("publication") if run is not None else None
+    return isinstance(publication, dict) and publication.get("status") in ("pending", "started")
+
+
 def _view(detail) -> dict:
     task = detail.task
     run = detail.runs[-1] if detail.runs else None
@@ -40,6 +108,8 @@ def _view(detail) -> dict:
     controls = [] if terminal else ["cancel"]
     if task.status in ("paused", "waiting_approval", "waiting_resource"):
         controls.append("resume")
+        if task.metadata.get("execution_kind") in (TASK_KIND, MODEL_TASK_KIND, "agent_task"):
+            controls.append("redirect")
     elif not terminal:
         controls.extend(["pause", "redirect"])
     result = None
@@ -53,53 +123,119 @@ def _view(detail) -> dict:
         if messages:
             message = messages[-1]
             result = {"content": message.content, "created_at": message.created_at.isoformat()}
-    return {
-        "id": str(task.id),
-        "agent_id": str(task.agent_id),
-        "conversation_id": str(task.conversation_id) if task.conversation_id else None,
-        "title": task.title,
-        "objective": task.objective,
-        "expected_result": task.expected_result,
-        "status": task.status,
-        "revision": task.revision,
-        "created_at": task.created_at.isoformat(),
-        "updated_at": task.updated_at.isoformat(),
-        "active_run_id": str(run.id) if run else None,
-        "control_requested": (
-            "pause"
-            if task.desired_state == "paused" and task.status == "running"
-            else "cancel"
-            if task.desired_state == "cancelled" and task.status == "running"
-            else None
-        ),
-        "available_controls": controls,
-        "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
-        "unknown_model_calls": detail.unknown_model_calls,
-        "unknown_tool_actions": detail.unknown_tool_actions,
-        "action_in_flight": detail.action_in_flight,
-        "max_calls": task.max_calls,
-        "max_active_seconds": task.max_active_seconds,
-        "calls_started": task.calls_started,
-        "active_milliseconds": task.active_milliseconds,
-        "latest_run": (
+    return (
+        {
+            "id": str(task.id),
+            "agent_id": str(task.agent_id),
+            "conversation_id": str(task.conversation_id) if task.conversation_id else None,
+            "title": task.title,
+            "objective": task.objective,
+            "expected_result": task.expected_result,
+            "status": task.status,
+            "revision": task.revision,
+            "created_at": task.created_at.isoformat(),
+            "updated_at": task.updated_at.isoformat(),
+            "active_run_id": str(run.id) if run else None,
+            "control_requested": (
+                "pause"
+                if task.desired_state == "paused" and task.status == "running"
+                else "cancel"
+                if task.desired_state == "cancelled" and task.status == "running"
+                else None
+            ),
+            "available_controls": controls,
+            "tool_approvals_available": task.metadata.get("execution_kind")
+            in (TASK_KIND, MODEL_TASK_KIND),
+            "model_approvals_available": task.metadata.get("execution_kind") != TASK_KIND,
+            "execution_kind": task.metadata.get("execution_kind", "text_task"),
+            "agent_approvals_available": task.metadata.get("execution_kind") == "agent_task",
+            "agent_steps": [
+                {key: step.get(key) for key in ("tool", "status", "code", "at")}
+                for step in (run.checkpoint.get("agent_steps") or [] if run else [])
+                if isinstance(step, dict)
+            ],
+            "agent_chat_conversation_id": task.metadata.get("agent_chat", {}).get(
+                "conversation_id"
+            ),
+            "research": (
+                {
+                    key: run.checkpoint["research"].get(key)
+                    for key in (
+                        "sources_read",
+                        "links_cited",
+                        "links_verified",
+                        "unverified_links",
+                        "no_citations",
+                        "artifacts",
+                    )
+                }
+                if run is not None and isinstance(run.checkpoint.get("research"), dict)
+                else ({"pending": True} if task.metadata.get("research") else None)
+            ),
+            "partial": run is not None
+            and task.status == "paused"
+            and run.checkpoint.get("partial") is True,
+            "unknown_requires_ack": detail.unknown_model_calls + detail.unknown_tool_actions > 0,
+            "unknown_model_calls": detail.unknown_model_calls,
+            "unknown_tool_actions": detail.unknown_tool_actions,
+            "action_in_flight": detail.action_in_flight,
+            "max_calls": task.max_calls,
+            "max_active_seconds": task.max_active_seconds,
+            "calls_started": task.calls_started,
+            "active_milliseconds": task.active_milliseconds,
+            "deliverables": list(task.metadata.get("deliverables") or []),
+            "deliverable_results": _deliverables(run),
+            "publication_pending": _publication_pending(run),
+            "latest_run": (
+                {
+                    "id": str(run.id),
+                    "status": run.status,
+                    "provider": run.provider,
+                    "model": run.model,
+                    "started_at": run.started_at.isoformat() if run.started_at else None,
+                    "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+                    "error_code": run.error,
+                    "result": result,
+                }
+                if run
+                else None
+            ),
+            "waiting_for": _waiting_for(task, run),
+            "progress": {
+                "code": run.checkpoint.get("progress", task.status) if run else task.status,
+                "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
+            },
+        }
+        | (
             {
-                "id": str(run.id),
-                "status": run.status,
-                "provider": run.provider,
-                "model": run.model,
-                "started_at": run.started_at.isoformat() if run.started_at else None,
-                "finished_at": run.finished_at.isoformat() if run.finished_at else None,
-                "error_code": run.error,
-                "result": result,
+                "skill_execution": {
+                    "skill_id": task.metadata["skill_execution"]["skill_id"],
+                    "version": task.metadata["skill_execution"]["version"],
+                    "snapshot_hash": task.metadata["skill_execution_hash"],
+                }
             }
-            if run
-            else None
-        ),
-        "progress": {
-            "code": run.checkpoint.get("progress", task.status) if run else task.status,
-            "created_at": run.updated_at.isoformat() if run else task.updated_at.isoformat(),
-        },
-    }
+            if "skill_execution" in task.metadata
+            else {}
+        )
+        | (
+            {
+                "routine_execution": {
+                    "routine_id": task.metadata["routine_execution"]["routine_id"],
+                    "revision": task.metadata["routine_execution"]["revision"],
+                    "occurrence_id": task.metadata["routine_execution"]["occurrence_id"],
+                    "scheduled_at": task.metadata["routine_execution"]["scheduled_at"],
+                    "name": task.metadata["routine_execution"]["definition"]["name"],
+                    **(
+                        {"trigger": "manual"}
+                        if "manual_request_id" in task.metadata["routine_execution"]
+                        else {}
+                    ),
+                }
+            }
+            if "routine_execution" in task.metadata
+            else {}
+        )
+    )
 
 
 @router.get("/{agent_id}/tasks")
@@ -111,6 +247,25 @@ def list_tasks(agent_id: UUID, request: Request, session: _SESSION) -> dict:
         "has_more": len(records) == 100,
         "worker": worker_status(request.app.state.store),
     }
+
+
+@router.get("/{agent_id}/tasks/{task_id}/recovery/actions", response_model=RecoveryActionPage)
+def recovery_actions(
+    agent_id: UUID,
+    task_id: UUID,
+    request: Request,
+    session: _SESSION,
+    after: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    return RecoveryInventoryService(request.app.state.database).actions(
+        agent_id, task_id, after=after, limit=limit
+    )
+
+
+@router.get("/{agent_id}/tasks/{task_id}/recovery", response_model=RecoveryInventory)
+def recovery_inventory(agent_id: UUID, task_id: UUID, request: Request, session: _SESSION):
+    return RecoveryInventoryService(request.app.state.database).inspect(agent_id, task_id)
 
 
 @router.get("/{agent_id}/tasks/{task_id}")
@@ -189,3 +344,123 @@ def control_task(
         ) from None
     task = service.command(agent_id, task_id, command)
     return _view(service.detail(agent_id, task.id))
+
+
+def _tool_task_capabilities(request, agent_id):
+    with request.app.state.store.transaction(write=False) as unit:
+        agent = unit.agents.get(agent_id)
+        if agent is None:
+            raise NotFoundError("Abelha não encontrada.")
+    heartbeat = request.app.state.store.get_cache(HEARTBEAT_KEY)
+    if (
+        not worker_status(request.app.state.store)["available"]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("tool_cycle_version")) is not int
+        or heartbeat["tool_cycle_version"] != 1
+    ):
+        return False, "worker_unavailable"
+    try:
+        available_runtime(request.app.state.database, agent_id)
+    except TransportError:
+        return False, "resource_unavailable"
+    except TaskError, ToolError, ProviderError:
+        return False, "tool_unavailable"
+    return True, None
+
+
+@router.get("/{agent_id}/tool-task-capabilities")
+def tool_task_capabilities(agent_id: UUID, request: Request, session: _SESSION):
+    available, reason = _tool_task_capabilities(request, agent_id)
+    return {
+        "available": available,
+        "reason": reason,
+        "tool_name": "normalize_text",
+        "max_calls": 4,
+        "max_active_seconds": 120,
+        "max_actions": MAX_TOOL_CALLS,
+    }
+
+
+@router.post("/{agent_id}/tool-tasks", status_code=201)
+def create_tool_task(agent_id: UUID, body: ToolTaskInput, request: Request, session: _SESSION):
+    store = request.app.state.store
+    with store.transaction(write=False) as unit:
+        prior = unit.tasks.find_submission(body.client_request_id)
+    if prior is not None:
+        if (
+            prior.agent_id != agent_id
+            or prior.metadata.get("execution_kind") != MODEL_TASK_KIND
+            or "skill_request_hash" in prior.metadata
+            or prior.metadata.get("submission_hash") != submission_digest(body)
+        ):
+            raise TaskError("idempotency_conflict")
+        task = prior
+    else:
+        available, _ = _tool_task_capabilities(request, agent_id)
+        if not available:
+            raise TaskError("unsupported_capability")
+        try:
+            resource, plugin_id = available_runtime(request.app.state.database, agent_id)
+            task = ToolTaskService(request.app.state.database, resource, plugin_id).create(
+                agent_id, body
+            )
+        except TransportError, ToolError:
+            raise TaskError("unsupported_capability") from None
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }
+
+
+@router.post("/{agent_id}/skill-tasks", status_code=201)
+def create_skill_task(agent_id: UUID, body: SkillTaskInput, request: Request, session: _SESSION):
+    with request.app.state.store.transaction(write=False) as unit:
+        task = replay_skill_task(unit, agent_id, body)
+    if task is None:
+        available, _ = _tool_task_capabilities(request, agent_id)
+        if not available:
+            raise TaskError("unsupported_capability")
+        try:
+            resource, plugin_id = available_runtime(request.app.state.database, agent_id)
+            task = SkillTaskService(request.app.state.database, resource, plugin_id).create(
+                agent_id, body
+            )
+        except TransportError, ToolError:
+            raise TaskError("unsupported_capability") from None
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }
+
+
+@router.post("/{agent_id}/agent-skill-tasks", status_code=201)
+def create_agent_skill_task(
+    agent_id: UUID, body: AgentSkillTaskInput, request: Request, session: _SESSION
+):
+    """Skill com ferramentas do registro: executa no ciclo do agente."""
+    with request.app.state.store.transaction(write=False) as unit:
+        task = replay_skill_task(unit, agent_id, body)
+        if task is None and not is_agent_skill(unit, agent_id, body.skill_id, body.skill_version):
+            raise TaskError("unsupported_capability")
+    if task is None:
+        task = AgentSkillTaskService(request.app.state.database).create(agent_id, body)
+    return {
+        "task": _view(TaskService(request.app.state.database).detail(agent_id, task.id)),
+        "client_request_id": str(body.client_request_id),
+        "request_hash": request_digest(body),
+    }
+
+
+@router.get("/{agent_id}/tasks/{task_id}/skill-context")
+def skill_task_context(agent_id: UUID, task_id: UUID, request: Request, session: _SESSION):
+    with request.app.state.store.transaction(write=False) as unit:
+        task = TaskService._task(unit, agent_id, task_id)
+        context = task.metadata.get("skill_execution")
+        if not isinstance(context, dict):
+            raise NotFoundError("Esta tarefa não tem revisão de skill.")
+        if context_digest(context) != task.metadata.get("skill_execution_hash"):
+            raise TaskError("skill_unavailable")
+        # Consulta explícita da pessoa: não depende de habilitação atual ou runtime.
+        return {"snapshot": context, "snapshot_hash": task.metadata["skill_execution_hash"]}

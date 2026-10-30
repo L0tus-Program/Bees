@@ -1,5 +1,9 @@
 # Decisões humanas e autorizações
 
+O [modo opcional de transformação local](tool-cycle.md) acrescenta um ciclo limitado separado das tarefas e do chat textuais. A aprovação da geração não autoriza a ferramenta.
+
+O recurso POSIX de texto agora possui [canal próprio de aprovação](resource-tool-approvals.md), separado de `model.generate`, com snapshot privado, revisão explícita e consumo junto do efeito. Os checkpoints históricos abaixo descrevem a geração textual.
+
 BEES-009 integra decisões persistentes ao executor de tarefas textuais. Quando uma regra exige **Perguntar**, o Bees prepara a geração, guarda uma pergunta e libera o worker sem enviar a geração ao provedor. Fechar a interface ou reiniciar o serviço conserva o pedido. Chat direto e CLI continuam aplicando políticas; não possuem este fluxo pontual de espera/retomada. Ferramentas, computadores e rotinas serão integrados quando seus executores existirem.
 
 ## Uso

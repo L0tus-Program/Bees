@@ -30,10 +30,24 @@ jobs:
         run: uv run --locked pytest
       - name: Validar guarda nativa de arquivos no Windows
         if: runner.os == 'Windows'
-        run: uv run --locked python scripts/run-ci-tests.py -q -s --durations=5 apps/host/tests/test_provisioning_backend.py -k "readonly_native_hardware_guard or native_powershell_prepared_go"
+        run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations -q -s --durations=5 apps/host/tests/test_provisioning_backend.py -k "readonly_native_hardware_guard or native_powershell_prepared_go"
+      - name: Validar corpus de pesquisa no Windows
+        if: runner.os == 'Windows'
+        run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations packages/core/tests/test_research.py
+      - name: Validar contratos portáveis no Windows
+        if: runner.os == 'Windows'
+        run: |
+          $targets = @('scripts/tests/test_pytest_annotations.py', 'scripts/tests/test_ci_report.py', 'scripts/tests/test_licenses.py', 'scripts/tests/test_check_wheel.py', 'scripts/tests/test_host_package.py')
+          if (Test-Path packages/core/tests/test_executor_transport.py) {
+            $targets += 'packages/core/tests/test_executor_transport.py'
+          }
+          if (Test-Path scripts/tests/test_writer_case.py) {
+            $targets += 'scripts/tests/test_writer_case.py'
+          }
+          uv run --locked python scripts/run-ci-tests.py -p pytest_annotations @targets
       - name: Testar no Windows com dono padrão da conta
         if: runner.os == 'Windows'
-        run: uv run --locked python scripts/run-ci-tests.py
+        run: uv run --locked python scripts/run-ci-tests.py -p pytest_annotations
 
   web:
     name: Interface
@@ -52,6 +66,108 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+
+  failure-matrix:
+    name: Matriz de falhas / processos reais
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.4'
+      - name: Instalar uv
+        run: python -m pip install uv==0.7.21
+      - run: uv sync --locked
+      - name: Matar worker e executor e contar efeitos
+        env:
+          BEES_FAILURE_MATRIX: '1'
+          BEES_FAILURE_MATRIX_OUT: failure-matrix.json
+        run: uv run --locked pytest -q apps/executor/tests/test_failure_matrix.py
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: failure-matrix
+          path: failure-matrix.json
+          if-no-files-found: ignore
+
+  e2e:
+    name: Interface ponta a ponta / Chromium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.4'
+      - name: Instalar uv
+        run: python -m pip install uv==0.7.21
+      - run: uv sync --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.17.0'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+        working-directory: apps/web
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+      - name: Primeiro acesso, abelha e conversa com axe (390/1280, pt/en/es)
+        run: npm run e2e -- e2e-results
+        working-directory: apps/web
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-interface
+          path: apps/web/e2e-results
+
+  executor-wheel:
+    name: Pacote do executor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install uv==0.7.21
+      - name: Construir duas vezes
+        run: |
+          uv build --wheel apps/executor -o dist-a
+          uv build --wheel apps/executor -o dist-b
+      - name: Conferir conteúdo e reprodutibilidade
+        run: python scripts/check-wheel.py dist-a/*.whl dist-b/*.whl --out SHA256SUMS
+      - name: Instalar em ambiente limpo
+        run: |
+          python -m venv /tmp/executor
+          /tmp/executor/bin/pip install dist-a/*.whl
+          /tmp/executor/bin/bees-executor --help
+      - uses: actions/upload-artifact@v5
+        with:
+          name: bees-executor-wheel
+          path: |
+            dist-a/*.whl
+            SHA256SUMS
+
+  host-package:
+    name: Pacote Windows e avisos
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.4'
+      - name: Instalar ferramentas fixadas
+        run: python -m pip install uv==0.7.21
+      - run: uv sync --locked --group packaging
+      - name: Construir e conferir pacote privado de teste
+        run: |
+          uv run --locked --group packaging python scripts/build-host.py
+          uv run --locked --group packaging python scripts/build-host.py --verify dist/host-windows/bees-host-windows
+      - name: Testar executável real sem instalar ou publicar
+        shell: pwsh
+        run: |
+          $env:BEES_HOST_EXECUTABLE = (Resolve-Path 'dist/host-windows/bees-host-windows/runtime/bees-host/bees-host.exe').Path
+          uv run --locked --group packaging python scripts/run-ci-tests.py -p pytest_annotations -q apps/host/tests/test_frozen.py
 
   container:
     name: Distribuição Docker / Linux

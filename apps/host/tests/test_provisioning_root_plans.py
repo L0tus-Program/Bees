@@ -137,7 +137,8 @@ def test_legitimate_journals_are_read_only_and_keep_blocked_state(fixture, monke
     monkeypatch.setattr(SupervisorStore, "requests", forbidden)
     monkeypatch.setattr(Journal, "initialize", forbidden)
     result = store.check_only()
-    assert result.configured_local and result.execution_blocked_local == (status != "completed")
+    assert result.configured_local
+    assert result.execution_blocked_local == (status not in {"completed", "stopped"})
     assert reopen(setup).check_only() == result
     assert snapshot(root) == before
 
@@ -339,7 +340,7 @@ def test_crash_after_all_receipts_still_blocks_if_run_not_completed(fixture):
 
 @pytest.mark.parametrize("status", ["unknown", "stopped"])
 @pytest.mark.parametrize("journal_exists", [False, True])
-def test_unaccepted_quarantine_has_no_journal_and_never_adopts_one(
+def test_unaccepted_stop_or_quarantine_has_no_journal_and_never_adopts_one(
     fixture,
     status,
     journal_exists,
@@ -350,7 +351,8 @@ def test_unaccepted_quarantine_has_no_journal_and_never_adopts_one(
         with pytest.raises(ProvisionError):
             store.check_only()
     else:
-        assert store.check_only().execution_blocked_local
+        # Raiz nova usa ledger v3: stopped sem claim não teve efeito; unknown bloqueia.
+        assert store.check_only().execution_blocked_local == (status == "unknown")
 
 
 @pytest.mark.parametrize("field", ["revision", "lease_expires_at"])

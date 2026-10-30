@@ -1,0 +1,203 @@
+"""Rotinas humanas; GETs consultam, mutações exigem sessão e proteção CSRF."""
+
+from typing import Annotated, Literal
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from bees_api.auth import require_session
+from bees_api.worker_status import HEARTBEAT_KEY, worker_status
+from bees_core.agent_tools.cycle import available_tools
+from bees_core.executor_transport.contracts import TransportError
+from bees_core.providers.errors import ProviderError
+from bees_core.providers.service import ProviderService
+from bees_core.routine_manual import ManualRoutineInput, ManualRoutineReceipt, ManualRoutineService
+from bees_core.routine_proposals import RoutineProposal, RoutineProposalService
+from bees_core.routines import (
+    CreateRoutine,
+    ReviseRoutine,
+    RoutineOccurrence,
+    RoutineRevision,
+    RoutineService,
+    RoutineView,
+    SetRoutineStatus,
+)
+from bees_core.security.identity import Session
+from bees_core.storage.store import NotFoundError
+from bees_core.tasks import TaskError
+from bees_core.tool_runtime import available_runtime
+from bees_core.tools import ToolError
+
+_SESSION = Annotated[Session, Depends(require_session)]
+_LIMIT = Annotated[int, Query(ge=1, le=100)]
+_OFFSET = Annotated[int, Query(ge=0, le=2**31 - 1)]
+router = APIRouter(prefix="/api/v1/agents/{agent_id}/routines", tags=["routines"])
+
+
+@router.get("/proposals/{conversation_id}/{message_id}", response_model=RoutineProposal)
+def proposal_from_message(
+    agent_id: UUID, conversation_id: UUID, message_id: UUID, request: Request, session: _SESSION
+):
+    return _mutation(
+        RoutineProposalService(request.app.state.database).get,
+        agent_id,
+        conversation_id,
+        message_id,
+    )
+
+
+def _mutation(operation, *args):
+    try:
+        return operation(*args)
+    except ValueError:
+        # Entradas podem conter dados privados; nunca ecoar ValidationError/DTO.
+        raise HTTPException(
+            422,
+            detail={"code": "routine_input_invalid", "message": "Confira a skill e suas entradas."},
+        ) from None
+
+
+@router.get("", response_model=list[RoutineView])
+def list_routines(
+    agent_id: UUID, request: Request, session: _SESSION, limit: _LIMIT = 50, offset: _OFFSET = 0
+):
+    return RoutineService(request.app.state.database).list(agent_id, limit=limit, offset=offset)
+
+
+@router.post("", response_model=RoutineView)
+def create(agent_id: UUID, body: CreateRoutine, request: Request, session: _SESSION):
+    return _mutation(RoutineService(request.app.state.database).create, agent_id, body)
+
+
+@router.get("/runtime")
+def runtime_status(
+    agent_id: UUID,
+    request: Request,
+    session: _SESSION,
+    execution_mode: Literal["scheduled", "agent"] = "scheduled",
+):
+    store = request.app.state.store
+    with store.transaction(write=False) as unit:
+        agent = unit.agents.get(agent_id)
+        if agent is None:
+            raise NotFoundError("Abelha não encontrada.")
+    heartbeat = store.get_cache(HEARTBEAT_KEY)
+    reason = None
+    if (
+        not worker_status(store)["available"]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("routine_scheduler_version")) is not int
+        or heartbeat["routine_scheduler_version"] != 1
+        or execution_mode == "agent"
+        and (
+            type(heartbeat.get("agent_cycle_version")) is not int
+            or heartbeat["agent_cycle_version"] != 1
+        )
+    ):
+        reason = "worker_unavailable"
+    else:
+        try:
+            if execution_mode == "agent":
+                config = ProviderService._validated_config(agent.provider_config)
+                with store.transaction(write=False) as unit:
+                    if (
+                        agent.status != "active"
+                        or not config.capabilities.tool_calls
+                        or not available_tools(unit, agent_id)
+                    ):
+                        reason = "tool_unavailable"
+            else:
+                available_runtime(request.app.state.database, agent_id)
+        except TransportError:
+            reason = "resource_unavailable"
+        except TaskError, ToolError, ProviderError:
+            reason = "tool_unavailable"
+    return {
+        "available": reason is None,
+        "reason": reason,
+        "version": 1,
+        "max_calls": 4,
+        "max_active_seconds": 120,
+        "manual_available": reason is None
+        and type(heartbeat.get("routine_manual_version")) is int
+        and heartbeat["routine_manual_version"] == 1,
+    }
+
+
+@router.get("/{routine_id}", response_model=RoutineView)
+def get_routine(agent_id: UUID, routine_id: UUID, request: Request, session: _SESSION):
+    return RoutineService(request.app.state.database).get(agent_id, routine_id)
+
+
+@router.post("/{routine_id}/revisions", response_model=RoutineView)
+def revise(
+    agent_id: UUID, routine_id: UUID, body: ReviseRoutine, request: Request, session: _SESSION
+):
+    return _mutation(RoutineService(request.app.state.database).revise, agent_id, routine_id, body)
+
+
+@router.put("/{routine_id}/status", response_model=RoutineView)
+def set_status(
+    agent_id: UUID, routine_id: UUID, body: SetRoutineStatus, request: Request, session: _SESSION
+):
+    return _mutation(
+        RoutineService(request.app.state.database).set_status, agent_id, routine_id, body
+    )
+
+
+@router.post("/{routine_id}/manual", response_model=ManualRoutineReceipt, status_code=201)
+def execute_manual(
+    agent_id: UUID, routine_id: UUID, body: ManualRoutineInput, request: Request, session: _SESSION
+):
+    service = ManualRoutineService(request.app.state.database)
+    prior = service.replay(agent_id, routine_id, body)
+    if prior is not None:
+        return prior
+    from bees_api.tasks import _tool_task_capabilities
+
+    heartbeat = request.app.state.store.get_cache(HEARTBEAT_KEY)
+    if (
+        not _tool_task_capabilities(request, agent_id)[0]
+        or not isinstance(heartbeat, dict)
+        or type(heartbeat.get("routine_manual_version")) is not int
+        or heartbeat["routine_manual_version"] != 1
+    ):
+        raise TaskError("unsupported_capability")
+    return _mutation(service.execute, agent_id, routine_id, body)
+
+
+@router.get("/{routine_id}/manual/{request_id}", response_model=ManualRoutineReceipt)
+def manual_receipt(
+    agent_id: UUID, routine_id: UUID, request_id: UUID, request: Request, session: _SESSION
+):
+    return ManualRoutineService(request.app.state.database).receipt(
+        agent_id, routine_id, request_id
+    )
+
+
+@router.get("/{routine_id}/occurrences", response_model=list[RoutineOccurrence])
+def occurrences(
+    agent_id: UUID,
+    routine_id: UUID,
+    request: Request,
+    session: _SESSION,
+    limit: _LIMIT = 50,
+    offset: _OFFSET = 0,
+):
+    return RoutineService(request.app.state.database).occurrences(
+        agent_id, routine_id, limit=limit, offset=offset
+    )
+
+
+@router.get("/{routine_id}/revisions", response_model=list[RoutineRevision])
+def revisions(
+    agent_id: UUID,
+    routine_id: UUID,
+    request: Request,
+    session: _SESSION,
+    limit: _LIMIT = 50,
+    offset: _OFFSET = 0,
+):
+    return RoutineService(request.app.state.database).revisions(
+        agent_id, routine_id, limit=limit, offset=offset
+    )

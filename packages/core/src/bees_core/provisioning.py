@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from bees_core.security.hosts import HostService
 from bees_core.storage.database import Database
-from bees_core.storage.store import NotFoundError, RevisionConflict
+from bees_core.storage.store import NotFoundError, RevisionConflict, read_safety
 
 OPERATIONS = ("create_vhd", "create_vm", "configure_vm", "remove_nic", "attach_iso", "verify")
 Operation = Literal["create_vhd", "create_vm", "configure_vm", "remove_nic", "attach_iso", "verify"]
@@ -32,6 +32,35 @@ MAX_GENERATION = 2**63 - 1
 class ProvisioningError(RuntimeError):
     def __init__(self, code: str):
         self.code = code
+        super().__init__(code)
+
+
+# Somente falhas de domínio após autenticação e sem intent aceito para este UUID.
+DEFINITIVE_REJECTION_CODES = frozenset(
+    {
+        "provisioning_global_stop",
+        "provisioning_plan_changed",
+        "provisioning_catalog_changed",
+        "provisioning_installation_changed",
+        "provisioning_agent_inactive",
+        "provisioning_environment_changed",
+        "provisioning_authorization_changed",
+        "provisioning_host_quarantined",
+        "provisioning_generation_exhausted",
+        "provisioning_claim_fenced",
+        "provisioning_operation_conflict",
+        "provisioning_host_changed",
+        "provisioning_host_offline",
+        "provisioning_driver_unavailable",
+    }
+)
+
+
+class ProvisioningRejected(ProvisioningError):
+    """Recusa persistida de UUID que nunca aceitou um intent de efeito."""
+
+    def __init__(self, code: str, *, cached: bool):
+        self.cached = cached
         super().__init__(code)
 
 
@@ -195,7 +224,7 @@ _COLUMNS = {
     "provisioning_claims": "id,plan_id,provisioner_id,host_id,owner_id,generation,"
     "authorization_revision,"
     "revision,status,client_request_id,request_hash,created_at,lease_expires_at,recovery_evidence,"
-    "acknowledged_at",
+    "acknowledged_at,safety_generation",
     "provisioning_effects": "effect_request_id,claim_id,ordinal,operation,status,request_hash,"
     "created_at,confirmed_at,result_json,receipt_request_id,receipt_hash",
     "environments": "id,agent_id,revision,status,template_id,cpu_count,memory_mib,disk_gib",
@@ -762,6 +791,15 @@ class ProvisioningService:
             "plan": json.loads(plan["plan_json"]),
         }
 
+    @staticmethod
+    def _running(connection, claim):
+        # Parada global ou claim de geração anterior: nenhum efeito novo. Como no chat e no
+        # worker, o corte é o commit do intent: guarda, renovação, recibo e unknown da etapa
+        # já iniciada continuam aceitos. Retomar não neutraliza quarentena própria.
+        state = read_safety(connection)
+        if state.status != "running" or state.generation != (claim["safety_generation"] or 0):
+            raise ProvisioningError("provisioning_global_stop")
+
     def _bound(self, connection, token, value, *, capable=False):
         credential = self._authenticate(connection, token, online=True)
         claim = _row(connection, "provisioning_claims", value.claim_id)
@@ -802,83 +840,125 @@ class ProvisioningService:
         )
         return claim, plan, auth
 
-    def claim(self, token: str, value: ClaimInput | dict):
-        value = ClaimInput.model_validate(value)
+    def _with_rejection(self, token, value, command, execute):
+        # A recusa e o rollback do comando compartilham o mesmo writer lock. Não há
+        # janela entre negar, retomar e reapresentar o mesmo UUID.
+        rejected = None
         now = self._now()
-        payload = value.model_dump(mode="json")
         with self.database.transaction() as connection:
-            credential = self._authenticate(connection, token, online=True)
-            payload_hash = _digest(payload | {"provisioner_id": credential["id"]})
+            credential = self._authenticate(connection, token)
+            request_id = str(value.client_request_id)
+            request_hash = _digest({"command": command, **value.model_dump(mode="json")})
             prior = connection.execute(
-                "SELECT id,request_hash FROM provisioning_claims WHERE client_request_id=?",
-                (str(value.client_request_id),),
+                "SELECT command,request_hash,code,provisioner_id FROM provisioning_rejections "
+                "WHERE client_request_id=?",
+                (request_id,),
             ).fetchone()
             if prior:
-                if prior[1] != payload_hash:
+                if prior[:2] != (command, request_hash) or prior[3] != credential["id"]:
                     raise ProvisioningError("provisioning_request_conflict")
-                return self._claim_view(
-                    connection, _row(connection, "provisioning_claims", prior[0])
-                )
-            plan = _row(connection, "provisioning_plans", value.plan_id)
-            if plan["plan_hash"] != value.plan_hash or plan["host_id"] != credential["host_id"]:
-                raise ProvisioningError("provisioning_plan_changed")
-            self._context(connection, plan)
-            auth = _row(connection, "provisioning_authorizations", value.plan_id)
-            if (
-                auth["status"] != "authorized"
-                or auth["expires_at"] <= now
-                or auth["consumed_claim_id"]
-            ):
-                raise ProvisioningError("provisioning_authorization_changed")
-            if connection.execute(
-                "SELECT EXISTS(SELECT 1 FROM provisioning_claims c JOIN provisioning_plans p "
-                "ON p.id=c.plan_id WHERE p.installation_id=? AND "
-                "c.status IN ('claimed','dispatch_started','outcome_unknown'))",
-                (credential["installation_id"],),
-            ).get:
-                raise ProvisioningError("provisioning_host_quarantined")
-            connection.execute(
-                "INSERT INTO provisioning_hosts(host_id) VALUES(?) ON CONFLICT DO NOTHING",
-                (credential["host_id"],),
-            )
-            generation = (
-                connection.execute(
-                    "SELECT generation FROM provisioning_hosts WHERE host_id=?",
-                    (credential["host_id"],),
+                rejected = ProvisioningRejected(prior[2], cached=True)
+            else:
+                accepted = connection.execute(
+                    "SELECT EXISTS(SELECT 1 FROM provisioning_claims WHERE client_request_id=? "
+                    "UNION ALL SELECT 1 FROM provisioning_effects WHERE effect_request_id=?)",
+                    (request_id, request_id),
                 ).get
-                + 1
-            )
-            if generation > MAX_GENERATION:
-                raise ProvisioningError("provisioning_generation_exhausted")
+                connection.execute("SAVEPOINT rejection_command")
+                try:
+                    result = execute(connection, token, value, now)
+                except ProvisioningError as error:
+                    connection.execute("ROLLBACK TO rejection_command")
+                    connection.execute("RELEASE rejection_command")
+                    if accepted or error.code not in DEFINITIVE_REJECTION_CODES:
+                        raise
+                    connection.execute(
+                        "INSERT INTO provisioning_rejections VALUES(?,?,?,?,?,?)",
+                        (credential["id"], request_id, command, request_hash, error.code, now),
+                    )
+                    rejected = ProvisioningRejected(error.code, cached=False)
+                else:
+                    connection.execute("RELEASE rejection_command")
+                    return result
+        # Sair da transação antes de levantar para preservar o tombstone.
+        raise rejected
+
+    def claim(self, token: str, value: ClaimInput | dict):
+        value = ClaimInput.model_validate(value)
+        return self._with_rejection(token, value, "claim", self._claim)
+
+    def _claim(self, connection, token, value, now):
+        payload = value.model_dump(mode="json")
+        credential = self._authenticate(connection, token, online=True)
+        payload_hash = _digest(payload | {"provisioner_id": credential["id"]})
+        prior = connection.execute(
+            "SELECT id,request_hash FROM provisioning_claims WHERE client_request_id=?",
+            (str(value.client_request_id),),
+        ).fetchone()
+        if prior:
+            if prior[1] != payload_hash:
+                raise ProvisioningError("provisioning_request_conflict")
+            return self._claim_view(connection, _row(connection, "provisioning_claims", prior[0]))
+        safety = read_safety(connection)
+        if safety.status != "running":
+            raise ProvisioningError("provisioning_global_stop")
+        plan = _row(connection, "provisioning_plans", value.plan_id)
+        if plan["plan_hash"] != value.plan_hash or plan["host_id"] != credential["host_id"]:
+            raise ProvisioningError("provisioning_plan_changed")
+        self._context(connection, plan)
+        auth = _row(connection, "provisioning_authorizations", value.plan_id)
+        if auth["status"] != "authorized" or auth["expires_at"] <= now or auth["consumed_claim_id"]:
+            raise ProvisioningError("provisioning_authorization_changed")
+        if connection.execute(
+            "SELECT EXISTS(SELECT 1 FROM provisioning_claims c JOIN provisioning_plans p "
+            "ON p.id=c.plan_id WHERE p.installation_id=? AND "
+            "c.status IN ('claimed','dispatch_started','outcome_unknown'))",
+            (credential["installation_id"],),
+        ).get:
+            raise ProvisioningError("provisioning_host_quarantined")
+        connection.execute(
+            "INSERT INTO provisioning_hosts(host_id) VALUES(?) ON CONFLICT DO NOTHING",
+            (credential["host_id"],),
+        )
+        generation = (
             connection.execute(
-                "UPDATE provisioning_hosts SET generation=? WHERE host_id=?",
-                (generation, credential["host_id"]),
-            )
-            claim_id = str(uuid4())
-            connection.execute(
-                "INSERT INTO provisioning_claims(id,plan_id,provisioner_id,host_id,owner_"
-                "id,generation,"
-                "authorization_revision,status,client_request_id,request_hash,created_at,"
-                "lease_expires_at) "
-                "VALUES(?,?,?,?,?,?,?,'claimed',?,?,?,?)",
-                (
-                    claim_id,
-                    str(value.plan_id),
-                    credential["id"],
-                    credential["host_id"],
-                    str(value.owner_id),
-                    generation,
-                    auth["revision"],
-                    str(value.client_request_id),
-                    payload_hash,
-                    now,
-                    now + self.LEASE_SECONDS,
-                ),
-            )
-            self._event(
-                connection, claim_id, "claimed", now, value.client_request_id, actor="provisioner"
-            )
-            return self._claim_view(connection, _row(connection, "provisioning_claims", claim_id))
+                "SELECT generation FROM provisioning_hosts WHERE host_id=?",
+                (credential["host_id"],),
+            ).get
+            + 1
+        )
+        if generation > MAX_GENERATION:
+            raise ProvisioningError("provisioning_generation_exhausted")
+        connection.execute(
+            "UPDATE provisioning_hosts SET generation=? WHERE host_id=?",
+            (generation, credential["host_id"]),
+        )
+        claim_id = str(uuid4())
+        connection.execute(
+            "INSERT INTO provisioning_claims(id,plan_id,provisioner_id,host_id,owner_"
+            "id,generation,"
+            "authorization_revision,status,client_request_id,request_hash,created_at,"
+            "lease_expires_at,safety_generation) "
+            "VALUES(?,?,?,?,?,?,?,'claimed',?,?,?,?,?)",
+            (
+                claim_id,
+                str(value.plan_id),
+                credential["id"],
+                credential["host_id"],
+                str(value.owner_id),
+                generation,
+                auth["revision"],
+                str(value.client_request_id),
+                payload_hash,
+                now,
+                now + self.LEASE_SECONDS,
+                safety.generation,
+            ),
+        )
+        self._event(
+            connection, claim_id, "claimed", now, value.client_request_id, actor="provisioner"
+        )
+        return self._claim_view(connection, _row(connection, "provisioning_claims", claim_id))
 
     def assert_current(self, token: str, value: ClaimBinding | dict):
         value = ClaimBinding.model_validate(value)
@@ -932,100 +1012,103 @@ class ProvisioningService:
 
     def begin_dispatch(self, token: str, value: BeginDispatchInput | dict):
         value = BeginDispatchInput.model_validate(value)
-        now = self._now()
-        with self.database.transaction() as connection:
-            credential = self._authenticate(connection, token, online=True)
-            claim = _row(connection, "provisioning_claims", value.claim_id)
-            if (
-                claim["provisioner_id"] != credential["id"]
-                or claim["owner_id"] != str(value.owner_id)
-                or claim["generation"] != value.generation
-            ):
-                raise ProvisioningError("provisioning_claim_fenced")
-            payload_hash = _digest(value.model_dump(mode="json"))
-            prior = connection.execute(
-                "SELECT effect_request_id,request_hash FROM provisioning_effects WHERE "
-                "effect_request_id=?",
-                (str(value.client_request_id),),
-            ).fetchone()
-            if prior:
-                if prior[1] != payload_hash:
-                    raise ProvisioningError("provisioning_request_conflict")
-                return self._dispatch_view(
-                    connection,
-                    claim,
-                    _row(connection, "provisioning_effects", prior[0]),
-                    cached=True,
-                )
-            claim, plan, auth = self._bound(connection, token, value, capable=True)
-            previous = connection.execute(
-                "SELECT ordinal,status FROM provisioning_effects WHERE claim_id=? ORDER "
-                "BY ordinal DESC LIMIT 1",
-                (claim["id"],),
-            ).fetchone()
-            ordinal = 1 if previous is None else previous[0] + 1
-            if (
-                ordinal > len(OPERATIONS)
-                or OPERATIONS[ordinal - 1] != value.operation
-                or (previous and previous[1] != "confirmed")
-            ):
-                raise ProvisioningError("provisioning_operation_conflict")
-            if ordinal == 1:
-                if auth["consumed_claim_id"] is not None:
-                    raise ProvisioningError("provisioning_authorization_changed")
-                connection.execute(
-                    "UPDATE provisioning_authorizations SET "
-                    "consumed_claim_id=?,revision=revision+1 WHERE plan_id=?",
-                    (claim["id"], plan["id"]),
-                )
-                connection.execute(
-                    "UPDATE host_jobs SET status='dispatch_started',owner_id=?,dispatched_at="
-                    "?,revision=revision+1,updated_at=? WHERE id=? AND status='awaiting_host'",
-                    (claim["owner_id"], _iso(now), _iso(now), plan["job_id"]),
-                )
-                if connection.changes() != 1:
-                    raise ProvisioningError("provisioning_environment_changed")
-                connection.execute(
-                    "UPDATE environments SET "
-                    "status='provisioning',reason_code='hardware_provisioning',revision=revis"
-                    "ion+1,updated_at=? WHERE id=? AND status='awaiting_host'",
-                    (_iso(now), plan["environment_id"]),
-                )
-                if connection.changes() != 1:
-                    raise ProvisioningError("provisioning_environment_changed")
-                connection.execute(
-                    "UPDATE provisioning_claims SET "
-                    "status='dispatch_started',revision=revision+1 WHERE id=?",
-                    (claim["id"],),
-                )
-            connection.execute(
-                "INSERT INTO provisioning_effects(effect_request_id,claim_id,ordinal,oper"
-                "ation,status,request_hash,created_at) "
-                "VALUES(?,?,?,?,'dispatch_started',?,?)",
-                (
-                    str(value.client_request_id),
-                    claim["id"],
-                    ordinal,
-                    value.operation,
-                    payload_hash,
-                    now,
-                ),
-            )
-            self._event(
-                connection,
-                claim["id"],
-                "dispatch_started",
-                now,
-                value.client_request_id,
-                actor="provisioner",
-                payload={"operation_name": value.operation, "ordinal": ordinal},
-            )
+        return self._with_rejection(token, value, "begin_dispatch", self._begin_dispatch)
+
+    def _begin_dispatch(self, connection, token, value, now):
+        credential = self._authenticate(connection, token, online=True)
+        claim = _row(connection, "provisioning_claims", value.claim_id)
+        if (
+            claim["provisioner_id"] != credential["id"]
+            or claim["owner_id"] != str(value.owner_id)
+            or claim["generation"] != value.generation
+        ):
+            raise ProvisioningError("provisioning_claim_fenced")
+        payload_hash = _digest(value.model_dump(mode="json"))
+        prior = connection.execute(
+            "SELECT effect_request_id,request_hash FROM provisioning_effects WHERE "
+            "effect_request_id=?",
+            (str(value.client_request_id),),
+        ).fetchone()
+        if prior:
+            if prior[1] != payload_hash:
+                raise ProvisioningError("provisioning_request_conflict")
             return self._dispatch_view(
                 connection,
-                _row(connection, "provisioning_claims", claim["id"]),
-                _row(connection, "provisioning_effects", value.client_request_id),
-                cached=False,
+                claim,
+                _row(connection, "provisioning_effects", prior[0]),
+                cached=True,
             )
+        # Parada global bloqueia efeito novo; replay acima é só leitura.
+        self._running(connection, claim)
+        claim, plan, auth = self._bound(connection, token, value, capable=True)
+        previous = connection.execute(
+            "SELECT ordinal,status FROM provisioning_effects WHERE claim_id=? ORDER "
+            "BY ordinal DESC LIMIT 1",
+            (claim["id"],),
+        ).fetchone()
+        ordinal = 1 if previous is None else previous[0] + 1
+        if (
+            ordinal > len(OPERATIONS)
+            or OPERATIONS[ordinal - 1] != value.operation
+            or (previous and previous[1] != "confirmed")
+        ):
+            raise ProvisioningError("provisioning_operation_conflict")
+        if ordinal == 1:
+            if auth["consumed_claim_id"] is not None:
+                raise ProvisioningError("provisioning_authorization_changed")
+            connection.execute(
+                "UPDATE provisioning_authorizations SET "
+                "consumed_claim_id=?,revision=revision+1 WHERE plan_id=?",
+                (claim["id"], plan["id"]),
+            )
+            connection.execute(
+                "UPDATE host_jobs SET status='dispatch_started',owner_id=?,dispatched_at="
+                "?,revision=revision+1,updated_at=? WHERE id=? AND status='awaiting_host'",
+                (claim["owner_id"], _iso(now), _iso(now), plan["job_id"]),
+            )
+            if connection.changes() != 1:
+                raise ProvisioningError("provisioning_environment_changed")
+            connection.execute(
+                "UPDATE environments SET "
+                "status='provisioning',reason_code='hardware_provisioning',revision=revis"
+                "ion+1,updated_at=? WHERE id=? AND status='awaiting_host'",
+                (_iso(now), plan["environment_id"]),
+            )
+            if connection.changes() != 1:
+                raise ProvisioningError("provisioning_environment_changed")
+            connection.execute(
+                "UPDATE provisioning_claims SET "
+                "status='dispatch_started',revision=revision+1 WHERE id=?",
+                (claim["id"],),
+            )
+        connection.execute(
+            "INSERT INTO provisioning_effects(effect_request_id,claim_id,ordinal,oper"
+            "ation,status,request_hash,created_at) "
+            "VALUES(?,?,?,?,'dispatch_started',?,?)",
+            (
+                str(value.client_request_id),
+                claim["id"],
+                ordinal,
+                value.operation,
+                payload_hash,
+                now,
+            ),
+        )
+        self._event(
+            connection,
+            claim["id"],
+            "dispatch_started",
+            now,
+            value.client_request_id,
+            actor="provisioner",
+            payload={"operation_name": value.operation, "ordinal": ordinal},
+        )
+        return self._dispatch_view(
+            connection,
+            _row(connection, "provisioning_claims", claim["id"]),
+            _row(connection, "provisioning_effects", value.client_request_id),
+            cached=False,
+        )
 
     def _receipt_result(self, connection, claim, effect, plan, result):
         output = result.model_dump(mode="json", exclude_none=True)

@@ -21,6 +21,7 @@ from pydantic import Field, SecretStr, ValidationError
 
 from bees_host.provisioning.contracts import (
     OPERATIONS,
+    AuthorityRejectedBeforeEffect,
     Claim,
     Closed,
     DispatchPermit,
@@ -33,6 +34,27 @@ from bees_host.provisioning.contracts import (
 ROOT = "/api/v1/provisioner/runtime"
 MAX_BYTES = 16384
 REQUEST_BUDGET = 5.0
+# Prazo de conexão/leitura/escrita por fase, dentro do orçamento total do request.
+PHASE_TIMEOUT = 2.0
+# Somente o core que persistiu a recusa antes do efeito emite este envelope.
+REJECTION_CODES = frozenset(
+    {
+        "provisioning_global_stop",
+        "provisioning_authorization_changed",
+        "provisioning_plan_changed",
+        "provisioning_claim_fenced",
+        "provisioning_agent_inactive",
+        "provisioning_catalog_changed",
+        "provisioning_driver_unavailable",
+        "provisioning_environment_changed",
+        "provisioning_host_changed",
+        "provisioning_host_offline",
+        "provisioning_host_quarantined",
+        "provisioning_installation_changed",
+        "provisioning_operation_conflict",
+        "provisioning_generation_exhausted",
+    }
+)
 _TRANSITIONS = {
     "claimed": {"claimed", "dispatch_started", "aborted", "outcome_unknown"},
     "dispatch_started": {"dispatch_started", "confirmed", "outcome_unknown"},
@@ -143,10 +165,12 @@ class HTTPAuthority:
         self._generation = 0
         self._claims: dict[UUID, Claim] = {}
         self._effects: dict[UUID, tuple[UUID, Operation]] = {}
+        self._rejected_requests: set[tuple[str, str]] = set()
         self._lock = threading.RLock()
         self._dial_origin = dial_origin
         self._authority = authority
         self._transport = transport
+        self._tls = None
         self._closed = False
 
     def __enter__(self):
@@ -170,13 +194,19 @@ class HTTPAuthority:
         if payload is not None:
             headers["Content-Type"] = "application/json"
         extensions = {"sni_hostname": urlsplit(self.origin).hostname}
+        if self._tls is None:
+            # Mesma validação padrão do httpx sem ambiente (certifi, hostname, CERT_REQUIRED).
+            # Recriar o contexto a cada request custava ~150 ms de CPU dentro do orçamento,
+            # com picos acima dos prazos sob carga; o cliente continua sendo por request.
+            self._tls = httpx.create_ssl_context(trust_env=False)
         async with (
             asyncio.timeout(REQUEST_BUDGET),
             httpx.AsyncClient(
                 base_url=self._dial_origin,
-                timeout=httpx.Timeout(2.0, connect=2.0),
+                timeout=httpx.Timeout(PHASE_TIMEOUT, connect=PHASE_TIMEOUT),
                 follow_redirects=False,
                 trust_env=False,
+                verify=self._tls,
                 transport=self._transport,
             ) as client,
         ):
@@ -189,11 +219,12 @@ class HTTPAuthority:
             ) as response:
                 if response.status_code == 401:
                     raise ProvisionError("provision_credentials_invalid")
-                if response.status_code in {403, 409}:
+                closed_rejection = response.status_code == 409 and path in {"/claim", "/begin"}
+                if response.status_code in {403, 409} and not closed_rejection:
                     raise ProvisionError("provision_authority_rejected")
                 if response.status_code == 429 or response.status_code >= 500:
                     raise ProvisionError("provision_connection_unavailable")
-                if response.status_code != 200:
+                if response.status_code != 200 and not closed_rejection:
                     raise ProvisionError("provision_protocol_invalid")
                 content_types = response.headers.get_list("content-type")
                 encodings = response.headers.get_list("content-encoding")
@@ -216,7 +247,7 @@ class HTTPAuthority:
                         raise ProvisionError("provision_protocol_invalid")
                 if lengths and len(body) != int(lengths[0]):
                     raise ProvisionError("provision_protocol_invalid")
-                return body
+                return response.status_code, body
 
     def _request(self, path: str, model, payload=None):
         if self._closed:
@@ -229,10 +260,31 @@ class HTTPAuthority:
             raise ProvisionError("provision_async_context_unsupported")
         started = time.monotonic()
         try:
-            body = asyncio.run(self._exchange(path, payload))
+            request_key = (
+                (path, payload["client_request_id"]) if path in {"/claim", "/begin"} else None
+            )
+            if request_key in self._rejected_requests:
+                raise ProvisionError("provision_dispatch_replay_refused")
+            status, body = asyncio.run(self._exchange(path, payload))
             data = json.loads(
                 body.decode("utf-8"), object_pairs_hook=_pairs, parse_constant=_constant
             )
+            if status == 409:
+                if time.monotonic() - started >= REQUEST_BUDGET:
+                    raise ProvisionError("provision_connection_unavailable")
+                error = data.get("error") if type(data) is dict else None
+                if (
+                    set(data) == {"error"}
+                    and type(error) is dict
+                    and set(error) == {"code", "dispatch_allowed", "cached"}
+                    and type(error["code"]) is str
+                    and error["code"] in REJECTION_CODES
+                    and error["dispatch_allowed"] is False
+                    and error["cached"] is False
+                ):
+                    self._rejected_requests.add(request_key)
+                    raise AuthorityRejectedBeforeEffect("provision_authority_stopped")
+                raise ProvisionError("provision_authority_rejected")
             result = model.model_validate_json(
                 json.dumps(data, ensure_ascii=False, allow_nan=False)
             )

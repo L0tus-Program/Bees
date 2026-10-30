@@ -6,6 +6,13 @@ from uuid import UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from bees_core.artifacts import ArtifactStore
+from bees_core.attachments import (
+    AttachmentConsent,
+    AttachmentRef,
+    prepare_attachments,
+    validate_selection,
+)
 from bees_core.models import Message
 from bees_core.policies import PolicyService
 from bees_core.providers.contracts import ChatMessage, ChatResponse, ToolDefinition, validate_calls
@@ -54,10 +61,11 @@ CREATE_TEXT_TASK = ToolDefinition(
 class ConversationDelegationService:
     MAX_PENDING = 5
 
-    def __init__(self, provider: ProviderService):
+    def __init__(self, provider: ProviderService, artifacts: ArtifactStore | None = None):
         self.provider = provider
         self.store: StateStore = provider.store
         self.tasks = TaskService(self.store.database)
+        self.artifacts = artifacts
 
     def list(self, agent_id: UUID, conversation_id: UUID, *, limit=100, offset=0):
         with self.store.transaction(write=False) as unit:
@@ -75,7 +83,8 @@ class ConversationDelegationService:
         entries = []
         remaining = 6000
         for task in unit.tasks.delegations(agent_id, conversation_id, limit=100):
-            if task.status != "completed":
+            if task.status != "completed" or "agent_chat" in task.metadata:
+                # Resultado do agente já entra no histórico do chat como resposta.
                 continue
             run = unit.runs.latest(task.id)
             if run is None:
@@ -133,19 +142,38 @@ class ConversationDelegationService:
         content: str,
         *,
         allow_delegation: bool = False,
+        allow_routine_proposal: bool = False,
         client_request_id: UUID | None = None,
+        attachments: list[AttachmentRef] | None = None,
+        attachment_consent: AttachmentConsent | None = None,
     ) -> tuple[ChatResponse, list, list[dict]]:
-        if type(allow_delegation) is not bool:
+        if type(allow_delegation) is not bool or type(allow_routine_proposal) is not bool:
+            raise ProviderError("invalid_request")
+        attachments = attachments or []
+        validate_selection(attachments, attachment_consent)
+        if (attachments or allow_routine_proposal) and (
+            client_request_id is None or client_request_id.version != 4
+        ):
             raise ProviderError("invalid_request")
         request_id = client_request_id or uuid4()
+        hash_inputs = {"agent_id": str(agent_id), "content": content, "allow": allow_delegation}
+        if allow_routine_proposal:
+            hash_inputs["routine_proposal"] = True
+        if attachments:
+            hash_inputs |= {
+                "attachments": [ref.model_dump(mode="json") for ref in attachments],
+                "attachment_consent": attachment_consent.model_dump(mode="json"),
+            }
         request_hash = hashlib.sha256(
             json.dumps(
-                {"agent_id": str(agent_id), "content": content, "allow": allow_delegation},
+                hash_inputs,
                 sort_keys=True,
                 ensure_ascii=False,
             ).encode()
         ).hexdigest()
         binding = {"id": str(request_id), "hash": request_hash, "allow": allow_delegation}
+        if allow_routine_proposal:
+            binding["routine_proposal"] = True
         with self.store.transaction(write=False) as unit:
             agent = self.provider._agent(unit, agent_id)
             conversation = self.provider._conversation(unit, agent, conversation_id)
@@ -169,6 +197,28 @@ class ConversationDelegationService:
             config = self.provider._validated_config(agent.provider_config)
             enabled = allow_delegation and config.capabilities.tool_calls
             context = self._result_context(unit, agent.id, conversation.id)
+
+        if allow_routine_proposal:
+            from bees_core.routine_proposals import PROPOSAL_INSTRUCTION
+
+            context.append(ChatMessage(role="system", content=PROPOSAL_INSTRUCTION))
+
+        attachment_views = []
+        if attachments:
+            if self.artifacts is None:
+                raise ProviderError("invalid_request")
+            if attachment_consent.expected_agent_revision != agent.revision:
+                raise ProviderError("state_conflict")
+            attachment_views, attachment_context = prepare_attachments(
+                self.artifacts, agent.id, conversation.id, attachments
+            )
+            context += attachment_context
+        input_metadata = {"chat_request": binding}
+        if attachment_views:
+            input_metadata |= {
+                "attachments": attachment_views,
+                "attachment_consent": attachment_consent.model_dump(mode="json"),
+            }
 
         delegated = []
         outcomes = []
@@ -275,7 +325,7 @@ class ConversationDelegationService:
             content,
             tools=[CREATE_TEXT_TASK] if enabled else [],
             response_handler=confirm,
-            input_metadata={"chat_request": binding},
+            input_metadata=input_metadata,
             context_messages=context,
         )
         return response, delegated, outcomes

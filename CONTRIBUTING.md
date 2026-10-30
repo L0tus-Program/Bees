@@ -19,10 +19,11 @@ Migrações exigem serviço quiescido e backup. Confira [persistência](docs/per
 
 ## Checkpoints e revisão
 
-- Escreva commits e descrições em português, com problema, comportamento resultante e validação. Relacione o ID de planejamento e a issue (`Refs #numero`); use `Closes #numero` somente quando o aceite completo estiver comprovado.
+- Escreva commits e descrições em português, com problema, comportamento resultante e validação. Relacione o ID de planejamento e a issue (`Refs #numero`); use `Closes #numero` somente depois da revisão e do aceite completo.
 - Salve um commit a cada checkpoint relevante e faça push normal da branch. Evite force-push e reescrita de histórico compartilhado.
-- Abra uma PR com o recorte, testes executados, evidências e limitações. Uma subtarefa pode terminar enquanto a história ampla permanece aberta.
-- Atualize checklists, evidências, dependências e estado no Project. Bloqueios precisam de motivo concreto e condição de desbloqueio. Não marque **Done** com base apenas em sucesso simulado.
+- Abra uma PR para a branch de integração `dev` com o recorte, testes executados, evidências e limitações. A PR é integrada na `dev` com merge commit; a `main` recebe a `dev` somente por decisão do mantenedor. Merge não conclui o aceite nem fecha a issue automaticamente. Uma subtarefa pode terminar enquanto a história ampla permanece aberta.
+- Ao terminar a implementação de uma issue, mova-a para **Review** e mantenha-a aberta para revisão. Se somente parte do escopo foi entregue, use **Entrega Parcial**, registrando o recorte comprovado e as pendências. **In Progress** identifica implementação ativa. **Done** e fechamento ficam para depois da revisão e do aceite completo; não decorrem automaticamente de commit, merge ou CI verde.
+- Atualize checklists, evidências, dependências e estado no Project. Bloqueios precisam de motivo concreto e condição de desbloqueio. Testes simulados não substituem aceites com ambientes ou modelos reais.
 - Não publique arquivos de execução, cofre, bootstrap, dumps, diretórios privados ou os documentos locais ignorados de planejamento. Issues e documentação versionada precisam ser suficientes para outro contribuidor entender o trabalho.
 
-A licença do projeto ainda precisa de decisão do mantenedor e revisão de dependências antes da primeira release. Essa pendência é acompanhada em BEES-026; não acrescente uma licença escolhida unilateralmente.
+A licença Apache-2.0 foi escolhida pelo mantenedor em 26/10/2026. Preserve LICENSE, NOTICE e os avisos de terceiros nos artefatos distribuídos; repita a revisão de dependências descrita em docs/licensing.md antes de cada release.

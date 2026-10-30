@@ -1,14 +1,38 @@
+import { routineResources } from './locales/routines'
+import { deliveryResources } from './locales/deliveries'
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { productResources } from './locales/product'
 import { beeResources } from './locales/bee'
 import { taskResources } from './locales/tasks'
+import { toolTaskResources } from './locales/toolTasks'
 import { policyResources } from './locales/policies'
 import { approvalResources } from './locales/approvals'
+import { resourceApprovalResources } from './locales/resourceApprovals'
 import { toolResources } from './locales/tools'
 import { environmentResources } from './locales/environments'
 import { provisioningResources } from './locales/provisioning'
 import { provisionerResources } from './locales/provisioners'
+import { budgetResources } from './locales/budgets'
+import { safetyResources } from './locales/safety'
+import { activityResources } from './locales/activity'
+import { attentionResources } from './locales/attention'
+import { skillResources } from './locales/skills'
+import { artifactResources } from './locales/artifacts'
+import { activationResources } from './locales/activation'
+import { recoveryResources } from './locales/recovery'
+import { restorationResources } from './locales/restoration'
+import { portabilityResources } from './locales/portability'
+import { agentResources } from './locales/agent'
+import { computerResources } from './locales/computer'
+import { localModelResources } from './locales/localModel'
+import { channelResources } from './locales/channels'
+import { mcpResources } from './locales/mcp'
+import { voiceResources } from './locales/voice'
+import { templateResources } from './locales/templates'
+import { hookResources } from './locales/hooks'
+import { healthResources } from './locales/health'
+import { dialogResources } from './locales/dialog'
 
 const ptBR = {
   language: 'Idioma',
@@ -122,7 +146,7 @@ function getSavedLanguage() {
 }
 
 void i18n.use(initReactI18next).init({
-  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'], policies: policyResources['pt-BR'], approvals: approvalResources['pt-BR'], tools: toolResources['pt-BR'], environments: environmentResources['pt-BR'], provisioning: provisioningResources['pt-BR'], provisioners: provisionerResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en, policies: policyResources.en, approvals: approvalResources.en, tools: toolResources.en, environments: environmentResources.en, provisioning: provisioningResources.en, provisioners: provisionerResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es, policies: policyResources.es, approvals: approvalResources.es, tools: toolResources.es, environments: environmentResources.es, provisioning: provisioningResources.es, provisioners: provisionerResources.es } },
+  resources: { 'pt-BR': { translation: ptBR, product: productResources['pt-BR'], bee: beeResources['pt-BR'], tasks: taskResources['pt-BR'], toolTasks: toolTaskResources['pt-BR'], policies: policyResources['pt-BR'], approvals: approvalResources['pt-BR'], resourceApprovals: resourceApprovalResources['pt-BR'], tools: toolResources['pt-BR'], environments: environmentResources['pt-BR'], provisioning: provisioningResources['pt-BR'], provisioners: provisionerResources['pt-BR'], budgets: budgetResources['pt-BR'], safety: safetyResources['pt-BR'], activity: activityResources['pt-BR'], attention: attentionResources['pt-BR'], routines: routineResources['pt-BR'], deliveries: deliveryResources['pt-BR'], skills: skillResources['pt-BR'], artifacts: artifactResources['pt-BR'], activation: activationResources['pt-BR'], recovery: recoveryResources['pt-BR'], restoration: restorationResources['pt-BR'], portability: portabilityResources['pt-BR'], agent: agentResources['pt-BR'], computer: computerResources['pt-BR'], localModel: localModelResources['pt-BR'], channels: channelResources['pt-BR'], mcp: mcpResources['pt-BR'], voice: voiceResources['pt-BR'], templates: templateResources['pt-BR'], hooks: hookResources['pt-BR'], health: healthResources['pt-BR'], dialog: dialogResources['pt-BR'] }, en: { translation: en, product: productResources.en, bee: beeResources.en, tasks: taskResources.en, toolTasks: toolTaskResources.en, policies: policyResources.en, approvals: approvalResources.en, resourceApprovals: resourceApprovalResources.en, tools: toolResources.en, environments: environmentResources.en, provisioning: provisioningResources.en, provisioners: provisionerResources.en, budgets: budgetResources.en, safety: safetyResources.en, activity: activityResources.en, attention: attentionResources.en, routines: routineResources.en, deliveries: deliveryResources.en, skills: skillResources.en, artifacts: artifactResources.en, activation: activationResources.en, recovery: recoveryResources.en, restoration: restorationResources.en, portability: portabilityResources.en, agent: agentResources.en, computer: computerResources.en, localModel: localModelResources.en, channels: channelResources.en, mcp: mcpResources.en, voice: voiceResources.en, templates: templateResources.en, hooks: hookResources.en, health: healthResources.en, dialog: dialogResources.en }, es: { translation: es, product: productResources.es, bee: beeResources.es, tasks: taskResources.es, toolTasks: toolTaskResources.es, policies: policyResources.es, approvals: approvalResources.es, resourceApprovals: resourceApprovalResources.es, tools: toolResources.es, environments: environmentResources.es, provisioning: provisioningResources.es, provisioners: provisionerResources.es, budgets: budgetResources.es, safety: safetyResources.es, activity: activityResources.es, attention: attentionResources.es, routines: routineResources.es, deliveries: deliveryResources.es, skills: skillResources.es, artifacts: artifactResources.es, activation: activationResources.es, recovery: recoveryResources.es, restoration: restorationResources.es, portability: portabilityResources.es, agent: agentResources.es, computer: computerResources.es, localModel: localModelResources.es, channels: channelResources.es, mcp: mcpResources.es, voice: voiceResources.es, templates: templateResources.es, hooks: hookResources.es, health: healthResources.es, dialog: dialogResources.es } },
   lng: getSavedLanguage(),
   fallbackLng: 'pt-BR',
   supportedLngs: ['pt-BR', 'en', 'es'],

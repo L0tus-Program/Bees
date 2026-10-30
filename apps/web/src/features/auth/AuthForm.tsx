@@ -13,6 +13,8 @@ export function AuthForm({ configured, onAuthenticated }: { configured: boolean;
   const [automaticAuthorization, setAutomaticAuthorization] = useState(() => !configured && setupAuthorization.available())
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [recovering, setRecovering] = useState(false)
+  const [recoveryToken, setRecoveryToken] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
   const controller = useRef<AbortController | null>(null)
@@ -22,19 +24,21 @@ export function AuthForm({ configured, onAuthenticated }: { configured: boolean;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    if (!configured && password !== confirmation) { setError(new ApiError('password_mismatch')); return }
+    const creating = !configured || recovering
+    if (creating && password !== confirmation) { setError(new ApiError('password_mismatch')); return }
     const setupToken = setupAuthorization.forSetup(configured, bootstrap)
     if (!configured && !setupToken) { setError(new ApiError('bootstrap_missing')); return }
     setBusy(true); setError(null)
     controller.current = new AbortController()
     try {
-      await authenticate(configured ? { password } : { bootstrap_token: setupToken!, name: name.trim(), password }, controller.current.signal)
+      await authenticate(recovering ? { recovery_token: recoveryToken.trim(), password } : configured ? { password } : { bootstrap_token: setupToken!, name: name.trim(), password }, controller.current.signal)
       setupAuthorization.clear(); setAutomaticAuthorization(false)
-      setPassword(''); setConfirmation(''); setBootstrap('')
+      setPassword(''); setConfirmation(''); setBootstrap(''); setRecoveryToken(''); setRecovering(false)
       onAuthenticated()
     } catch (failure) {
       if (!controller.current.signal.aborted) {
         const apiError = asApiError(failure)
+        if (recovering && apiError.code === 'bootstrap_invalid') { setRecoveryToken(''); setError(new ApiError('recovery_invalid')); return }
         if (['bootstrap_invalid', 'already_configured'].includes(apiError.code)) {
           setupAuthorization.clear(); setAutomaticAuthorization(false); setBootstrap('')
         }
@@ -54,8 +58,8 @@ export function AuthForm({ configured, onAuthenticated }: { configured: boolean;
       </div>
       <form className="surface auth-form" onSubmit={(event) => { void submit(event) }}>
         <p className="section-label">{t(configured ? 'welcomeBack' : 'firstAccess')}</p>
-        <h2>{t(configured ? 'loginTitle' : 'setupTitle')}</h2>
-        <p className="form-introduction">{t(configured ? 'loginDescription' : 'bootstrapDescription')}</p>
+        <h2>{t(recovering ? 'recoverTitle' : configured ? 'loginTitle' : 'setupTitle')}</h2>
+        <p className="form-introduction">{t(recovering ? 'recoverDescription' : configured ? 'loginDescription' : 'bootstrapDescription')}</p>
         {error && <><ErrorNotice error={error} />{['mutation_timeout', 'mutation_network', 'already_configured'].includes(error.code) && <button type="button" className="text-button" onClick={onAuthenticated}>{t('refreshState')}</button>}</>}
         <fieldset disabled={busy}>
           {!configured && <>
@@ -65,9 +69,11 @@ export function AuthForm({ configured, onAuthenticated }: { configured: boolean;
             </>}
             <label className="field" htmlFor="user-name"><span>{t('yourName')}</span><input id="user-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} /></label>
           </>}
-          <label className="field" htmlFor="password"><span>{t('password')}</span><input id="password" type="password" autoComplete={configured ? 'current-password' : 'new-password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={configured ? undefined : 12} maxLength={256} aria-describedby={!configured ? 'password-help' : undefined} />{!configured && <small id="password-help">{t('passwordHelp')}</small>}</label>
-          {!configured && <label className="field" htmlFor="confirm-password"><span>{t('confirmPassword')}</span><input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>}
-          <button className="button primary wide" type="submit" disabled={!configured && !canSetup}>{t(busy ? 'working' : configured ? 'signIn' : 'createAccount')}</button>
+          {recovering && <label className="field" htmlFor="recovery-token"><span>{t('recoveryCode')}</span><input id="recovery-token" type="password" autoComplete="off" value={recoveryToken} onChange={(event) => setRecoveryToken(event.target.value)} required minLength={43} maxLength={43} /></label>}
+          <label className="field" htmlFor="password"><span>{t(recovering ? 'newPassword' : 'password')}</span><input id="password" type="password" autoComplete={configured && !recovering ? 'current-password' : 'new-password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={configured && !recovering ? undefined : 12} maxLength={256} aria-describedby={!configured || recovering ? 'password-help' : undefined} />{(!configured || recovering) && <small id="password-help">{t('passwordHelp')}</small>}</label>
+          {(!configured || recovering) && <label className="field" htmlFor="confirm-password"><span>{t('confirmPassword')}</span><input id="confirm-password" type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required maxLength={256} /></label>}
+          <button className="button primary wide" type="submit" disabled={(!configured && !canSetup) || (recovering && recoveryToken.trim().length !== 43)}>{t(busy ? 'working' : recovering ? 'recoverSubmit' : configured ? 'signIn' : 'createAccount')}</button>
+          {configured && <button type="button" className="text-button" onClick={() => { setRecovering(!recovering); setError(null); setPassword(''); setConfirmation(''); setRecoveryToken('') }}>{t(recovering ? 'backToLogin' : 'forgotPassword')}</button>}
         </fieldset>
         <p className="quiet-note">{t('sessionPrivacy')}</p>
       </form>

@@ -1,8 +1,10 @@
 """API inicial e distribuição opcional do frontend na mesma origem."""
 
+import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import PurePosixPath
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,33 +16,63 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from bees_api import __version__
+from bees_api.activation import router as activation_router
+from bees_api.activity import router as activity_router
+from bees_api.agent import approvals as agent_approvals_router
+from bees_api.agent import router as agent_router
 from bees_api.approvals import router as approvals_router
+from bees_api.artifacts import router as artifacts_router
+from bees_api.attention import router as attention_router
 from bees_api.auth import install_auth
+from bees_api.budgets import router as budgets_router
+from bees_api.channels import router as channels_router
 from bees_api.config import Settings
 from bees_api.configuration import router as configuration_router
 from bees_api.delegation import router as delegation_router
+from bees_api.delivery_history import router as delivery_history_router
 from bees_api.environments import router as environments_router
+from bees_api.executors import router as executors_router
+from bees_api.global_stop import router as global_stop_router
 from bees_api.host_links import router as host_links_router
+from bees_api.local_models import router as local_models_router
 from bees_api.managed_key import managed_vault_key, prepare_managed_directories
+from bees_api.mcp import router as mcp_router
 from bees_api.onboarding import Receipts
 from bees_api.onboarding import router as onboarding_router
 from bees_api.policies import router as policies_router
+from bees_api.portability import router as portability_router
 from bees_api.profiles import router as profiles_router
 from bees_api.provisioner_runtime import router as provisioner_runtime_router
 from bees_api.provisioners import router as provisioners_router
 from bees_api.provisioning import router as provisioning_router
+from bees_api.resource_tools import router as resource_tools_router
+from bees_api.restoration import router as restoration_router
+from bees_api.routine_hooks import public as hooks_public_router
+from bees_api.routine_hooks import router as routine_hooks_router
+from bees_api.routines import router as routines_router
 from bees_api.runtime import validate_sqlite_runtime
 from bees_api.safety import RequestSafetyMiddleware
+from bees_api.skills import router as skills_router
 from bees_api.tasks import router as tasks_router
 from bees_api.tools import router as tools_router
+from bees_api.views import ViewHub
+from bees_api.views import router as views_router
 from bees_core.approvals import ApprovalError
+from bees_core.artifacts import ArtifactError, ArtifactStore
+from bees_core.channels.adapters import ChannelError
+from bees_core.channels.service import ChannelServiceError
 from bees_core.environments import EnvironmentError
+from bees_core.executors import ExecutorError
+from bees_core.mcp import McpError
 from bees_core.policies import PolicyError
+from bees_core.portability import ExportService
 from bees_core.providers.errors import ProviderError
+from bees_core.providers.local_models import LocalModelError, LocalModelManager
 from bees_core.providers.secrets import build_secret_resolver
 from bees_core.providers.service import ProviderService
 from bees_core.providers.vault import FernetBackend, FileSecretVault
-from bees_core.provisioning import ProvisioningError
+from bees_core.provisioning import ProvisioningError, ProvisioningRejected
+from bees_core.restoration import RestoreService
 from bees_core.security.hosts import HostLinkError
 from bees_core.security.identity import IdentityService
 from bees_core.storage.database import Database
@@ -65,6 +97,10 @@ class StorageStatus(BaseModel):
 def is_api_path(path: str) -> bool:
     normalized = path.replace("\\", "/")
     return normalized == "api" or normalized.startswith("api/")
+
+
+# Manifesto do app instalável (PWA) com o tipo correto mesmo sem /etc/mime.types.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 
 class SPAStaticFiles(StaticFiles):
@@ -108,9 +144,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.resolver = build_secret_resolver(application.state.vault)
         application.state.providers = ProviderService(database, application.state.resolver)
         application.state.receipts = Receipts()
+        application.state.settings = config
+        application.state.view_hub = ViewHub()
+        application.state.local_models = LocalModelManager()
+        application.state.artifacts = ArtifactStore(database, config.data_dir / "artifacts")
+        application.state.artifact_upload_slots = BoundedSemaphore(2)
+        application.state.restoration = (
+            RestoreService(
+                ExportService(database, application.state.artifacts, config.data_dir / "exports"),
+                config.restoration_destinations,
+            )
+            if config.restoration_destinations
+            else None
+        )
+        application.state.restoration_upload_slots = BoundedSemaphore(1)
         try:
             yield
         finally:
+            await application.state.local_models.close()
             del application.state.store
             del application.state.database
             del application.state.identity
@@ -118,6 +169,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             del application.state.resolver
             del application.state.providers
             del application.state.receipts
+            del application.state.artifacts
+            del application.state.artifact_upload_slots
+            del application.state.restoration
+            del application.state.restoration_upload_slots
 
     app = FastAPI(title="Bees API", version=__version__, lifespan=lifespan)
     install_auth(
@@ -125,16 +180,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allowed_origins=config.allowed_origins,
         secure_cookie=config.secure_cookie,
         health_authorities=(f"127.0.0.1:{config.port}", f"localhost:{config.port}"),
+        executor_authorities=tuple(
+            f"{host}:{config.port}".lower() for host in config.executor_hosts
+        )
+        + (f"127.0.0.1:{config.port}", f"localhost:{config.port}"),
     )
     app.add_middleware(RequestSafetyMiddleware)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.allowed_hosts)
+    app.include_router(activation_router)
     app.include_router(onboarding_router)
     app.include_router(configuration_router)
     app.include_router(profiles_router)
     app.include_router(tasks_router)
+    app.include_router(agent_router)
+    app.include_router(agent_approvals_router)
+    app.include_router(executors_router)
+    app.include_router(local_models_router)
+    app.include_router(channels_router)
+    app.include_router(mcp_router)
+    app.include_router(views_router)
+    app.include_router(activity_router)
+    app.include_router(artifacts_router)
+    app.include_router(attention_router)
+    app.include_router(routines_router)
+    app.include_router(routine_hooks_router)
+    app.include_router(hooks_public_router)
+    app.include_router(portability_router)
+    app.include_router(delivery_history_router)
+    app.include_router(skills_router)
+    app.include_router(restoration_router)
+    app.include_router(budgets_router)
+    app.include_router(global_stop_router)
     app.include_router(delegation_router)
     app.include_router(policies_router)
     app.include_router(approvals_router)
+    app.include_router(resource_tools_router)
     app.include_router(tools_router)
     app.include_router(environments_router)
     app.include_router(host_links_router)
@@ -177,7 +257,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "invalid_secret_reference",
             )
             else 409
-            if error.code in ("state_conflict", "chat_outcome_unknown", "policy_approval_required")
+            if error.code
+            in (
+                "state_conflict",
+                "chat_outcome_unknown",
+                "policy_approval_required",
+                "budget_exhausted",
+                "global_stop",
+            )
             else 403
             if error.code == "policy_denied"
             else 502
@@ -201,6 +288,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": code, "message": "Registro ausente ou alterado; atualize a tela."}},
             status_code=status,
+        )
+
+    @app.exception_handler(ArtifactError)
+    async def artifact_error(request: Request, error: ArtifactError) -> JSONResponse:
+        # Armazenamento indisponível é temporário; estado/integridade exigem atenção.
+        unavailable = error.code == "artifact_storage_unavailable"
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Artefato indisponível no momento."}},
+            status_code=503 if unavailable else 409,
         )
 
     @app.exception_handler(TaskError)
@@ -227,6 +323,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"error": {"code": error.code, "message": "Atualize a decisão e confira seu escopo."}},
             status_code=422 if error.code == "invalid_approval" else 409,
+        )
+
+    @app.exception_handler(ExecutorError)
+    async def executor_error(request: Request, error: ExecutorError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Confira o executor e atualize a tela."}},
+            status_code=401
+            if error.code in ("executor_invite_invalid", "executor_credentials_invalid")
+            else 409,
+        )
+
+    @app.exception_handler(ChannelError)
+    @app.exception_handler(ChannelServiceError)
+    async def channel_error(request: Request, error: Exception) -> JSONResponse:
+        code = getattr(error, "code", "channel_invalid_response")
+        return JSONResponse(
+            {"error": {"code": code, "message": "Confira o token, o canal e tente de novo."}},
+            status_code=422
+            if code in ("channel_token_invalid", "channel_target_invalid")
+            else 502
+            if code in ("channel_unreachable", "channel_invalid_response")
+            else 409,
+        )
+
+    @app.exception_handler(McpError)
+    async def mcp_error(request: Request, error: McpError) -> JSONResponse:
+        return JSONResponse(
+            {
+                "error": {
+                    "code": error.code,
+                    "message": "Confira o endereço e a credencial do servidor MCP.",
+                }
+            },
+            status_code={
+                "mcp_auth_failed": 422,
+                "mcp_unreachable": 502,
+                "mcp_protocol_error": 502,
+            }.get(error.code, 409),
+        )
+
+    @app.exception_handler(LocalModelError)
+    async def local_model_error(request: Request, error: LocalModelError) -> JSONResponse:
+        return JSONResponse(
+            {"error": {"code": error.code, "message": "Confira o backend local e tente de novo."}},
+            status_code={
+                "backend_unavailable": 503,
+                "invalid_model": 422,
+                "pull_not_found": 404,
+                "model_not_found": 404,
+            }.get(error.code, 409),
         )
 
     @app.exception_handler(ToolError)
@@ -269,6 +415,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(ProvisioningError)
     async def provisioning_error(request: Request, error: ProvisioningError) -> JSONResponse:
+        if isinstance(error, ProvisioningRejected):
+            return JSONResponse(
+                {"error": {"code": error.code, "dispatch_allowed": False, "cached": error.cached}},
+                status_code=409,
+            )
         return JSONResponse(
             {
                 "error": {

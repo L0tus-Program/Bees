@@ -1,6 +1,7 @@
 import type { PolicyCollection, PolicyRecord, PolicyScope } from '../../api/policies'
 import type { ModelConfig } from '../../api/onboarding'
 import { record } from '../../api/client'
+import { count, exact, uuid } from '../../api/activity'
 
 export function generationScope(config: ModelConfig | null, connectionOnly: boolean): PolicyScope {
   const scope: PolicyScope = { tool_name: 'model', action: 'generate', environment_id: 'control_plane' }
@@ -21,6 +22,19 @@ export function editableGenerationPolicy(policy: PolicyRecord, agentId: string):
     && (scope.parameters === undefined || (record(scope.parameters) && (Object.keys(scope.parameters).length === 0 || (Object.keys(scope.parameters).length === 1 && typeof scope.parameters.model === 'string' && scope.parameters.model.length > 0))))
 }
 export function revocablePolicy(policy: PolicyRecord, agentId: string) { return policy.agent_id === agentId && policy.status === 'active' }
+export function editableResourcePolicy(policy: PolicyRecord, agentId: string): policy is PolicyRecord & { scope: PolicyScope } {
+  const scope = policy.scope
+  if (policy.agent_id !== agentId || !exact(scope, ['tool_name', 'action', 'environment_id', 'resource', 'identity', 'parameters'])
+    || scope.tool_name !== 'text.normalize' || scope.action !== 'transform_resource' || scope.identity !== 'bees_user'
+    || !uuid(scope.environment_id) || scope.environment_id === '00000000-0000-0000-0000-000000000000' || scope.resource !== `resource:${scope.environment_id}`
+    || !exact(scope.parameters, ['operation', 'input_hash', 'installation_id', 'plugin_id', 'plugin_revision', 'manifest_hash', 'grant_id', 'grant_revision', 'agent_revision', 'tool_version'])) return false
+  const parameters = scope.parameters
+  return ['trim', 'upper', 'lower'].includes(String(parameters.operation)) && parameters.tool_version === '1'
+    && ['input_hash', 'manifest_hash'].every((key) => typeof parameters[key] === 'string' && /^[0-9a-f]{64}$/.test(parameters[key] as string))
+    && ['installation_id', 'plugin_id', 'grant_id'].every((key) => uuid(parameters[key]) && parameters[key] !== '00000000-0000-0000-0000-000000000000')
+    && ['plugin_revision', 'grant_revision', 'agent_revision'].every((key) => count(parameters[key]) && (parameters[key] as number) > 0)
+}
+export function editablePolicy(policy: PolicyRecord, agentId: string) { return editableGenerationPolicy(policy, agentId) || editableResourcePolicy(policy, agentId) }
 export function mergePolicyPage(previous: PolicyCollection | null, incoming: PolicyCollection): PolicyCollection {
   const policies = new Map((previous?.policies ?? []).map((policy) => [policy.id, policy]))
   for (const policy of incoming.policies) {

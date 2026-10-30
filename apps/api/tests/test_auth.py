@@ -282,7 +282,7 @@ def test_real_api_composition_and_validation_do_not_echo_secrets(tmp_path) -> No
         assert response.json()["error"]["code"] == "validation_failed"
         configure(client)
         assert client.get("/api/v1/auth/status").json()["authenticated"] is True
-        assert client.get("/api/v1/state/status").json()["schema_version"] == 8
+        assert client.get("/api/v1/state/status").json()["schema_version"] == 24
     # Um novo lifespan de produção abre o mesmo estado sem reemitir bootstrap.
     app = create_app(Settings(data_dir=tmp_path, web_dist=tmp_path / "missing"))
     with TestClient(app, base_url=ORIGIN) as client:
@@ -290,3 +290,57 @@ def test_real_api_composition_and_validation_do_not_echo_secrets(tmp_path) -> No
             "configured": True,
             "authenticated": False,
         }
+
+
+def test_password_recovery_requires_operator_code_and_revokes_sessions(client) -> None:
+    from bees_core.security.identity import AuthError
+
+    new_password = "outra senha longa de teste"
+    with pytest.raises(AuthError, match="primeiro acesso"):
+        client.app.state.identity.issue_recovery()
+    configure(client)
+    old_cookie = client.cookies.get(COOKIE_NAME)
+    anonymous = client.post(
+        "/api/v1/auth/recover",
+        json={"recovery_token": "A" * 43, "password": new_password},
+        headers={"Origin": ORIGIN},
+    )
+    assert anonymous.status_code == 401
+    token = client.app.state.identity.issue_recovery()
+    weak = client.post(
+        "/api/v1/auth/recover",
+        json={"recovery_token": token, "password": "curta"},
+        headers={"Origin": ORIGIN},
+    )
+    assert weak.status_code == 422
+    recovered = client.post(
+        "/api/v1/auth/recover",
+        json={"recovery_token": token, "password": new_password},
+        headers={"Origin": ORIGIN},
+    )
+    assert recovered.status_code == 200 and recovered.json()["authenticated"] is True
+    assert new_password not in recovered.text
+    # Código de uso único e sessão anterior encerrada.
+    replay = client.post(
+        "/api/v1/auth/recover",
+        json={"recovery_token": token, "password": new_password},
+        headers={"Origin": ORIGIN},
+    )
+    assert replay.status_code == 401
+    assert client.app.state.identity.authenticate(old_cookie) is None
+    client.cookies.clear()
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"password": PASSWORD}, headers={"Origin": ORIGIN}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/v1/auth/login", json={"password": new_password}, headers={"Origin": ORIGIN}
+        ).status_code
+        == 200
+    )
+    # Bootstrap continua recusado depois de configurado.
+    with pytest.raises(AuthError, match="já possui"):
+        client.app.state.identity.issue_bootstrap()

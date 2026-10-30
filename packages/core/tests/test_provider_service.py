@@ -133,7 +133,13 @@ def test_switch_provider_preserves_full_graph_and_survives_restart(tmp_path) -> 
     policy = Policy(agent_id=agent.id, name="Leitura", effect="allow")
     approval = Approval(action_id=action.id, policy_id=policy.id)
     memory = Memory(agent_id=agent.id, scope="agent", content="Preferência")
-    artifact = Artifact(task_id=task.id, run_id=run.id, name="Relatório")
+    artifact = Artifact(
+        agent_id=agent.id,
+        conversation_id=conversation.id,
+        task_id=task.id,
+        run_id=run.id,
+        name="Relatório",
+    )
     message = Message(conversation_id=conversation.id, role="user", content="Histórico")
     records = {
         "routines": routine,

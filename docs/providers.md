@@ -35,6 +35,14 @@ Rotas autenticadas: `GET /api/v1/providers` devolve conexões e sugestões `mode
 
 Antes de criar/salvar, a interface chama `POST /api/v1/models/prepare`: valida localmente destino, configuração e disponibilidade da credencial/cofre, sem rede nem gravação de chave. Devolve somente um `validation_token` de uso único por cinco minutos, vinculado à sessão/configuração e à abelha na edição. Isso permite servidores de conversa sem `/models`; não afirma autenticação remota ou suporte do modelo. O salvamento preserva revisão otimista, replay de criação e rollback do cofre. Referências existentes `env:`/`vault:` só podem ser reutilizadas explicitamente na mesma conexão de uma abelha; a ponte interna `env:BEES_REQUEST_KEY` é reservada.
 
+### Preparar modelo local pela interface
+
+Ao escolher **Ollama** na criação ou edição da abelha, o painel **Modelo local** mostra se o Ollama responde, os modelos instalados e sugestões com tamanho aproximado, memória recomendada e origem. Nada é baixado sem confirmação: o diálogo informa modelo, tamanho, origem, destino (Ollama em loopback) e que o download usa rede e disco. O progresso aparece em tempo real e pode ser cancelado; ao concluir, selecione o modelo e teste a conexão (o preflight Ollama continua obrigatório).
+
+Na instalação Docker, ative o Ollama com `docker compose --profile local-model up -d`; os arquivos ficam no volume `ollama-models`. Falhas são classificadas: Ollama inacessível, biblioteca inacessível (rede/DNS/proxy do servidor), modelo inexistente, falta de espaço ou interrupção. Se o Bees reiniciar durante o download, repita a ação: o Ollama retoma os blobs parciais. Remover um modelo exige confirmação e é recusado durante download do mesmo modelo.
+
+API: `GET /api/v1/local-models`, `POST /api/v1/local-models/pulls` (`confirm_download: true`), `GET /api/v1/local-models/pulls/{id}`, `POST /api/v1/local-models/pulls/{id}/cancel`, `POST /api/v1/local-models/delete` (`confirm_delete: true`). Somente endpoints loopback.
+
 Fontes dos presets e catálogos: [OpenAI — listar modelos](https://developers.openai.com/api/reference/resources/models/methods/list), [Gemini — compatibilidade OpenAI e listagem](https://ai.google.dev/gemini-api/docs/openai#list-models), [OpenRouter — catálogo](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties) e [Ollama — modelos locais](https://docs.ollama.com/api/tags).
 
 Sugestões consultadas em 05/10/2026: [OpenAI GPT-5 mini](https://developers.openai.com/api/docs/models/gpt-5-mini), [GPT-5 nano](https://developers.openai.com/api/docs/models/gpt-5-nano), [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini); [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) e [3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite); OpenRouter [GPT-4.1 mini](https://openrouter.ai/openai/gpt-4.1-mini), [Gemini 2.5 Flash](https://openrouter.ai/google/gemini-2.5-flash), [Claude Sonnet 4](https://openrouter.ai/anthropic/claude-sonnet-4); Ollama [Llama 3.2](https://ollama.com/library/llama3.2) e [Qwen 3](https://ollama.com/library/qwen3). Novas versões podem ser adicionadas por descoberta ou digitação. A disponibilidade no intermediário pode diferir da API direta.
@@ -89,7 +97,7 @@ A troca preserva o estado e recusa incompatibilidades com funções presentes no
 
 Rejeição remota HTTP 401 é `authentication_failed`; HTTP 403 é `access_denied`, pois pode representar restrição de conta/chave/destino em vez de chave inválida. Erros HTTP do provedor incluem `error.upstream_status` numérico quando disponível. O HTTP local continua usando o contrato da API (por exemplo, 502 para falha remota); nunca reproduz corpo, cabeçalhos ou chave do fornecedor. O código e a mensagem traduzida orientam o usuário, e uma falha de descoberta mantém a seleção disponível.
 
-Tokens são informados quando a resposta do fornecedor contém contadores válidos. O contrato distingue `reported`, `estimated` e `unknown`; não há cálculo de preço nem estimador de tokens implementado. Ausência de contadores é desconhecida, nunca consumo zero. Um valor informado não é garantia do total cobrado.
+Tokens são informados quando a resposta do fornecedor contém contadores válidos. O contrato distingue `reported`, `estimated` e `unknown`; não há cálculo de preço. Ausência de contadores é desconhecida, nunca consumo zero. Um valor informado não é garantia do total cobrado. Cada geração deixa um registro de consumo e pode ser bloqueada pelo limite da abelha antes da rede; a reserva usa uma estimativa declarada de entrada, separada do uso informado. Consulte [consumo e limites](budgets.md).
 
 Timeout, falha de conexão, autenticação, modelo ausente, capacidade incompatível, limite de payload e resposta inválida têm diagnóstico próprio. O padrão é 30 segundos por operação HTTP, deadline de 60 segundos para a sessão (incluindo probes), e 1 MiB por requisição/resposta de geração. Catálogos têm limite separado de 4 MiB (`max_catalog_bytes`) e a descoberta aceita no máximo 4096 entradas; isso permite listas maiores sem ampliar o limite de uma resposta de conversa. Esses valores são configuráveis. Respostas comprimidas são recusadas; parsing e validação síncronos têm limites de estrutura/tamanho, mas o deadline assíncrono não preempta CPU. Limites por tarefa e orçamento virão com o executor. Não há repetição automática, inclusive após timeout: o fornecedor pode já ter processado a solicitação.
 
@@ -101,7 +109,22 @@ A biblioteca interna também aceita mensagens de resultado `tool`. Quando uma re
 
 Testes usam transportes controlados e servidores HTTP de loopback com mensagens de teste. Eles exercitam serialização, conversa/funções/resultados nos dois protocolos, restrições de destino, erros sem credenciais e preservação de estado. Isso comprova o driver e seu contrato, não a qualidade de um modelo nem equivalência completa com Dots/Grok Bot.
 
-Nesta máquina não foi encontrado Ollama instalado/escutando na inspeção inicial; não foi feita geração contra serviço pago. A comprovação com um modelo local e um remoto reais continua necessária para completar o aceite operacional. O onboarding integra estes drivers enquanto essa verificação é preparada.
+### Modelos reais comprovados
+
+| Modelo | Protocolo | Capacidades declaradas | Conversa | Delegação `create_text_task` | Uso | Evidência |
+| --- | --- | --- | --- | --- | --- | --- |
+| `gpt-5.4-nano` (OpenAI) | `openai_compatible` (Chat Completions) | `text`, `tool_calls` | Real, persistida e recarregada | Real: o modelo escolheu a função, o Bees confirmou uma tarefa e o worker concluiu | `reported` (entrada/saída/total) | BEES-005.1, 09/10/2026 |
+| Backend local (Ollama) | `ollama` | — | Pendente | Pendente | — | BEES-005.2; Ollama não instalado na máquina de validação |
+
+Aceite remoto de 09/10/2026, na instalação Docker padrão do mantenedor, com abelha e credencial de teste no cofre:
+
+- **Com permissão no turno:** o pedido "resuma em três tópicos curtos a história da apicultura no Brasil" gerou `finish_reason: tool_calls`. O serviço confirmou uma única tarefa, com o tema no título, objetivo e resultado esperado, limite de 1 chamada e 120 s. O worker concluiu em uma chamada (cerca de 1,7 s). O resultado reapareceu no chat e na lista de tarefas após recarregar a página. Uma delegação real anterior, de 08/10, também continuou visível após reiniciar os containers.
+- **Sem permissão no turno:** o mesmo pedido terminou com `finish_reason: stop`, sem tarefa ou delegação nova. O modelo justificou a recusa com um motivo inventado ("fora do objetivo"), em vez da ausência da função. A garantia vem do serviço, não do texto do modelo.
+- **Uso:** as três chamadas registraram uso `reported` do provedor: chat negativo 3.657/81 tokens, chat com delegação 3.959/101 e tarefa 218/125. Nenhum valor foi estimado ou zerado por ausência.
+- **Qualidade observada:** formato atendido (três tópicos em português), com conteúdo genérico e sem marcos históricos concretos. A tarefa recebe somente título, objetivo e resultado esperado escritos pelo modelo do chat. Detalhes do pedido que ele não transcrever não chegam ao worker; em um pedido de teste anterior com exemplos concretos, eles foram substituídos por valores genéricos.
+- **Não induzidos no provedor real:** argumentos inválidos e timeout ou resposta perdida, para não gerar custo ou estado incerto. Esses casos continuam comprovados por testes de falha controlada: recusa sem criar tarefa, ausência de repetição paga e `unknown` preservado.
+
+Uma execução de um modelo não comprova qualidade geral, outros modelos do mesmo fornecedor ou o backend local. O onboarding integra estes drivers; a comprovação local continua em BEES-005.2.
 
 ## Fontes dos protocolos
 

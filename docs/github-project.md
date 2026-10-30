@@ -23,14 +23,14 @@ Não há datas ou estimativas de esforço. M1 permite uma primeira entrega útil
 - **Subtarefas `BEES-NNN.n`:** recortes executáveis do trabalho restante, ligados pela hierarquia nativa de subissues. Não repetem funcionalidades já entregues. Seus planos técnicos distinguem código existente de componentes propostos.
 - **Evoluções `FUT-001` a `FUT-012`:** propostas P1/P2 posteriores ao MVP, sem promessa de implementação imediata ou dependência obrigatória para a versão individual.
 - **Prioridades:** P0 é requisito do MVP; P1 é evolução; P2 é visão futura.
-- **Status:** Todo é pendente; In Progress é trabalho em andamento; Done exige critérios comprovados e issue fechada. Bloqueios registram motivo e próximo passo na issue, com o rótulo `estado:bloqueado`.
+- **Status:** Todo é pendente; In Progress é implementação ativa; Entrega Parcial tem um recorte entregue com pendências explícitas; Review tem a implementação da issue terminada, aguardando revisão; Done exige revisão, aceite completo comprovado e issue fechada. Entrega Parcial e Review mantêm a issue aberta. Bloqueios registram motivo e próximo passo na issue, com o rótulo `estado:bloqueado`.
 - **Campos do Project:** prioridade, tipo, marco, ID de rastreabilidade e ordem sugerida. Milestones do repositório reproduzem os portões de entrega; rótulos identificam tipo, prioridade e área.
 
 Dependências em cada descrição são pré-requisitos de comportamento. Uma capacidade parcial já disponível pode permitir avanço em paralelo, mesmo com a história ampla aberta. Não transforme esses vínculos em impedimentos artificiais nem autorize efeitos reais por inferência. Os pré-requisitos de aceite final continuam explícitos.
 
 ## Como manter o planejamento
 
-Antes de implementar, leia a issue, consulte os arquivos e verifique suas dependências. Durante o trabalho, mantenha o recorte e o estado atualizados. A cada checkpoint, registre commit, validação, evidência e limitações; feche somente o que satisfaz seu aceite. Ao dividir uma subtarefa, crie uma issue real e preserve vínculos/IDs, sem duplicar trabalho.
+Antes de implementar, leia a issue, consulte os arquivos e verifique suas dependências. Durante o trabalho, mantenha o recorte e o estado atualizados. A cada checkpoint, registre commit, validação, evidência e limitações. Entrega incompleta vai para Entrega Parcial; implementação terminada vai para Review. Só depois da revisão e do aceite completo mova para Done e feche a issue. Ao dividir uma subtarefa, crie uma issue real e preserve vínculos/IDs, sem duplicar trabalho.
 
 O guia [CONTRIBUTING](../CONTRIBUTING.md) descreve branches, testes, revisão e checkpoints. As [ADRs](adr/0001-foundation.md) e os documentos operacionais continuam sendo a referência de arquitetura. Issues representam o planejamento e podem evoluir mediante decisões explícitas; exemplos técnicos não alteram políticas, não concedem acesso a máquinas e não substituem autorização do usuário.
 
@@ -43,7 +43,7 @@ O guia [CONTRIBUTING](../CONTRIBUTING.md) descreve branches, testes, revisão e 
 
 ## Mapa das histórias
 
-Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
+Importação de **09/10/2026**: 28 histórias, 71 subtarefas do escopo restante e 12 evoluções. Uma subtarefa técnica adicional, CI-001, registra a correção da primeira CI Windows remota. A partir dela foram abertas BEES-011.6 (P2), para o endurecimento posterior dos diagnósticos PowerShell, e CI-002 (P1), para as falhas intermitentes das interops HTTP no Windows. A investigação da CI-002 abriu BEES-011.7 (P2), para calibrar com medição os prazos HTTP do provisionador local. A revisão da parada global (BEES-022.2) abriu BEES-011.8 (P2), para distinguir recusa definitiva da autoridade de incerteza no provisionador local. As descrições incluem objetivo, estado comprovado, plano técnico, dependências, referências, critérios de aceite e validação. Consulte as issues para o estado atual; os estados abaixo são o snapshot da importação.
 
 | História | Estado inicial | Prioridade | Marco |
 | --- | --- | --- | --- |
@@ -117,6 +117,9 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-011.3 — Comprovar provisionamento Hyper-V físico em janela humana autorizada](https://github.com/L0tus-Program/Bees/issues/29)
 - [BEES-011.4 — Integrar boot humano, identidade guest e ponte física exclusiva](https://github.com/L0tus-Program/Bees/issues/30)
 - [BEES-011.5 — Comprovar rede filtrada, recursos e persistência do ambiente próprio](https://github.com/L0tus-Program/Bees/issues/31)
+- [BEES-011.6 — Isolar módulos PowerShell nos diagnósticos de Hyper-V](https://github.com/L0tus-Program/Bees/issues/114) (P2)
+- [BEES-011.7 — Calibrar prazos HTTP do provisionador local com evidência de latência](https://github.com/L0tus-Program/Bees/issues/119) (P2)
+- [BEES-011.8 — Distinguir recusa definitiva da autoridade de incerteza no provisionador local](https://github.com/L0tus-Program/Bees/issues/124) (P2)
 
 ### BEES-012 — Executar arquivos, terminal e apps no computador próprio
 
@@ -184,6 +187,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-022.2 — Implementar parada global durável em todos os despachos](https://github.com/L0tus-Program/Bees/issues/74)
 - [BEES-022.3 — Persistir atenção e preferências de aviso sem duplicidade](https://github.com/L0tus-Program/Bees/issues/75)
 - [BEES-022.4 — Exibir orçamento, atividade e operações encerrando na interface](https://github.com/L0tus-Program/Bees/issues/76)
+- [BEES-022.5 — Validar vínculo do consumo com chamada, tarefa e abelha](https://github.com/L0tus-Program/Bees/issues/128) (P2; achado de revisão)
 
 ### BEES-023 — Exportar, restaurar e trocar provedor preservando trabalho
 
@@ -210,6 +214,7 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 - [BEES-026.3 — Validar instalação limpa sem terminal e publicar guias de primeira versão](https://github.com/L0tus-Program/Bees/issues/92)
 - [BEES-026.4 — Escolher licença e revisar dependências antes do release formal](https://github.com/L0tus-Program/Bees/issues/93)
 - [CI-001 — Corrigir CI Windows preservando owner privado e bytes da âncora](https://github.com/L0tus-Program/Bees/issues/112)
+- [CI-002 — Investigar falhas intermitentes das interops HTTP do provisionador no Windows](https://github.com/L0tus-Program/Bees/issues/115) (P1)
 
 ### BEES-028 — Concluir todo o setup do usuário final pela interface
 
@@ -236,3 +241,32 @@ Os filhos são issues reais vinculadas à história mãe. A ordem dos IDs facili
 | [FUT-012 — Apps móveis nativos e administração empresarial](https://github.com/L0tus-Program/Bees/issues/111) | P2 |
 
 Os IDs preservam rastreabilidade; fechar uma issue depende do comportamento comprovado, e não da data ou quantidade de checkpoints. O Project é a referência operacional para progresso posterior.
+
+## Checkpoint de 12/10/2026 — atenção, artefatos e regressões
+
+- [BEES-022.1 #73](https://github.com/L0tus-Program/Bees/issues/73): redirect/replay e pause/resume preservam journal, IDs e consumo; HTTP loopback real comprova ausência de geração duplicada.
+- [BEES-022.2 #74](https://github.com/L0tus-Program/Bees/issues/74): stop/resume global conserva tarefas pausadas, canceladas e unknown após reabrir serviços, sem novo efeito.
+- [BEES-018.2 #58](https://github.com/L0tus-Program/Bees/issues/58): cartões por versão e download autenticado nas tarefas, com validação de integridade, paginação e erros que preservam a lista. Upload, revisão e geração real continuam pendentes; veja [artefatos](artifacts.md).
+- [BEES-022.3 #75](https://github.com/L0tus-Program/Bees/issues/75): [atenção durável](attention.md) de conclusão, falha recuperável, decisão pendente e unknown das tarefas textuais; leitura/preferências humanas, deduplicação transacional e painel por abelha. Schema 12 somente em instalações de teste; a instalação padrão não foi migrada.
+
+Os quatro recortes não encerram suas issues amplas: ferramentas/recursos e ambientes reais, rotina/silêncio por mudança relevante e anexação/revisão ainda têm aceites próprios. Pelo fluxo definido em 12/10/2026, os itens ficam em **Entrega Parcial** no Project.
+
+## Fluxo de revisão — decisão de 12/10/2026
+
+Implementação terminada vai para **Review**, mantendo a issue aberta até a revisão e o aceite. Checkpoints entregues com escopo restante vão para **Entrega Parcial**, com evidências e pendências na issue. **Done** fica reservado ao aceite completo após revisão.
+
+Os 14 itens com entregas parciais publicadas foram movidos de In Progress para Entrega Parcial: #5, #10, #14, #18, #22, #26, #56, #58, #72, #73, #74, #75, #76 e #95. Os itens já concluídos em Done permanecem aceitos; essa reorganização não fecha nem reabre issues ou altera seus critérios.
+
+## Entrega de BEES-022.4 — 12/10/2026
+
+[BEES-022.4 #76](https://github.com/L0tus-Program/Bees/issues/76) reúne consumo e
+[atividade](activity.md) por tarefa, execução e ação, com certeza, fonte, intervalo,
+fuso e operações atuais. Snapshots fechados preservam estado e contexto ao recarregar,
+recusam regressão e confirmam limites/parada pelo estado canônico. A interface foi
+validada com API real em instalação própria; os modelos de QA usam transporte de teste.
+
+Essa entrega vai para **Review**, mantendo a issue aberta. A história BEES-022 e
+#73/#74/#75 permanecem em **Entrega Parcial**, com os aceites de recursos, ambientes e
+rotinas próprios. O achado lateral de vínculo do writer de consumo virou
+[BEES-022.5 #128](https://github.com/L0tus-Program/Bees/issues/128), P2/Todo, sem
+migração adicional nem atualização da instalação padrão.

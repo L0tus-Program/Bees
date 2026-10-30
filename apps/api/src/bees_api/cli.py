@@ -61,6 +61,13 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
         help="Origem pública HTTPS explícita, atrás de proxy TLS local. Opcional.",
     )
     parser.add_argument(
+        "--restore-destination",
+        action="append",
+        default=[],
+        metavar="ALIAS=/CAMINHO/ABSOLUTO",
+        help="Destino novo e inativo de restauração, escolhido pelo operador; repetível até 10.",
+    )
+    parser.add_argument(
         "--cache-ttl-seconds",
         type=int,
         default=os.environ.get("BEES_CACHE_TTL_SECONDS", "86400"),
@@ -73,6 +80,14 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
         help="Máximo de caches expirados removidos no startup; BEES_CACHE_PRUNE_LIMIT ou 1000.",
     )
     args = parser.parse_args(argv)
+    destinations = {}
+    for declaration in args.restore_destination:
+        alias, separator, target = declaration.partition("=")
+        if not separator or alias in destinations:
+            parser.error(
+                "Destino de restauração inválido ou duplicado; use ALIAS=caminho absoluto."
+            )
+        destinations[alias] = Path(target)
     try:
         return Settings(
             deployment_mode=args.deployment_mode,
@@ -86,13 +101,21 @@ def parse_settings(argv: Sequence[str] | None = None) -> Settings:
             public_url=args.public_url,
             vault_key=os.environ.get("BEES_VAULT_KEY"),
             vault_key_file=args.vault_key_file,
+            restoration_destinations=destinations,
+            executor_hosts=tuple(
+                host.strip()
+                for host in os.environ.get("BEES_EXECUTOR_HOSTS", "").split(",")
+                if host.strip()
+            ),
+            computer_link_dir=os.environ.get("BEES_COMPUTER_LINK_DIR") or None,
         )
     except ValidationError:
         parser.error(
             "Configuração inválida. Bind 0.0.0.0 exige modo container e arquivo de chave separado; "
             "modo local usa 127.0.0.1. Portas entre 1 e 65535; "
             "TTL entre 1 e 31536000; limite de limpeza entre 1 e 1000. "
-            "URL pública deve ser uma origem HTTPS sem credenciais, caminho ou query."
+            "URL pública deve ser uma origem HTTPS sem credenciais, caminho ou query. "
+            "Destinos de restauração exigem aliases distintos e caminhos absolutos."
         )
 
 

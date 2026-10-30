@@ -1,9 +1,17 @@
 # Script fechado. Somente hardware parado; nenhuma operação inicia ou instala o guest.
 # Sintaxe upstream: learn.microsoft.com/powershell/module/hyper-v/{new-vm,new-vhd,set-vm}.
+# BEGIN_HOST_PREAMBLE: shared with native tests.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+# PS5.1 acrescenta Program Files ao PSModulePath mínimo; autoload varreria e poderia carregar
+# módulos de terceiros. Cmdlets base vêm somente de $PSHOME; Hyper-V é importado explicitamente.
+$PSModuleAutoLoadingPreference = 'None'
+foreach ($module in @('Microsoft.PowerShell.Utility','Microsoft.PowerShell.Management','Microsoft.PowerShell.Security')) {
+    Import-Module -Name ([IO.Path]::Combine($PSHOME,'Modules',$module,($module+'.psd1'))) -ErrorAction Stop
+}
+# END_HOST_PREAMBLE
 # BEGIN_READONLY_GUARDS: callable in tests without loading or invoking Hyper-V.
 function Initialize-NativeGuard {
     # P/Invoke fechado em memória: sem compilador, DLL temporária ou TEMP herdado.

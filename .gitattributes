@@ -4,4 +4,7 @@
 *.py text eol=lf
 *.yml text eol=lf
 *.sql text eol=lf
+LICENSE text eol=lf
+NOTICE text eol=lf
+apps/web/public/third-party-notices.txt text eol=lf
 scripts/packaging/debian-cd.asc text eol=lf

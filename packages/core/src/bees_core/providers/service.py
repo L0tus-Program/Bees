@@ -7,9 +7,11 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import apsw
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from bees_core.budgets import fits, releases, reserve, settle_safely
 from bees_core.memory import MemoryService
 from bees_core.models import Agent, Conversation, Message, utc_now
 from bees_core.policies import ActionIntent, PolicyDecision, PolicyService
@@ -29,6 +31,7 @@ from bees_core.providers.contracts import (
 )
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.secrets import EnvSecretResolver
+from bees_core.safety import ensure_running
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore, UnitOfWork
 
@@ -383,6 +386,16 @@ class ProviderService:
         config = self._validated_config(agent.provider_config)
         conversation = self._conversation(uow, agent, conversation_id)
         self._task_context(uow, agent, conversation, task_id)
+        attachment_views = (input_metadata or {}).get("attachments", [])
+        if attachment_views:
+            from bees_core.attachments import AttachmentConsent, validate_snapshot
+
+            consent = AttachmentConsent.model_validate(
+                (input_metadata or {}).get("attachment_consent")
+            )
+            if consent.expected_agent_revision != agent.revision:
+                raise ProviderError("state_conflict")
+            validate_snapshot(uow, agent.id, conversation.id, attachment_views)
         records = self._records(uow, conversation.id)
         if input_metadata and "chat_request" in input_metadata:
             request_id = UUID(input_metadata["chat_request"]["id"])
@@ -458,6 +471,8 @@ class ProviderService:
             else [],
             "memory_omitted": memory_context.omitted if memory_context is not None else 0,
         } | ({"task_id": str(UUID(str(task_id)))} if task_id is not None else {})
+        if attachment_views:
+            context["attachments"] = attachment_views
         return PreparedChat(
             agent_id=agent.id,
             agent_revision=agent.revision,
@@ -484,6 +499,10 @@ class ProviderService:
         conversation = self._conversation(uow, agent, prepared.conversation_id)
         records = self._records(uow, conversation.id)
         self._task_context(uow, agent, conversation, prepared.task_id)
+        if prepared.context.get("attachments"):
+            from bees_core.attachments import validate_snapshot
+
+            validate_snapshot(uow, agent.id, conversation.id, prepared.context["attachments"])
         current_memory = (
             MemoryService(self.store.database).select_context(
                 agent.id,
@@ -631,14 +650,28 @@ class ProviderService:
             )
             decision = self.model_policy(uow, prepared)
             self.require_model_policy(decision)
+            # Como a política: recusar antes de gravar a entrada evita histórico órfão.
+            generation = ensure_running(uow).generation
+            if not fits(uow, prepared):
+                raise ProviderError("budget_exhausted")
 
         # Nenhum await entre a autorização atual e o início da chamada. A alteração
-        # posterior não desfaz uma geração remota já iniciada.
+        # posterior não desfaz uma geração remota já iniciada. A reserva de consumo é
+        # confirmada no mesmo commit da autorização, antes da rede.
+        reservation: list[UUID] = []
+
         def authorize_generation():
             nonlocal decision
-            with self.store.transaction(write=False) as current:
-                decision = self.model_policy(current, prepared)
-                self.require_model_policy(decision)
+            try:
+                with self.store.transaction(source="provider_chat") as current:
+                    # Parada ou nova geração desde a pré-checagem: nada é enviado.
+                    ensure_running(current, generation)
+                    decision = self.model_policy(current, prepared)
+                    self.require_model_policy(decision)
+                    reservation.append(reserve(current, prepared, source="chat").id)
+            except apsw.BusyError:
+                # Escrita concorrente além do timeout: nenhuma geração foi iniciada.
+                raise ProviderError("state_conflict") from None
 
         adapter = create_adapter(
             prepared.config.kind,
@@ -646,7 +679,25 @@ class ProviderService:
             transport=self.transport,
             before_generation=authorize_generation,
         )
-        response = await adapter.complete(prepared.config, prepared.request)
+        try:
+            response = await adapter.complete(prepared.config, prepared.request)
+        except BaseException as error:
+            if reservation:
+                # Só recusa explícita do provedor libera; o resto conta como incerto.
+                try:
+                    with self.store.transaction(source="provider_chat") as uow:
+                        settle_safely(uow, reservation[0], released=releases(error))
+                except Exception:
+                    pass
+            raise
+        if reservation:
+            # Antes de persistir: resposta descartada por conflito também consumiu. Uma
+            # falha aqui deixa a reserva contada e não apaga a resposta paga.
+            try:
+                with self.store.transaction(source="provider_chat") as uow:
+                    settle_safely(uow, reservation[0], usage=response.usage)
+            except Exception:
+                pass
         response = self.normalized_response(prepared, response)
         with self.store.transaction(source="provider_chat") as uow:
             prepared = prepared.model_copy(

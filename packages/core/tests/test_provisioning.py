@@ -739,8 +739,8 @@ def test_stale_context_read_and_revoke_does_not_require_active_agent_or_host(set
     assert revoked["status"] == "revoked"
 
 
-def test_schema8_preserves_existing_environment_and_foreign_keys(setup):
-    assert setup.db.schema_version() == 8
+def test_current_schema_preserves_existing_environment_and_foreign_keys(setup):
+    assert setup.db.schema_version() == 24
     with setup.db.transaction(write=False) as connection:
         assert connection.execute("PRAGMA integrity_check").get == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -1016,3 +1016,178 @@ def test_heartbeat_only_changes_report_revision_never_human_authority_or_claim_l
     observed = setup.service.assert_current(token, binding(claim))
     assert observed["lease_expires_at"] == claim["lease_expires_at"]
     assert observed["revision"] == claim["revision"]
+
+
+def test_global_stop_cuts_at_begin_and_fences_old_claim_after_resume(setup):
+    from bees_core.provisioning import ProvisioningError
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    _, _, token, claim = setup.claimed()
+    first = begin(claim)
+    effect = setup.service.begin_dispatch(token, first)
+    safety = SafetyService(setup.db)
+    stopped = safety.command(
+        SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1)
+    )
+    # Etapa já iniciada não é cancelada: guarda, renovação, replay e recibo continuam.
+    setup.service.assert_current(token, binding(claim))
+    setup.service.renew(token, binding(claim, client_request_id=uuid4()))
+    replay = setup.service.begin_dispatch(token, first)
+    assert replay["effect_request_id"] == effect["effect_request_id"]
+    confirmed = setup.service.record_receipt(token, receipt(claim, effect))
+    assert confirmed["status"] == "confirmed"
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.begin_dispatch(token, begin(claim, "create_vm"))
+    safety.command(
+        SafetyCommand(
+            client_request_id=uuid4(), kind="resume", expected_revision=stopped["revision"]
+        )
+    )
+    # Claim da geração anterior não inicia nova etapa nem depois da retomada.
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.begin_dispatch(token, begin(claim, "create_vm"))
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_effects").get == 1
+        assert connection.execute("SELECT safety_generation FROM provisioning_claims").get == 0
+    with setup.db.transaction() as connection:
+        with pytest.raises(apsw.ConstraintError, match="immutable"):
+            connection.execute("UPDATE provisioning_claims SET safety_generation=1")
+
+
+def test_global_stop_refuses_new_claim_and_keeps_unknown_evidence(setup):
+    from bees_core.provisioning import ProvisioningError
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    plan = setup.authorize(setup.prepare())
+    _, token = setup.issuer()
+    safety = SafetyService(setup.db)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+    value = {
+        "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"],
+        "owner_id": uuid4(),
+        "client_request_id": uuid4(),
+    }
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.claim(token, value)
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_claims").get == 0
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2))
+    with pytest.raises(ProvisioningError, match="provisioning_global_stop"):
+        setup.service.claim(token, value)
+    claim = setup.service.claim(token, value | {"client_request_id": uuid4()})
+    effect = setup.service.begin_dispatch(token, begin(claim))
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=3))
+    # Incerteza do efeito em voo continua registrável enquanto parado.
+    unknown = setup.service.mark_unknown(
+        token,
+        binding(claim, effect_request_id=effect["effect_request_id"], client_request_id=uuid4()),
+    )
+    assert unknown["status"] == "outcome_unknown"
+
+
+def test_rejected_claim_uuid_survives_resume_restart_and_concurrency(setup):
+    from bees_core.provisioning import ProvisioningRejected
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    plan = setup.authorize(setup.prepare())
+    _, token = setup.issuer()
+    safety = SafetyService(setup.db)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+    value = {
+        "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"],
+        "owner_id": uuid4(),
+        "client_request_id": uuid4(),
+    }
+
+    def denied(_):
+        with pytest.raises(ProvisioningRejected) as failure:
+            setup.service.claim(token, value)
+        return failure.value.cached
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        assert sorted(executor.map(denied, range(2))) == [False, True]
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2))
+    reopened = ProvisioningService(setup.db, setup.catalog, clock=lambda: setup.clock[0])
+    with pytest.raises(ProvisioningRejected) as failure:
+        reopened.claim(token, value)
+    assert failure.value.cached is True
+    with pytest.raises(ProvisioningError, match="request_conflict"):
+        reopened.claim(token, value | {"owner_id": uuid4()})
+    claim = reopened.claim(token, value | {"client_request_id": uuid4()})
+    assert claim["status"] == "claimed"
+    with setup.db.transaction() as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_rejections").get == 1
+        with pytest.raises(apsw.ConstraintError, match="immutable"):
+            connection.execute("DELETE FROM provisioning_rejections")
+
+
+def test_rejected_begin_uuid_never_activates_after_sequence_changes(setup):
+    from bees_core.provisioning import ProvisioningRejected
+
+    _, _, token, claim = setup.claimed()
+    invalid_next = begin(claim, "create_vm")
+    with pytest.raises(ProvisioningRejected) as failure:
+        setup.service.begin_dispatch(token, invalid_next)
+    assert failure.value.code == "provisioning_operation_conflict"
+    assert failure.value.cached is False
+    effect = setup.service.begin_dispatch(token, begin(claim))
+    setup.service.record_receipt(token, receipt(claim, effect))
+    with pytest.raises(ProvisioningRejected) as failure:
+        setup.service.begin_dispatch(token, invalid_next)
+    assert failure.value.cached is True
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_effects").get == 1
+    new_effect = setup.service.begin_dispatch(token, invalid_next | {"client_request_id": uuid4()})
+    assert new_effect["dispatch_allowed"] is True
+    # An accepted UUID cannot be relabelled as a definitive refusal after fencing.
+    with pytest.raises(ProvisioningError) as failure:
+        setup.service.begin_dispatch(
+            token,
+            invalid_next
+            | {"client_request_id": new_effect["effect_request_id"], "owner_id": uuid4()},
+        )
+    assert not isinstance(failure.value, ProvisioningRejected)
+    replay = setup.service.begin_dispatch(
+        token, invalid_next | {"client_request_id": new_effect["effect_request_id"]}
+    )
+    assert replay["cached"] is True and replay["dispatch_allowed"] is False
+
+
+def test_rejected_claim_uuid_cannot_reactivate_after_provisioner_rotation(setup):
+    from bees_core.provisioning import ProvisioningRejected
+    from bees_core.safety import SafetyCommand, SafetyService
+
+    plan = setup.authorize(setup.prepare())
+    issued, token = setup.issuer()
+    safety = SafetyService(setup.db)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="stop", expected_revision=1))
+    value = {
+        "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"],
+        "owner_id": uuid4(),
+        "client_request_id": uuid4(),
+    }
+    with pytest.raises(ProvisioningRejected):
+        setup.service.claim(token, value)
+    safety.command(SafetyCommand(client_request_id=uuid4(), kind="resume", expected_revision=2))
+    setup.service.revoke_provisioner(
+        issued.provisioner_id, {"expected_revision": 1, "client_request_id": uuid4()}
+    )
+    _, replacement_token = setup.issuer()
+    with pytest.raises(ProvisioningError, match="provisioning_request_conflict") as failure:
+        setup.service.claim(replacement_token, value)
+    assert not isinstance(failure.value, ProvisioningRejected)
+    with setup.db.transaction(write=False) as connection:
+        assert connection.execute("SELECT count(*) FROM provisioning_claims").get == 0
+        assert connection.execute("SELECT count(*) FROM provisioning_effects").get == 0
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM provisioning_rejections WHERE client_request_id=?",
+                (str(value["client_request_id"]),),
+            ).get
+            == 1
+        )
+    claim = setup.service.claim(replacement_token, value | {"client_request_id": uuid4()})
+    assert claim["status"] == "claimed"

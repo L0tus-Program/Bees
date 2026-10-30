@@ -1,0 +1,28 @@
+.routines-panel { min-width: 0; padding: clamp(1rem, 3vw, 2rem); }
+.routine-list { padding: 0; list-style: none; display: grid; gap: 1rem; }
+.routine-list > li, .routine-editor, .routine-review, .routine-history { padding: 1rem; border: 1px solid var(--line, #d9ded8); border-radius: .8rem; min-width: 0; }
+.routine-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-block: .8rem; }
+.routine-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.routine-days { display: flex; flex-wrap: wrap; gap: .8rem; }
+.routine-description, .routine-history, .routine-list > li { overflow-wrap: anywhere; }
+.routine-description dl { display: grid; gap: .4rem; }
+.routine-description dt { font-weight: 600; }
+.routine-description dd { margin-inline-start: 0; white-space: pre-wrap; }
+.routine-description p { white-space: pre-wrap; }
+.routine-proposal { margin-block: 1rem; min-width: 0; overflow-wrap: anywhere; }
+.message details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow-y: auto; }
+.routine-unavailable { border-inline-start: .25rem solid var(--accent, #586b45); padding-inline-start: .8rem; }
+.routine-history ol { padding-inline-start: 1.2rem; }
+.routine-history li { padding-block: .5rem; }
+.routine-history details { padding-block: .6rem; }
+.routine-history summary { cursor: pointer; }
+.routine-editor input, .routine-editor textarea, .routine-editor select { min-width: 0; max-width: 100%; }
+@media (max-width: 600px) {
+  .routine-grid { grid-template-columns: minmax(0, 1fr); }
+  .routine-actions > .button { flex: 1 1 auto; }
+}
+
+.routine-editor > fieldset { display: grid; gap: .8rem; min-width: 0; }
+.routine-editor .checkbox-label { display: flex; align-items: center; gap: .4rem; }
+.routine-hook { margin-top: 8px; }
+.routine-hook .hook-url { display: grid; gap: 6px; overflow-wrap: anywhere; }

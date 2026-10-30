@@ -1,4 +1,6 @@
 [project]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 name = "bees-guest"
 version = "0.1.0"
 description = "Ponte de diagnóstico restrita do guest Linux Bees"

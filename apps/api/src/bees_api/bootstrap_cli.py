@@ -15,7 +15,7 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Gera o código privado do primeiro acesso.")
-    parser.add_argument("command", choices=["bootstrap"])
+    parser.add_argument("command", choices=["bootstrap", "recover"])
     parser.add_argument(
         "--format",
         choices=("text", "json"),
@@ -35,7 +35,9 @@ def main() -> None:
         if database.schema_version() < 2:
             parser.error("Pare e atualize bees-api para migrar a identidade antes de continuar.")
         identity = IdentityService(database)
-        token = identity.issue_bootstrap()
+        token = (
+            identity.issue_recovery() if args.command == "recover" else identity.issue_bootstrap()
+        )
     except AuthError as error:
         if args.format == "json" and error.code == "already_configured":
             print(json.dumps({"configured": True}, separators=(",", ":")))
@@ -43,6 +45,15 @@ def main() -> None:
         parser.error(str(error))
     except DatabaseError:
         parser.error("Estado indisponível; confira o diretório de dados e as migrações.")
+    if args.command == "recover":
+        if args.format == "json":
+            print(json.dumps({"recovery_token": token}, separators=(",", ":")))
+            return
+        print("Código de redefinição de senha, válido por 15 minutos e uma única utilização:")
+        print(token)
+        print("Use em 'Esqueci a senha' na tela de entrada. Todas as sessões serão encerradas;")
+        print("abelhas, cofre e dados não são alterados.")
+        return
     if args.format == "json":
         print(json.dumps({"configured": False, "bootstrap_token": token}, separators=(",", ":")))
         return

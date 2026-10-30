@@ -19,6 +19,7 @@ from bees_core.models import (
     Agent,
     Approval,
     Artifact,
+    BudgetLimit,
     Conversation,
     DomainEvent,
     EntityType,
@@ -38,6 +39,7 @@ from bees_core.models import (
     TaskCommand,
     TaskStatus,
     ToolGrant,
+    UsageEntry,
     utc_now,
 )
 from bees_core.storage.database import Database
@@ -266,11 +268,12 @@ class _Repository[T: Record]:
             payload["previous_enabled"] = previous.enabled
         if previous is not None and hasattr(previous, "status"):
             payload["previous_status"] = previous.status
+        event_id = uuid4()
         self._context.connection.execute(
             "INSERT INTO domain_events(id,created_at,entity_type,entity_id,event_type,"
             "payload_json,actor,source,correlation_id) VALUES(?,?,?,?,?,?,?,?,?)",
             (
-                str(uuid4()),
+                str(event_id),
                 _timestamp(utc_now()),
                 self._spec.entity,
                 str(record.id),
@@ -281,6 +284,10 @@ class _Repository[T: Record]:
                 self._context.correlation_id,
             ),
         )
+        if isinstance(record, (Task, Run, Approval, ModelCall, Action)):
+            from bees_core.attention import project_event
+
+            project_event(self._context.connection, record, previous, event_id)
 
     def _validate_links(self, record: T) -> None:
         connection = self._context.connection
@@ -305,12 +312,24 @@ class _Repository[T: Record]:
                     ).fetchone()
                     if row is None or row[0] != str(record.agent_id):
                         raise IntegrityError("Tarefa e vínculo precisam pertencer ao mesmo agente.")
-        elif isinstance(record, Artifact) and record.run_id is not None:
-            row = connection.execute(
-                "SELECT task_id FROM runs WHERE id=?", (str(record.run_id),)
-            ).fetchone()
-            if row is None or row[0] != str(record.task_id):
-                raise IntegrityError("Artefato e execução precisam pertencer à mesma tarefa.")
+        elif isinstance(record, Artifact):
+            if record.agent_id is None:
+                raise IntegrityError("Artefato exige abelha canônica.")
+            if record.task_id is not None:
+                row = connection.execute(
+                    "SELECT agent_id,conversation_id FROM tasks WHERE id=?", (str(record.task_id),)
+                ).fetchone()
+                if row is None or row != (
+                    str(record.agent_id),
+                    str(record.conversation_id) if record.conversation_id else None,
+                ):
+                    raise IntegrityError("Artefato e tarefa precisam ter o mesmo escopo.")
+            if record.run_id is not None:
+                row = connection.execute(
+                    "SELECT task_id FROM runs WHERE id=?", (str(record.run_id),)
+                ).fetchone()
+                if row is None or row[0] != str(record.task_id):
+                    raise IntegrityError("Artefato e execução precisam pertencer à mesma tarefa.")
         elif isinstance(record, ModelCall) and record.output_message_id is not None:
             row = connection.execute(
                 "SELECT t.conversation_id,m.conversation_id,m.role FROM runs r "
@@ -339,7 +358,19 @@ class _Repository[T: Record]:
     def _validated(self, record: T) -> T:
         if not isinstance(record, self._spec.model):
             raise TypeError(f"Repositório exige {self._spec.model.__name__}.")
-        return self._spec.model.model_validate(record.model_dump())
+        validated = self._spec.model.model_validate(record.model_dump())
+        if isinstance(validated, Artifact) and validated.agent_id is None:
+            row = self._context.connection.execute(
+                "SELECT agent_id,conversation_id FROM tasks WHERE id=?", (str(validated.task_id),)
+            ).fetchone()
+            if row is None:
+                raise IntegrityError("Tarefa do artefato não encontrada.")
+            if validated.conversation_id is not None and str(validated.conversation_id) != row[1]:
+                raise IntegrityError("Artefato e tarefa precisam ter a mesma conversa.")
+            validated = Artifact.model_validate(
+                validated.model_dump() | {"agent_id": row[0], "conversation_id": row[1]}
+            )
+        return validated
 
     def create(self, record: T) -> T:
         validated = self._validated(record)
@@ -428,6 +459,8 @@ class _Repository[T: Record]:
                         )
             if isinstance(previous, Artifact) and previous.status in ("failed", "deleted"):
                 raise InvalidTransition("Artefato terminal é imutável; crie outro registro.")
+            if isinstance(previous, UsageEntry) and previous.status != "reserved":
+                raise InvalidTransition("Liquidação de consumo é final.")
             self._validate_links(validated)
             updated = self._spec.model.model_validate(
                 validated.model_dump()
@@ -442,6 +475,15 @@ class _Repository[T: Record]:
                 raise RevisionConflict("A revisão mudou durante a atualização.")
             self._event(updated, "reconciled" if reconciled else "updated", previous)
         return updated
+
+
+def connection_has_table(connection, name: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
 
 
 _ACTION_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -813,6 +855,9 @@ class Execution:
         self._ttl(ttl_seconds)
         owner_id = UUID(str(owner_id))
         self.recover_expired(now=now)
+        # Parada global: nenhuma tarefa é reivindicada; a recuperação de donos segue.
+        if read_safety(self._context.connection).status != "running":
+            return None
         global_lease = self._lease(self.GLOBAL_RESOURCE)
         if global_lease and global_lease[0] is not None and global_lease[3] > _timestamp(now):
             return None
@@ -820,8 +865,17 @@ class Execution:
             f"SELECT {','.join('t.' + column for column in self.tasks._spec.columns)} FROM tasks t "
             "JOIN agents a ON a.id=t.agent_id WHERE t.status='queued' "
             "AND t.desired_state='running' "
-            "AND a.status='active' AND t.calls_started<t.max_calls "
-            "AND t.active_milliseconds<t.max_active_seconds*1000 "
+            "AND a.status='active' AND ((t.calls_started<t.max_calls "
+            "AND t.active_milliseconds<t.max_active_seconds*1000) "
+            # Publicar entregáveis de resposta já confirmada não consome chamada nova.
+            "OR EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
+            "AND json_extract(p.checkpoint_json,'$.publication.status') "
+            "IN ('pending','started')) "
+            # Resolver propostas já confirmadas não inicia uma geração paga nova.
+            "OR (json_extract(t.metadata_json,'$.execution_kind') "
+            "IN ('model_tool_task','agent_task') "
+            "AND EXISTS(SELECT 1 FROM runs p WHERE p.task_id=t.id AND p.status='queued' "
+            "AND json_extract(p.checkpoint_json,'$.tool_cycle.status')='pending'))) "
             "AND NOT EXISTS(SELECT 1 FROM model_calls c JOIN runs r ON r.id=c.run_id "
             "WHERE r.task_id=t.id AND c.status='outcome_unknown' "
             "AND c.unknown_acknowledged_at IS NULL) "
@@ -1103,6 +1157,14 @@ class Execution:
                 self.calls._change(
                     call, status="outcome_unknown", error_code="worker_lost", finished_at=now
                 )
+                # O consumo reservado antes da rede também fica incerto e continua contado.
+                usage = UsageEntries(self._context, _USAGE_SPEC)
+                entry = usage.for_model_call(call.id)
+                if entry is not None and entry.status == "reserved":
+                    usage.update(
+                        entry.model_copy(update={"status": "unknown", "settled_at": now}),
+                        entry.revision,
+                    )
                 # A decisão já foi consumida no mesmo commit de begin_call. Uma
                 # morte do processo deve preservar também seu journal de ação.
                 if call.metadata.get("approval_id"):
@@ -1138,17 +1200,37 @@ class Execution:
                         ),
                         task.revision,
                     )
+            # Comandos de executor das ações declaradas desconhecidas: a fila expira sem
+            # efeito e o enviado vira desconhecido (mesma regra de close_for_resume).
+            if connection_has_table(self._context.connection, "executor_commands"):
+                stamp = _timestamp(now)
+                for current, target in (("queued", "expired"), ("sent", "unknown")):
+                    self._context.connection.execute(
+                        f"UPDATE executor_commands SET status='{target}',"
+                        "error_code='worker_restart',updated_at=?,finished_at=? "
+                        f"WHERE status='{current}' AND id IN (SELECT id FROM actions "
+                        "WHERE run_id=? AND status='outcome_unknown')",
+                        (stamp, stamp, str(run.id)),
+                    )
+            publication = run.checkpoint.get("publication")
+            # Gravação de entregável iniciada sem confirmação: repetir exige decisão humana.
+            interrupted = (
+                not unknown
+                and isinstance(publication, dict)
+                and publication.get("status") == "started"
+                and task.status == "running"
+            )
             if task.status not in ("completed", "failed", "cancelled"):
                 status = (
                     "cancelled"
                     if task.desired_state == "cancelled"
                     else "paused"
-                    if unknown or task.desired_state == "paused"
+                    if unknown or interrupted or task.desired_state == "paused"
                     else "queued"
                 )
                 desired = (
                     "paused"
-                    if unknown and task.desired_state != "cancelled"
+                    if (unknown or interrupted) and task.desired_state != "cancelled"
                     else task.desired_state
                 )
                 task = self.tasks.update(
@@ -1159,9 +1241,17 @@ class Execution:
                     run.model_copy(
                         update={
                             "status": status,
-                            "error": "outcome_unknown" if unknown else run.error,
+                            "error": "outcome_unknown"
+                            if unknown
+                            else "artifact_publication_interrupted"
+                            if interrupted and status == "paused"
+                            else run.error,
                             "checkpoint": run.checkpoint
-                            | {"progress": status, "attention_required": unknown},
+                            | {
+                                "progress": status,
+                                "attention_required": unknown
+                                or (interrupted and status == "paused"),
+                            },
                         }
                     ),
                     run.revision,
@@ -1426,9 +1516,317 @@ class Memories(_Repository[Memory]):
 
 class Artifacts(_Repository[Artifact]):
     def list(
-        self, *, task_id: UUID | None = None, limit: int = 100, offset: int = 0
+        self,
+        *,
+        task_id: UUID | None = None,
+        conversation_id: UUID | None = None,
+        series_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[Artifact]:
-        return self._list({"task_id": task_id}, limit, offset)
+        return self._list(
+            {"task_id": task_id, "conversation_id": conversation_id, "series_id": series_id},
+            limit,
+            offset,
+        )
+
+    def occupied_version(self, series_id: UUID, version: int) -> Artifact | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM artifacts "
+            "WHERE series_id=? AND version=? AND status<>'failed'",
+            (str(series_id), version),
+        ).fetchone()
+        return self._decode(row) if row else None
+
+    def command(self, client_request_id: UUID):
+        self._context.check()
+        return self._context.connection.execute(
+            "SELECT agent_id,artifact_id,kind,request_hash FROM artifact_commands "
+            "WHERE client_request_id=?",
+            (str(client_request_id),),
+        ).fetchone()
+
+    def record_command(self, client_request_id, agent_id, artifact_id, kind, request_hash):
+        self._context.check(write=True)
+        self._context.connection.execute(
+            "INSERT INTO artifact_commands VALUES(?,?,?,?,?,?,?)",
+            (
+                str(client_request_id),
+                str(agent_id),
+                str(artifact_id),
+                kind,
+                request_hash,
+                _timestamp(utc_now()),
+                "user",
+            ),
+        )
+
+
+class BudgetLimits(_Repository[BudgetLimit]):
+    def for_agent(self, agent_id: UUID) -> BudgetLimit | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM budget_limits WHERE agent_id=?",
+            (str(UUID(str(agent_id))),),
+        ).fetchone()
+        return self._decode(row) if row is not None else None
+
+
+class UsageEntries(_Repository[UsageEntry]):
+    def _validate_links(self, record: UsageEntry) -> None:
+        """Confere a cadeia canônica antes de escrever ou materializar consumo.
+
+        A agregação de orçamento deliberadamente não filtra vínculos inválidos:
+        evidência legada incoerente nunca pode liberar saldo por desaparecer.
+        """
+        self._context.check()
+        connection = self._context.connection
+        if record.conversation_id is not None:
+            owner = connection.execute(
+                "SELECT agent_id FROM conversations WHERE id=?",
+                (str(record.conversation_id),),
+            ).fetchone()
+            if owner is None or owner[0] != str(record.agent_id):
+                raise IntegrityError("Consumo e conversa exigem a mesma abelha canônica.")
+        if record.source == "task":
+            scope = connection.execute(
+                "SELECT t.agent_id,t.conversation_id FROM model_calls c "
+                "JOIN runs r ON r.id=c.run_id JOIN tasks t ON t.id=r.task_id WHERE c.id=?",
+                (str(record.model_call_id),),
+            ).fetchone()
+            expected = (
+                str(record.agent_id),
+                str(record.conversation_id) if record.conversation_id is not None else None,
+            )
+            if scope is None or scope != expected:
+                raise IntegrityError("Consumo exige vínculo canônico com chamada e tarefa.")
+
+    def _decode(self, row: tuple) -> UsageEntry:
+        record = super()._decode(row)
+        self._validate_links(record)
+        return record
+
+    def for_model_call(self, model_call_id: UUID) -> UsageEntry | None:
+        self._context.check()
+        row = self._context.connection.execute(
+            f"SELECT {','.join(self._spec.columns)} FROM usage_entries WHERE model_call_id=?",
+            (str(UUID(str(model_call_id))),),
+        ).fetchone()
+        return self._decode(row) if row is not None else None
+
+    def since(self, agent_id: UUID, since: datetime, *, page: int = 1000) -> list[UsageEntry]:
+        """Janela inteira, paginada por chave no mesmo snapshot; nunca truncada.
+
+        Somar uma janela parcial subestimaria o consumo.
+        """
+        self._context.check()
+        _pagination(page, 0)
+        agent, cursor = str(UUID(str(agent_id))), (_timestamp(since), "")
+        result: list[UsageEntry] = []
+        while True:
+            rows = self._context.connection.execute(
+                f"SELECT {','.join(self._spec.columns)} FROM usage_entries "
+                "WHERE agent_id=? AND (created_at>? OR (created_at=? AND id>?)) "
+                "ORDER BY created_at,id LIMIT ?",
+                (agent, cursor[0], cursor[0], cursor[1], page),
+            ).fetchall()
+            result.extend(self._decode(row) for row in rows)
+            if len(rows) < page:
+                return result
+            cursor = (_timestamp(result[-1].created_at), str(result[-1].id))
+
+    def window(self, agent_id: UUID, since: datetime) -> dict[str, int]:
+        """Agregação da janela em SQL, sem carregar linhas sob o lock de escrita.
+
+        A regra de contagem espelha UsageEntry.counted_tokens/informed_tokens.
+        """
+        self._context.check()
+        informed = (
+            "CASE WHEN status='confirmed' AND usage_kind IN ('reported','estimated') THEN "
+            "CASE WHEN total_tokens IS NOT NULL THEN NULLIF(total_tokens,0) "
+            "WHEN input_tokens IS NOT NULL AND output_tokens IS NOT NULL "
+            "THEN NULLIF(input_tokens+output_tokens,0) END END"
+        )
+        row = self._context.connection.execute(
+            "SELECT "
+            f"COALESCE(SUM(CASE WHEN status='released' THEN 0 "
+            f"ELSE COALESCE({informed},reserved_tokens) END),0),"
+            f"COALESCE(SUM(CASE WHEN usage_kind='reported' THEN {informed} END),0),"
+            "COALESCE(SUM(status='reserved'),0),"
+            f"COALESCE(SUM(status='unknown' OR (status='confirmed' AND ({informed}) IS NULL)),0),"
+            "COUNT(*) FROM usage_entries WHERE agent_id=? AND created_at>=?",
+            (str(UUID(str(agent_id))), _timestamp(since)),
+        ).fetchone()
+        return dict(
+            zip(
+                (
+                    "counted_tokens",
+                    "reported_tokens",
+                    "open_reservations",
+                    "unknown_entries",
+                    "entries",
+                ),
+                row,
+                strict=True,
+            )
+        )
+
+
+@dataclass(frozen=True)
+class SafetyState:
+    status: str
+    generation: int
+    revision: int
+    changed_at: datetime
+    reason: str | None
+
+
+def read_safety(connection: apsw.Connection) -> SafetyState:
+    row = connection.execute(
+        "SELECT status,generation,revision,changed_at,reason FROM safety_control WHERE id=1"
+    ).fetchone()
+    if row is None:
+        # Sem a linha não há como provar que despachos estão liberados.
+        raise IntegrityError("Controle de parada ausente.")
+    return SafetyState(row[0], row[1], row[2], datetime.fromisoformat(row[3]), row[4])
+
+
+class Safety:
+    """Parada global durável; comandos humanos idempotentes por UUID e CAS."""
+
+    def __init__(self, context: _Context) -> None:
+        self._context = context
+
+    def state(self) -> SafetyState:
+        self._context.check()
+        return read_safety(self._context.connection)
+
+    def command(
+        self,
+        *,
+        kind: str,
+        client_request_id: UUID,
+        expected_revision: int,
+        reason: str | None,
+        now: datetime,
+    ) -> tuple[SafetyState, bool]:
+        """Devolve (estado, replay). Replay só com pedido idêntico; nunca reaplica."""
+        self._context.check(write=True)
+        connection = self._context.connection
+        row = connection.execute(
+            "SELECT kind,expected_revision,reason FROM safety_commands WHERE client_request_id=?",
+            (str(UUID(str(client_request_id))),),
+        ).fetchone()
+        if row is not None:
+            if tuple(row) != (kind, expected_revision, reason):
+                raise IntegrityError("Pedido de parada já registrado com outros dados.")
+            return read_safety(connection), True
+        state = read_safety(connection)
+        if state.revision != expected_revision:
+            raise RevisionConflict("O estado de parada mudou; releia antes de decidir.")
+        target = "stopped" if kind == "stop" else "running"
+        if kind not in ("stop", "resume") or state.status == target:
+            raise InvalidTransition("Comando de parada não altera o estado atual.")
+        # Estado e comando confirmam juntos: a transação inteira é atômica.
+        connection.execute(
+            "UPDATE safety_control SET status=?,generation=?,revision=?,changed_at=?,reason=? "
+            "WHERE id=1 AND revision=?",
+            (
+                target,
+                state.generation + (1 if kind == "stop" else 0),
+                state.revision + 1,
+                _timestamp(now),
+                reason,
+                state.revision,
+            ),
+        )
+        if connection.changes() != 1:
+            raise RevisionConflict("O estado de parada mudou durante o comando.")
+        command_id = str(uuid4())
+        connection.execute(
+            "INSERT INTO safety_commands(id,client_request_id,kind,expected_revision,"
+            "resulting_revision,actor,reason,created_at) VALUES(?,?,?,?,?,?,?,?)",
+            (
+                command_id,
+                str(UUID(str(client_request_id))),
+                kind,
+                expected_revision,
+                expected_revision + 1,
+                self._context.actor,
+                reason,
+                _timestamp(now),
+            ),
+        )
+        current = read_safety(connection)
+        # Auditoria canônica sem o texto do motivo, como nos demais eventos.
+        connection.execute(
+            "INSERT INTO domain_events(id,created_at,entity_type,entity_id,event_type,"
+            "payload_json,actor,source,correlation_id) VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                str(uuid4()),
+                _timestamp(now),
+                "safety_control",
+                command_id,
+                target,
+                _json(
+                    {
+                        "revision": current.revision,
+                        "previous_revision": state.revision,
+                        "generation": current.generation,
+                        "previous_status": state.status,
+                    }
+                ),
+                self._context.actor,
+                self._context.source,
+                self._context.correlation_id,
+            ),
+        )
+        return current, False
+
+    def in_flight(self) -> dict[str, int]:
+        """Operações já despachadas: a parada não comprova que o efeito remoto acabou."""
+        self._context.check()
+        connection = self._context.connection
+        return {
+            "model_calls": connection.execute(
+                "SELECT count(*) FROM model_calls WHERE status='dispatch_started'"
+            ).fetchone()[0],
+            "tool_actions": connection.execute(
+                "SELECT count(*) FROM actions WHERE status='dispatch_started'"
+            ).fetchone()[0],
+            "chat_reservations": connection.execute(
+                "SELECT count(*) FROM usage_entries WHERE status='reserved' AND source='chat'"
+            ).fetchone()[0],
+            "provisioning_effects": connection.execute(
+                "SELECT count(*) FROM provisioning_claims WHERE status='dispatch_started'"
+            ).fetchone()[0],
+            # Bases anteriores à migração 0019 não têm executores.
+            "executor_commands": connection.execute(
+                "SELECT count(*) FROM executor_commands WHERE status IN ('queued','sent')"
+            ).fetchone()[0]
+            if connection.execute(
+                "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
+            ).fetchone()
+            else 0,
+        }
+
+
+_USAGE_SPEC = _Spec(
+    "usage_entries",
+    "usage_entry",
+    UsageEntry,
+    (
+        "agent_id",
+        "source",
+        "conversation_id",
+        "model_call_id",
+        "provider_kind",
+        "model",
+        "reserved_tokens",
+        "estimate_method",
+    ),
+)
 
 
 class Events:
@@ -1546,8 +1944,28 @@ class UnitOfWork:
             context, _Spec("memories", "memory", Memory, ("agent_id", "task_id", "scope"))
         )
         self.artifacts = Artifacts(
-            context, _Spec("artifacts", "artifact", Artifact, ("task_id", "run_id", "version"))
+            context,
+            _Spec(
+                "artifacts",
+                "artifact",
+                Artifact,
+                (
+                    "agent_id",
+                    "conversation_id",
+                    "task_id",
+                    "source",
+                    "run_id",
+                    "version",
+                    "series_id",
+                    "previous_id",
+                ),
+            ),
         )
+        self.budget_limits = BudgetLimits(
+            context, _Spec("budget_limits", "budget_limit", BudgetLimit, ("agent_id",))
+        )
+        self.usage_entries = UsageEntries(context, _USAGE_SPEC)
+        self.safety = Safety(context)
         self.events = Events(context)
 
 

@@ -5,13 +5,30 @@ export const taskControls = ['pause', 'cancel', 'resume', 'redirect'] as const
 export type TaskStatus = typeof taskStatuses[number]
 export type TaskControl = typeof taskControls[number]
 export interface TaskResult { content: string; created_at: string }
+export const deliverableKinds = ['report', 'table'] as const
+export type DeliverableKind = typeof deliverableKinds[number]
+export const deliverableStatuses = ['ready', 'pending', 'failed', 'invalid', 'missing'] as const
+export interface DeliverableItem {
+  kind: DeliverableKind; status: typeof deliverableStatuses[number]; error_code: string | null; artifact_id: string | null
+  sha256: string | null; size_bytes: number | null; version: number | null; rows: number | null; columns: number | null; formula_like_cells: number | null
+}
+export interface DeliverableResults { items: DeliverableItem[]; partial: boolean; missing_data: string[] }
 export interface TaskRun { id: string; status: TaskStatus; provider: string; model: string; started_at: string | null; finished_at: string | null; error_code: string | null; result: TaskResult | null }
 export interface TaskRecord {
+  routine_execution?: { routine_id: string; revision: number; occurrence_id: string; scheduled_at: string; name: string; trigger?: 'manual' }
+  skill_execution?: { skill_id: string; version: number; snapshot_hash: string }
+  tool_approvals_available?: boolean; model_approvals_available?: boolean
+  execution_kind?: string; agent_approvals_available?: boolean; agent_chat_conversation_id?: string | null
+  agent_steps?: { tool: string; status: string | null; code: string | null; at: string }[]
+  research?: { pending?: boolean; sources_read?: number; links_cited?: number; links_verified?: number; unverified_links?: string[]; no_citations?: boolean; artifacts?: { kind: string; artifact_id: string; name: string }[] } | null
+  max_calls?: number; max_active_seconds?: number; partial?: boolean
   id: string; agent_id: string; conversation_id: string | null; title: string; objective: string; expected_result: string
   status: TaskStatus; revision: number; created_at: string; updated_at: string; active_run_id: string | null
   control_requested: 'pause' | 'cancel' | null; available_controls: TaskControl[]; latest_run: TaskRun | null
   progress: { code: string; created_at: string } | null
+  waiting_for?: { tool: string | null; task_id: string | null } | null
   unknown_requires_ack: boolean; unknown_model_calls: number; unknown_tool_actions: number; action_in_flight: boolean
+  deliverables?: DeliverableKind[]; deliverable_results?: DeliverableResults | null; publication_pending?: boolean
 }
 export interface TaskEvent { id: string; code: string; created_at: string; run_id: string | null; content?: string | null }
 export interface TaskCollection { tasks: TaskRecord[]; has_more: boolean; worker?: { available: boolean; last_seen: string | null } }
@@ -21,7 +38,7 @@ export interface ActionSummary {
   obsolete: boolean; acknowledged: boolean; created_at: string; updated_at: string
 }
 export interface TaskDetail { task: TaskRecord; events: TaskEvent[]; actions: ActionSummary[]; has_more: boolean }
-export interface NewTask { client_request_id: string; conversation_id?: string; title: string; objective: string; expected_result: string; max_calls?: number; max_active_seconds?: number }
+export interface NewTask { client_request_id: string; conversation_id?: string; title: string; objective: string; expected_result: string; max_calls?: number; max_active_seconds?: number; deliverables?: DeliverableKind[] }
 export interface TaskCommand { client_request_id: string; expected_revision: number; action: TaskControl; instruction?: string; acknowledge_unknown?: boolean }
 
 const nullableString = (value: unknown) => value === null || typeof value === 'string'
@@ -35,15 +52,37 @@ function isRun(value: unknown) {
     && isStatus(value.status) && nullableDate(value.started_at) && nullableDate(value.finished_at)
     && nullableString(value.error_code) && isResult(value.result))
 }
+const nullableCount = (value: unknown) => value === null || count(value)
+const errorCode = (value: unknown) => value === null || (typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value))
+const kindList = (value: unknown) => Array.isArray(value) && value.every((kind) => deliverableKinds.includes(kind)) && new Set(value).size === value.length
+function isDeliverableItem(value: unknown): value is DeliverableItem {
+  if (!record(value) || !deliverableKinds.includes(value.kind as DeliverableKind) || !deliverableStatuses.includes(value.status as DeliverableItem['status']) || !errorCode(value.error_code)) return false
+  const ready = value.status === 'ready'
+  // Somente um entregável publicado aponta para um artefato com hash e versão.
+  return (ready ? typeof value.artifact_id === 'string' && typeof value.sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.sha256) && count(value.size_bytes) && Number.isSafeInteger(value.version) && (value.version as number) >= 1
+    : value.artifact_id === null && value.sha256 === null && value.size_bytes === null && value.version === null)
+    && (ready || value.error_code !== null) && nullableCount(value.rows) && nullableCount(value.columns) && nullableCount(value.formula_like_cells)
+}
+function isDeliverableResults(value: unknown) {
+  return value === null || (record(value) && Array.isArray(value.items) && value.items.every(isDeliverableItem)
+    && new Set(value.items.map((item) => item.kind)).size === value.items.length && typeof value.partial === 'boolean'
+    && Array.isArray(value.missing_data) && value.missing_data.length <= 20 && value.missing_data.every((item) => typeof item === 'string'))
+}
 export function isTask(value: unknown): value is TaskRecord {
   return record(value) && ['id', 'agent_id', 'title', 'objective', 'expected_result'].every((key) => typeof value[key] === 'string')
     && nullableString(value.conversation_id) && nullableString(value.active_run_id) && isStatus(value.status)
+    && (value.tool_approvals_available === undefined || typeof value.tool_approvals_available === 'boolean') && (value.model_approvals_available === undefined || typeof value.model_approvals_available === 'boolean')
+    && (value.max_calls === undefined || count(value.max_calls) && value.max_calls > 0) && (value.max_active_seconds === undefined || count(value.max_active_seconds) && value.max_active_seconds > 0) && (value.partial === undefined || typeof value.partial === 'boolean')
     && Number.isInteger(value.revision) && (value.revision as number) > 0 && dateString(value.created_at) && dateString(value.updated_at)
     && [null, 'pause', 'cancel'].includes(value.control_requested as null | string)
     && Array.isArray(value.available_controls) && value.available_controls.every((control) => taskControls.includes(control))
     && isRun(value.latest_run) && (value.progress === null || (record(value.progress) && typeof value.progress.code === 'string' && dateString(value.progress.created_at)))
     && count(value.unknown_model_calls) && count(value.unknown_tool_actions) && typeof value.action_in_flight === 'boolean'
     && typeof value.unknown_requires_ack === 'boolean' && value.unknown_requires_ack === (value.unknown_model_calls + value.unknown_tool_actions > 0)
+    && (value.deliverables === undefined || kindList(value.deliverables)) && (value.deliverable_results === undefined || isDeliverableResults(value.deliverable_results))
+    && (value.publication_pending === undefined || typeof value.publication_pending === 'boolean')
+    && (value.routine_execution === undefined || (record(value.routine_execution) && (value.routine_execution.trigger === undefined || value.routine_execution.trigger === 'manual') && typeof value.routine_execution.routine_id === 'string' && /^[0-9a-f-]{36}$/.test(value.routine_execution.routine_id) && typeof value.routine_execution.occurrence_id === 'string' && /^[0-9a-f-]{36}$/.test(value.routine_execution.occurrence_id) && Number.isSafeInteger(value.routine_execution.revision) && Number(value.routine_execution.revision) >= 1 && dateString(value.routine_execution.scheduled_at) && typeof value.routine_execution.name === 'string' && value.routine_execution.name.trim().length > 0 && Array.from(value.routine_execution.name).length <= 200))
+    && (value.skill_execution === undefined || (record(value.skill_execution) && typeof value.skill_execution.skill_id === 'string' && /^[0-9a-f-]{36}$/.test(value.skill_execution.skill_id) && Number.isSafeInteger(value.skill_execution.version) && Number(value.skill_execution.version) >= 1 && typeof value.skill_execution.snapshot_hash === 'string' && /^[0-9a-f]{64}$/.test(value.skill_execution.snapshot_hash)))
 }
 function isActionSummary(value: unknown): value is ActionSummary {
   return record(value) && ['id', 'run_id', 'tool_name'].every((key) => typeof value[key] === 'string' && (value[key] as string).length > 0)

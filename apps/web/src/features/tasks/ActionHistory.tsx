@@ -6,7 +6,8 @@ export function ActionHistory({ actions, hasMore }: { actions: ActionSummary[]; 
   const { t } = useTranslation('tasks')
   if (actions.length === 0) return null
   return <details className="task-events"><summary>{t('actionHistory')}</summary><p className="quiet-note">{t('actionHistoryScope')}</p>{hasMore && <p className="quiet-note">{t('actionLimited')}</p>}<ol>{actions.map((action) => <li key={action.id}>
-    <strong>{action.tool_name}</strong><p>{t(`actionStatus.${action.status}`)}</p>
+    <strong>{action.tool_name === 'tool.intent' ? t('authorizationIntent') : action.tool_name}</strong><p>{t(`actionStatus.${action.status}`)}</p>
+    <p className="quiet-note">{t(action.tool_name === 'tool.intent' && action.status === 'confirmed' ? 'authorizationUsedHelp' : `actionHelp.${action.status}`)}</p>
     <p className="quiet-note">{t('actionCreated')}: <TaskTime value={action.created_at} /><br />{t('actionUpdated')}: <TaskTime value={action.updated_at} /></p>
     {action.obsolete && <p className="quiet-note">{t('actionObsolete')}</p>}
     {(action.status === 'outcome_unknown' || action.acknowledged) && <p className="quiet-note">{t(action.acknowledged ? 'actionAcknowledged' : 'actionUnacknowledged')}</p>}

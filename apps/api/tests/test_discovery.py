@@ -76,7 +76,17 @@ def test_provider_catalog_is_authenticated_and_explicit(client):
     response = client.get("/api/v1/providers")
     assert response.status_code == 200
     providers = {provider["id"]: provider for provider in response.json()["providers"]}
-    assert set(providers) == {"openai", "openrouter", "gemini", "ollama", "custom", "custom_ollama"}
+    assert set(providers) == {
+        "openai",
+        "anthropic",
+        "xai",
+        "groq",
+        "openrouter",
+        "gemini",
+        "ollama",
+        "custom",
+        "custom_ollama",
+    }
     assert providers["openai"]["endpoint"] == "https://api.openai.com/v1"
     assert providers["openrouter"]["endpoint"] == "https://openrouter.ai/api/v1"
     assert (

@@ -12,6 +12,10 @@ O launcher gera internamente um código de uso único, válido por 15 minutos, e
 
 O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; não há instalador assinado ou launcher gráfico Linux/macOS neste checkpoint. O setup gráfico completo para as distribuições suportadas continua em BEES-028.
 
+## Uso no Linux e macOS
+
+Com Docker Engine 28+ (ou Docker Desktop) e Compose 2.20+, execute `./scripts/start.sh` na pasta do projeto — no macOS também é possível dar dois cliques em **Iniciar Bees.command**. O script compila e sobe API, worker e computador da abelha, aguarda a saúde dos serviços e abre o navegador com a autorização de primeiro acesso no fragmento privado da URL (o código não aparece no terminal nem em `logs/startup.log`). Opções: `--port 8090`, `--no-build`, `--no-browser`, `--project-name`. Sem `xdg-open`/`open`, o script apenas informa o endereço; gere o código com `docker compose exec bees bees-auth bootstrap`. Uma segunda execução simultânea é recusada (trava em `logs/.start.lock`, recuperada se o processo dono terminou). As mensagens seguem o idioma do sistema (`LANG`: pt, en ou es). No Linux, `./scripts/start.sh --install-shortcut` cria o atalho **Bees** no menu de aplicativos (`~/.local/share/applications/bees.desktop`), inclusive com espaços ou acentos no caminho.
+
 ## Operação por Compose
 
 Quem administra a instalação também pode usar um comando único:
@@ -37,7 +41,7 @@ O requisito Engine 28+ acompanha a correção de alcance de portas publicadas em
 
 | Volume | Conteúdo |
 | --- | --- |
-| `bees-data` | SQLite, backups de migração, memórias e credenciais cifradas. |
+| `bees-data` | SQLite, backups de migração, memórias, credenciais cifradas e blobs de artefatos (`artifacts/`). |
 | `bees-secrets` | Chave Fernet privada provisionada automaticamente. |
 | `ollama-models` | Modelos de Ollama, somente quando o perfil opcional for usado. |
 
@@ -75,7 +79,7 @@ Loopback dentro do container não é o host Windows/Linux. Um Ollama já instala
 
 Esta distribuição local não inclui proxy/certificado HTTPS. Não publique a porta em `0.0.0.0` no host. Acesso remoto autenticado via túnel SSH mantém a URL local; publicação por proxy segue o modo nativo documentado em [primeiro acesso](onboarding.md). O modo container não confia em headers de proxy por padrão, e não basta definir uma URL pública para obter HTTPS.
 
-Compose empacota o plano de controle. Inclui worker de tarefas textuais; não provisiona VM da abelha, conector pessoal, ferramentas ou scheduler de rotinas. Esses componentes serão acrescentados quando suas histórias estiverem implementadas.
+Compose empacota o plano de controle com o worker padrão, incluindo tarefas textuais e o [scheduler de rotinas](routines.md). Ciclos de ferramentas/skills programadas exigem o recurso POSIX previamente preparado e as concessões atuais; subir Compose não os instala ou concede. Essa distribuição não comprova VM da abelha, apps ou conector pessoal.
 
 Validação reproduzível com modelo de protocolo controlado, sem chaves reais:
 

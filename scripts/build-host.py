@@ -96,7 +96,7 @@ def write_inventory(folder: Path) -> None:
     shutil.copy2(Path(sys.base_prefix) / "LICENSE.txt", licenses / "Python-LICENSE.txt")
     for name, dist in {**packages, "pyinstaller": metadata.distribution("pyinstaller")}.items():
         for file in dist.files or []:
-            if "license" in str(file).lower() or "copying" in str(file).lower():
+            if any(word in str(file).lower() for word in ("license", "copying", "notice")):
                 source = dist.locate_file(file)
                 if source.is_file():
                     target = licenses / name / Path(str(file)).name
@@ -165,6 +165,10 @@ def verify(folder: Path) -> None:
     info = json.loads((folder / "package-info.json").read_text(encoding="utf-8"))
     if FORBIDDEN.intersection(info["runtime_dependencies"]):
         raise ValueError("Dependência do plano de controle encontrada")
+    for name in ("LICENSE", "NOTICE"):
+        notice = folder / "licenses" / "bees-host" / name
+        if not notice.is_file() or notice.read_bytes() != (ROOT / name).read_bytes():
+            raise ValueError("Aviso de licença do Bees ausente ou divergente")
 
 
 def reject_runtime_state(folder: Path) -> None:

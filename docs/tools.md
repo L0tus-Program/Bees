@@ -1,5 +1,7 @@
 # Contratos de ferramentas e extensões locais
 
+O checkpoint BEES-009.1/.2 acrescenta [decisões próprias para o recurso local de texto](resource-tool-approvals.md), com espera sem lease, revisão humana e consumo junto do efeito. Os limites históricos abaixo registram as respectivas entregas.
+
 BEES-010 estabelece contratos próprios do Bees para ferramentas, sem formato fechado de um provedor. O checkpoint inicial oferece uma ferramenta pura de transformação de texto e gestão de extensões declarativas. Não instala código Python de terceiros no processo que guarda banco e credenciais. Navegador, arquivos, shell, apps, MCP e executores remotos dependem de seus adaptadores e ambientes próprios.
 
 ## Gestão pela interface
@@ -8,19 +10,24 @@ Na aba **Ferramentas** da abelha, instale uma extensão do catálogo local. Uma 
 
 Manifestos JSON são uma opção avançada. Eles descrevem ferramentas conhecidas pelo registro confiável; não carregam módulos, executáveis, URLs ou credenciais. Instalações têm manifesto imutável e revisão. Uma versão diferente recebe instalação própria e não herda acesso da anterior. Os contratos publicados incluem versão, entradas/saídas, capacidade e executor suportado.
 
-O catálogo atual referencia `builtin:text.normalize@1`. A operação transforma somente o texto fornecido em memória; não lê arquivos nem usa rede. Gerenciar o contrato não ativa chamadas automáticas pelo modelo: chat e tarefas ainda seguem seu fluxo textual. A implementação de loop de ferramentas e a integração com ambientes reais serão comprovadas nos checkpoints desses executores.
+O catálogo atual referencia `builtin:text.normalize@1`. A operação transforma somente o texto fornecido em memória; não lê arquivos nem usa rede. Gerenciar o contrato não ativa chamadas automáticas pelo modelo. Chat e tarefas comuns seguem o fluxo textual; o [modo opcional de transformação local](tool-cycle.md) permite propostas limitadas quando recurso, modelo e concessão estão disponíveis.
 
 ## Autoridade e execução
 
 O serviço separa os argumentos da ferramenta dos dados de autoridade: agente, ambiente, identidade, destino e vínculo de execução. Argumentos externos não escolhem permissões nem modificam políticas. O registro confiável define executor, capacidade e modelos de validação; um manifesto declarativo não pode ampliar esses contratos.
 
-Antes de preparar uma ação, o serviço verifica instalação, ferramenta e concessão. Antes do despacho, relê suas revisões e a política atual. Uma intenção alterada ou um contrato desabilitado não usa a autorização anterior. Perguntar mantém a chamada sem execução; não existe aprovação implícita por texto ou concessão. Aprovações BEES-009 continuam limitadas às tarefas de geração textual até a integração com executores reais.
+Antes de preparar uma ação, o serviço verifica instalação, ferramenta e concessão.
+Antes do despacho, relê revisões e política. Intenção alterada ou contrato desabilitado
+não usa a autorização anterior. Perguntar conserva a chamada sem execução; não há
+aprovação implícita por texto. A [decisão própria do recurso POSIX](resource-tool-approvals.md)
+e o [ciclo limitado](tool-cycle.md) também atendem skills e rotinas programadas. A agenda
+fixa recurso/versão e não herda grants; troca exige revisão humana, sem substituir executor.
 
 Cada chamada conserva correlação e journal de ação. Replay de resultado confirmado devolve o estado conhecido; uma chamada iniciada de resultado incerto não é repetida. Falha de saída ou interrupção após início conserva a incerteza. Consulta ou replay não marca como encerrada uma ação ainda em voo.
 
 O dispatcher interno exige um claim vigente da fila no preparo e no despacho: agente, tarefa, execução, dono e todas as gerações de leases devem corresponder ao estado persistido. Pausa, cancelamento, mudança do contexto, concessão ou política entre preparo e despacho impedem o efeito. O vínculo e o início da ação são confirmados antes de chamar o executor, fora da transação. Ao receber o resultado, o serviço verifica novamente o dono; um executor com lease expirada não publica a conclusão.
 
-Uma pausa ou cancelamento durante o efeito não o desfaz. Um resultado conhecido pode ser conservado no journal privado sem concluir o objetivo da tarefa nem iniciar outra ação. Perda do executor ou resposta inválida deixam o resultado desconhecido. A recuperação de leases abrange ações de ferramentas, além das chamadas de modelo, e coloca a tarefa em quarentena. Isso não prova que um efeito externo já parou; exclusividade de telas/ambientes ainda dependerá do executor correspondente.
+Com a [parada global](safety.md) ativa, o despacho é recusado com `global_stop` antes de `dispatch_started`; a ação continua pronta e sem efeito. Uma pausa ou cancelamento durante o efeito não o desfaz. Um resultado conhecido pode ser conservado no journal privado sem concluir o objetivo da tarefa nem iniciar outra ação. Perda do executor ou resposta inválida deixam o resultado desconhecido. A recuperação de leases abrange ações de ferramentas, além das chamadas de modelo, e coloca a tarefa em quarentena. Isso não prova que um efeito externo já parou; exclusividade de telas/ambientes ainda dependerá do executor correspondente.
 
 Retomar uma tarefa com resultado desconhecido exige reconhecimento humano explícito. Esse reconhecimento fica separado do journal: não converte a ação em confirmada, não prova ausência de efeito e não repete a ação antiga. Uma aprovação textual associada à chamada de modelo representa o mesmo efeito e não exige duas decisões. O detalhe da tarefa projeta somente ferramenta, estado, datas e reconhecimento; parâmetros, resultados privados e credenciais permanecem fora da resposta pública.
 
@@ -43,7 +50,11 @@ Habilitação e concessão usam CAS; após conflito ou resposta perdida, consult
 
 Schema 4 adiciona instalações e concessões canônicas. A migração exige API e worker parados e conserva os dados anteriores; inicialização cria backup antes de migrar. O launcher Windows interrompe a versão anterior ao detectar imagem nova. Consulte [persistência](persistence.md) e [containers](containers.md); não substitua banco ou volumes para atualizar.
 
-Referência OD-02: registro explícito e fronteira validação → política → despacho. A implementação é própria; nenhum código do Open Dots foi incorporado. Esta fundação não prova isolamento de máquinas, execução de código arbitrário ou uso de ferramentas por um LLM real. A coordenação do builtin prepara os controles de tarefas para os executores; transporte remoto, aprovações concretas de ferramentas, agenda e coordenação dos ambientes reais continuam pendentes.
+Referência OD-02: registro explícito e fronteira validação → política → despacho.
+A implementação é própria; nenhum código do Open Dots foi incorporado. O recorte
+POSIX tem processo/journal reais, aprovação própria e [agenda pelo worker](routines.md).
+Isso não comprova VM, shell arbitrário ou seleção por LLM real. Transporte remoto,
+apps e coordenação dos demais ambientes permanecem pendentes.
 
 ## Validação do checkpoint
 

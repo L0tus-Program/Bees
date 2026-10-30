@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from bees_core.deliverables import KINDS, DeliverableKind
 from bees_core.models import Conversation, Message, Run, Task, utc_now
 from bees_core.models import TaskCommand as StoredCommand
 from bees_core.providers.contracts import validate_capabilities
@@ -36,6 +37,8 @@ class TaskInput(_Input):
     expected_result: str = Field(default="", max_length=4000)
     max_calls: int = Field(default=3, ge=1, le=50, strict=True)
     max_active_seconds: int = Field(default=120, ge=1, le=1800, strict=True)
+    # Arquivos pedidos pelo usuário; o modelo não escolhe formatos nem os amplia.
+    deliverables: tuple[DeliverableKind, ...] = Field(default=(), max_length=len(KINDS))
 
     @field_validator("title", "objective")
     @classmethod
@@ -44,6 +47,13 @@ class TaskInput(_Input):
         if not value or "\x00" in value:
             raise ValueError("Texto de tarefa vazio ou inválido.")
         return value
+
+    @field_validator("deliverables")
+    @classmethod
+    def distinct(cls, value: tuple) -> tuple:
+        if len(set(value)) != len(value):
+            raise ValueError("Entregável repetido.")
+        return tuple(kind for kind in KINDS if kind in value)
 
 
 class TaskCommandInput(_Input):
@@ -120,11 +130,19 @@ class TaskDetail(_Input):
     has_more: bool = False
 
 
-def request_digest(value: BaseModel) -> str:
+def request_digest(value: BaseModel, *, exclude: set[str] | None = None) -> str:
     payload = json.dumps(
-        value.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        value.model_dump(mode="json", exclude=exclude),
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def submission_digest(value: TaskInput) -> str:
+    # Pedidos sem entregáveis mantêm o hash anterior: replays antigos seguem válidos.
+    return request_digest(value, exclude=None if value.deliverables else {"deliverables"})
 
 
 class TaskService:
@@ -149,15 +167,19 @@ class TaskService:
         with self.store.transaction(source="task_create") as uow:
             return self.create_in_unit(uow, agent_id, value)
 
-    def create_in_unit(self, uow, agent_id: UUID | str, value: TaskInput, *, metadata=None) -> Task:
+    def create_in_unit(
+        self, uow, agent_id: UUID | str, value: TaskInput, *, metadata=None, routine_id=None
+    ) -> Task:
         """Cria fila/conversa/run na transação confiável do chamador, sem rede."""
         value = TaskInput.model_validate(value.model_dump(mode="python"))
         agent_id = UUID(str(agent_id))
-        digest = request_digest(value)
+        digest = submission_digest(value)
         existing = uow.tasks.find_submission(value.client_request_id)
         if existing is not None:
             if (
                 existing.agent_id != agent_id
+                or existing.routine_id != routine_id
+                or existing.metadata.get("execution_kind", "text_task") != "text_task"
                 or existing.metadata.get("submission_hash") != digest
                 or (
                     metadata is not None
@@ -176,6 +198,7 @@ class TaskService:
         )
         task = Task(
             agent_id=agent.id,
+            routine_id=routine_id,
             conversation_id=conversation.id,
             title=value.title,
             objective=value.objective,
@@ -183,7 +206,9 @@ class TaskService:
             submission_key=value.client_request_id,
             max_calls=value.max_calls,
             max_active_seconds=value.max_active_seconds,
-            metadata=(metadata or {}) | {"submission_hash": digest, "execution_kind": "text_task"},
+            metadata=(metadata or {})
+            | {"submission_hash": digest, "execution_kind": "text_task"}
+            | ({"deliverables": list(value.deliverables)} if value.deliverables else {}),
         )
         uow.conversations.create(conversation)
         uow.tasks.create(task)
@@ -265,9 +290,17 @@ class TaskService:
                 if value.kind != "resume" or not value.acknowledge_unknown:
                     raise TaskError("unknown_requires_ack")
             result_ready = self._ready_current(uow, run) and not pending_unknown
+            publication = run.checkpoint.get("publication")
+            # Resposta confirmada com arquivos ainda não publicados: retomar só publica.
+            pending_publication = (
+                not pending_unknown
+                and isinstance(publication, dict)
+                and publication.get("status") in ("pending", "started")
+            )
             if (
                 value.kind == "resume"
                 and not result_ready
+                and not pending_publication
                 and (
                     task.calls_started >= task.max_calls
                     or task.active_milliseconds >= task.max_active_seconds * 1000
@@ -288,6 +321,19 @@ class TaskService:
             )
             uow.task_commands.create(command)
             checkpoint = dict(run.checkpoint)
+            if value.kind in ("resume", "cancel") and task.metadata.get("execution_kind") in (
+                "model_tool_task",
+                "agent_task",
+            ):
+                if task.metadata["execution_kind"] == "agent_task":
+                    from bees_core.agent_tools.cycle import supersede_pending
+                else:
+                    from bees_core.tool_cycle import supersede_pending
+
+                supersede_pending(uow, task, run)
+                checkpoint.pop("tool_cycle", None)
+                if value.kind == "resume":
+                    checkpoint["partial"] = False
             updates = {"control_revision": task.control_revision + 1}
             run_updates = {}
             replace_run = False
@@ -324,6 +370,9 @@ class TaskService:
                     updates["status"] = "completed"
                     run_updates |= {"status": "completed", "finished_at": stamp}
                     checkpoint["progress"] = "completed"
+                elif pending_publication:
+                    # Mesma execução e mesma intenção: ids determinísticos readotam rascunhos.
+                    checkpoint["publication"] = publication | {"status": "pending"}
                 else:
                     # A execução anterior mantém modelo/configuração/proveniência reais.
                     # Retomar cria outra intenção; consentimento humano pertence
@@ -331,6 +380,8 @@ class TaskService:
                     checkpoint.pop("approval_id", None)
                     checkpoint.pop("action_id", None)
                     checkpoint.pop("result_message_id", None)
+                    checkpoint.pop("publication", None)
+                    checkpoint.pop("deliverables", None)
                     checkpoint["result_ready"] = False
                     uow.runs.create(
                         Run(
@@ -344,6 +395,12 @@ class TaskService:
                     )
                     replace_run = True
             else:
+                if isinstance(publication, dict) and publication.get("status") in (
+                    "pending",
+                    "started",
+                ):
+                    # A resposta anterior não atende mais à instrução atual.
+                    checkpoint["publication"] = publication | {"status": "superseded"}
                 checkpoint |= {
                     "latest_instruction": value.instruction,
                     "directive_revision": int(checkpoint.get("directive_revision", 0)) + 1,

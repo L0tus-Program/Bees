@@ -2,6 +2,9 @@
 
 BEES-011 prepara `linux-desktop-v1` como um kit local: ISO oficial Debian intacto e payload separado de aplicações. O catálogo continua planejado, com `usable` e `provisionable` falsos. Esta etapa não entrega uma VM inicializável já configurada nem integra execução ao modelo.
 
+O [caso verificável do Writer](writer-case.md) define conteúdo, ODT/PDF e validação
+para o app/versão do kit. Seu laboratório e parsers não substituem o aceite na VM.
+
 O kit é uma ferramenta de desenvolvimento e operação. A instalação gráfica do computador pelo usuário final continua no escopo de [ambientes](environments.md) e BEES-028; executar scripts no terminal não será o onboarding final.
 
 ## Composição e confiança
@@ -63,3 +66,23 @@ O alvo `installed-lab` instalou o payload em base Debian mínima com `RUN --netw
 Dez recusas controladas: falta de confirmação, usuário sem root, pacote adicional, checksum alterado, árvore gravável, dono inesperado, estado parcial, GID/UID conflitantes e falha real simulada do APT com retry recusado. A falha do APT3 ao usar `--no-download` com .deb local foi corrigida oferecendo apenas métodos locais `file/copy/store`, sem fontes remotas e sem métodos HTTP/HTTPS na instalação.
 
 Suíte completa Windows: 932 testes Python aprovados, 27 skips de plataforma; web:358 testes, lint/tipos/build aprovados. Builder:35 casos de origem/assinatura/mirror, links/traversal/permissões, limites e preservação/staging. Ruff e formato aprovados. Logs, kit e documento de laboratório ficam em `data/validation` e `dist/guest-image`, ignorados pelo Git. A instalação padrão permanece saudável no schema7, sem dados de teste, mudanças no hipervisor ou rede do Windows.
+
+### Revalidação cloud do payload — 19/10/2026
+
+A mesma receita voltou a construir `verification-image` e `installed-lab` com
+o snapshot fixado, assinaturas APT e hashes de `InRelease` preservados. A etapa
+de instalação na base mínima usou `RUN --network=none`. Os dois smoke tests
+passaram em contêineres descartáveis com `--network none`: dez recusas
+controladas no primeiro alvo, replay sem repetir efeitos e PDF produzido como
+UID10001. Chromium154.0.8037.92 respondeu à consulta de versão.
+
+O [caso completo do Writer](writer-case.md#evidência-no-writer-suportado--19102026)
+também foi repetido no `installed-lab` com LibreOffice25.2.3.2: ODT/PDF, reabertura,
+validação de conteúdo e renderizações equivalentes. Apenas a receita pública
+permitida entrou no contexto de build, sem banco, credenciais ou arquivos pessoais.
+
+Esse checkpoint comprova o payload e o laboratório, não um novo kit completo:
+o ISO em `cdimage.debian.org` ainda retornou proxy403 na instância. A assinatura,
+o tamanho e o checksum esperados do ISO continuam obrigatórios para concluir o
+builder. Nenhuma VM foi criada, nenhum catálogo foi ativado e os aceites de
+boot, ponte, recursos e rede filtrada permanecem separados.

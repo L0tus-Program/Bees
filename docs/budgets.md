@@ -1,0 +1,126 @@
+# Consumo e limites
+
+Primeiro checkpoint de BEES-022.1 em `packages/core/src/bees_core/budgets.py`. Toda geração do chat, da delegação, da CLI e do worker deixa um registro canônico de consumo, e cada abelha pode ter um limite de tokens. O limite é local. **Não é teto da fatura do fornecedor** e não interrompe uma resposta já em andamento.
+
+## Registro de consumo
+
+`usage_entries` (migração 0010) guarda:
+- abelha, origem (`chat` ou `task`), conversa, chamada do journal (tarefas), provedor e modelo;
+- a reserva;
+- a liquidação.
+
+O registro é criado no **mesmo commit da autorização imediatamente antes da rede**, junto da política e, no worker, do contador da tarefa. Nenhum registro existe para gerações que não chegaram à rede.
+
+| Estado | Quando | Quanto conta |
+| --- | --- | --- |
+| `reserved` | Autorizado, sem liquidação (em voo, ou processo morto antes de liquidar) | A reserva |
+| `confirmed` | Resposta recebida, inclusive quando depois descartada por conflito de estado ou contrato | Total informado completo e positivo; a reserva se o uso estiver ausente, parcial, zerado, acima de 10¹² ou `unknown` |
+| `unknown` | Timeout de leitura, conexão cortada, 5xx, 408/409/425/499, resposta inválida, cancelamento após o envio ou dono expirado | A reserva |
+| `released` | Recusa HTTP 400/401/403/404/413/422/429, redirecionamento recusado ou conexão não estabelecida (nenhum byte enviado) | Zero |
+
+A liquidação é final: um gatilho impede alterá-la e as linhas não podem ser apagadas. Uso ausente, zerado ou fora de escala nunca vira zero. Se a própria liquidação falhar, a resposta paga é preservada e o registro continua `reserved`, contando a reserva.
+
+No worker, uma recusa HTTP explícita libera a reserva no consumo, mas o journal da chamada continua `outcome_unknown`. O journal protege contra repetição de efeito; o consumo registra a evidência de cobrança. Quando a resposta se perde, o Bees não repete a chamada para descobrir o consumo.
+
+**Reserva:**
+- **Entrada:** estimativa declarada (`chars_div_3_v1`), igual ao tamanho do pedido serializado dividido por 3. Para textos latinos comuns ela superestima, já que ficam perto de 4 caracteres por token; outras escritas (como CJK) podem ser subestimadas.
+- **Saída:** soma-se uma folga de saída (`output_allowance`, padrão 4096).
+- **Natureza:** é uma estimativa, não contagem do fornecedor. A folga é só contábil: nenhum teto de saída (`max_tokens`) é enviado ao provedor. Uma resposta maior que a folga é contada pelo total informado e pode ultrapassar o limite; a próxima geração é que fica bloqueada.
+
+## Limite por abelha
+
+`budget_limits` guarda, por abelha:
+- `token_limit`;
+- uma janela móvel (`window_seconds`, padrão 24 h; usa janela, não dia do calendário, para não depender de fuso);
+- a folga de saída;
+- o estado `active` ou `disabled`.
+
+O limite precisa comportar ao menos uma geração (`token_limit` maior que `output_allowance`).
+
+O consumo é verificado duas vezes:
+- **Pré-checagem:** junto da política, antes de gravar a mensagem do usuário ou de pedir decisão humana no worker.
+- **Autorização:** imediatamente antes da rede, quando a reserva é gravada. A soma da janela é agregada em SQL.
+
+Se o consumo contado mais a nova reserva ultrapassar o limite, a geração é recusada com `budget_exhausted` e **nenhuma geração é solicitada ao provedor** (o Ollama ainda faz seu preflight de catálogo):
+- **Chat:** a API responde `409` e a mensagem não entra no histórico. Uma escrita concorrente que exceda o timeout do SQLite na autorização responde `state_conflict`, sem geração.
+- **Worker:** a tarefa pausa com atenção (`budget_exhausted`), sem incrementar chamadas nem despachar. Retomar exige revisar o limite ou esperar a janela.
+
+Para interromper todas as abelhas de uma vez, use a [parada global](safety.md); ela não altera limites nem liquidações.
+
+As reservas de chat e worker usam transações de escrita serializadas no SQLite, então duas gerações simultâneas não compartilham a mesma folga. Desativar o limite é escolha explícita; o histórico continua contando.
+
+## API
+
+Rotas com sessão; edição com Origin, CSRF e CAS:
+
+- `GET /api/v1/agents/{agent_id}/budget`: limite atual, consumo contado na janela, uso informado, tokens restantes, reservas abertas, registros incertos e quantidade de registros.
+- `PUT /api/v1/agents/{agent_id}/budget`: `token_limit`, `window_seconds`, `output_allowance` e `status`. Sem `expected_revision` cria o primeiro limite; editar exige a revisão lida. Revisão divergente retorna `409`.
+
+As respostas identificam a abelha, o intervalo da janela e o snapshot observado
+(`event_seq`, `observed_at`). Limite e totais são consultados na mesma transação.
+A interface recusa vínculo incorreto, campo extra e observação regressiva; uma
+janela nova pode alterar totais sem mudar a revisão do limite.
+
+O saldo usa exatamente a soma conservadora da guarda de execução. Se um registro
+tiver data futura por divergência de relógio, ele continua contando no limite.
+A timeline recorta o intervalo observado e pode, nesse caso, mostrar total menor;
+ela não substitui a guarda nem libera essa reserva.
+
+## Interface
+
+A vista **Consumo** de cada abelha mostra:
+- a janela;
+- o consumo contado, o informado pelo provedor, os registros incertos, as chamadas em andamento e as gerações;
+- limite e restante, somente quando há limite ativo confirmado pelo serviço.
+
+Ela explica que o incerto conta a reserva e pode ter sido cobrado. Quando o limite é atingido, indica o caminho: aumentar o limite, aguardar a janela e retomar tarefas pausadas.
+
+O formulário edita limite, janela, folga e ativação com CAS. Um conflito recarrega os valores sem sobrescrever. Um erro mantém o último estado com aviso de desatualizado, sem inventar orçamento livre.
+
+A [atividade](activity.md) agrega consumo e timeline por tarefa/execução, com unidade,
+fonte e grau de certeza explícitos. A [parada global](safety.md) e a
+[atenção das tarefas textuais](attention.md) mantêm seus controles humanos próprios.
+
+## Limites deste checkpoint
+
+- Não há limite de ferramentas, recursos, disco ou CPU (dependem de executores reais).
+- Não há valor monetário: preços não são consultados.
+- Não há orçamento global da instalação.
+- Um processo morto depois de reservar deixa o registro `reserved`, contado até sair da janela. A recuperação do worker o converte em `unknown`; o chat não tem recuperação própria.
+- A estimativa de entrada é aproximada e independe do tokenizador do modelo.
+
+## Validação
+
+Testes com SQLite e HTTP de teste (`packages/core/tests/test_budgets.py` e `apps/api/tests/test_budgets_api.py`) cobrem:
+- reserva antes da rede e uso informado;
+- uso zerado ou fora de escala contando a reserva, com a resposta paga preservada no chat e no worker;
+- envio bloqueado sem mensagem órfã; pré-checagem antes de pedir decisão no worker;
+- lista explícita de liberação, conexão não estabelecida e escrita concorrente;
+- agregação SQL igual à regra por registro;
+- uso parcial fora do total informado;
+- uso ausente que não vira zero;
+- bloqueio sem requisição;
+- liberação somente em 4xx; 5xx, timeout e resposta inválida como `unknown`;
+- reserva incerta contando no limite;
+- resposta descartada que ainda registra consumo;
+- duas reservas concorrentes;
+- liquidação final e linhas append-only;
+- CAS do limite;
+- vínculo com o journal do worker;
+- pausa do worker sem despacho;
+- morte real do worker após aceite, com recuperação para `unknown`;
+- upgrade 9→10;
+- API com sessão, CSRF, CAS, validação e 409 sem chegar ao provedor.
+
+Regressões em `packages/core/tests/test_task_control_consumption.py` usam banco SQLite e
+servidor HTTP loopback reais. Redirecionar durante uma resposta preserva seu consumo
+mesmo quando ela fica obsoleta, e a nova orientação gera somente a próxima chamada
+prevista. Replay antes/depois da resposta, após reinício do serviço e depois da conclusão
+preserva IDs, journal, contadores e liquidações. Pausar uma resposta em voo e retomar
+seu resultado pronto, inclusive com limite de uma chamada, não gera nem cobra novamente.
+
+## Agente, equipe e canais
+
+- Cada tarefa do agente tem limite de gerações, efeitos e tempo; atingido o limite, a tarefa encerra com `task_limit_reached`.
+- Delegação entre abelhas: no máximo 3 delegações por tarefa e cadeia de profundidade 2 (A→B→C); voltar a uma abelha da cadeia é recusado (`delegation_cycle`). Cada tarefa delegada usa o orçamento da abelha que a executa.
+- Consultas (`bees_ask`), mensagens de canais e rotinas disparadas por webhook usam a mesma reserva de tokens do chat/tarefas da abelha correspondente.
