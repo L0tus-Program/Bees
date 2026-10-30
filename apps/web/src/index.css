@@ -1,0 +1,77 @@
+/* Ordem das camadas: o CSS legado fica antes das utilidades do Tailwind, que vencem nas telas novas.
+   Sem o preflight do Tailwind para não alterar as telas atuais durante a migração. */
+@layer theme, legacy, base, components, utilities;
+@import "./styles.css" layer(legacy);
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Tokens no padrão shadcn/ui: neutros + mel do Bees como destaque. */
+:root {
+  --ui-background: oklch(0.985 0.004 95);
+  --ui-foreground: oklch(0.21 0.012 150);
+  --ui-card: oklch(1 0 0);
+  --ui-card-foreground: var(--ui-foreground);
+  --ui-muted: oklch(0.96 0.006 95);
+  --ui-muted-foreground: oklch(0.5 0.014 150);
+  --ui-accent: oklch(0.95 0.03 85);
+  --ui-accent-foreground: oklch(0.3 0.04 70);
+  --ui-primary: oklch(0.8 0.14 80);
+  --ui-primary-foreground: oklch(0.22 0.03 70);
+  --ui-secondary: oklch(0.955 0.006 95);
+  --ui-secondary-foreground: var(--ui-foreground);
+  --ui-destructive: oklch(0.58 0.2 27);
+  --ui-destructive-foreground: oklch(0.985 0 0);
+  --ui-border: oklch(0.91 0.008 95);
+  --ui-input: oklch(0.91 0.008 95);
+  --ui-ring: oklch(0.72 0.12 80);
+  --ui-radius: 0.85rem;
+}
+:root[data-theme="dark"] {
+  --ui-background: oklch(0.17 0.008 150);
+  --ui-foreground: oklch(0.95 0.006 120);
+  --ui-card: oklch(0.21 0.01 150);
+  --ui-muted: oklch(0.25 0.01 150);
+  --ui-muted-foreground: oklch(0.72 0.012 140);
+  --ui-accent: oklch(0.3 0.03 80);
+  --ui-accent-foreground: oklch(0.92 0.06 85);
+  --ui-primary: oklch(0.82 0.13 82);
+  --ui-primary-foreground: oklch(0.2 0.03 70);
+  --ui-secondary: oklch(0.26 0.01 150);
+  --ui-destructive: oklch(0.65 0.19 25);
+  --ui-border: oklch(0.32 0.01 150);
+  --ui-input: oklch(0.32 0.01 150);
+  --ui-ring: oklch(0.75 0.12 82);
+}
+
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-card-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-accent);
+  --color-accent-foreground: var(--ui-accent-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-secondary-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-destructive-foreground: var(--ui-destructive-foreground);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-input);
+  --color-ring: var(--ui-ring);
+  --radius-sm: calc(var(--ui-radius) - 4px);
+  --radius-md: calc(var(--ui-radius) - 2px);
+  --radius-lg: var(--ui-radius);
+  --radius-xl: calc(var(--ui-radius) + 4px);
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+/* Base mínima só para o que usa as classes novas (escopo .ui). */
+@layer base {
+  .ui, .ui *, .ui *::before, .ui *::after { border-color: var(--ui-border); box-sizing: border-box; }
+  .ui :where(h1, h2, h3, h4, p, ul, ol) { margin: 0; }
+  .ui :where(ul, ol) { padding: 0; list-style: none; }
+  .ui :where(button) { font: inherit; letter-spacing: normal; }
+}
