@@ -194,7 +194,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-2 rounded-full" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>
