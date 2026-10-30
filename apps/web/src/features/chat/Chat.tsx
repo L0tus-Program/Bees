@@ -29,20 +29,27 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
   const { t: agentText } = useTranslation('agent')
   const { t: voice, i18n } = useTranslation('voice')
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
-  const [agentMode, setAgentMode] = useState<boolean | null>(null)
-  const [research, setResearch] = useState(false)
   const [enabling, setEnabling] = useState(false)
   const [capabilityVersion, setCapabilityVersion] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
-    getAgentCapabilities(agent.id, controller.signal).then((value) => { setCapabilities(value); setAgentMode((current) => current ?? value.available) }, () => { if (!controller.signal.aborted) setCapabilities(null) })
+    getAgentCapabilities(agent.id, controller.signal).then((value) => { setCapabilities(value) }, () => { if (!controller.signal.aborted) setCapabilities(null) })
     return () => controller.abort()
   }, [agent.id, agent.revision, capabilityVersion])
-  const useAgent = !!capabilities?.available && agentMode !== false
+  // Sempre agente quando há ferramentas: a abelha decide se responde, pesquisa, usa o computador ou gera arquivo.
+  const useAgent = !!capabilities?.available
+  // Plug and play: com modelo compatível, ativa as ferramentas recomendadas uma vez, sem pedir.
+  const autoEnabled = useRef<string | null>(null)
+  useEffect(() => {
+    if (!capabilities || capabilities.available || !capabilities.tool_calls_supported || capabilities.recommended_installed || autoEnabled.current === agent.id) return
+    autoEnabled.current = agent.id
+    void enableTools()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capabilities, agent.id])
   const agentIdentity = useRef<{ content: string; id: string } | null>(null)
   async function enableTools() {
     setEnabling(true); setError(null)
-    try { await enableRecommendedTools(agent.id, crypto.randomUUID()); setAgentMode(true); setCapabilityVersion((value) => value + 1) } catch (failure) { setError(asApiError(failure)) } finally { setEnabling(false) }
+    try { await enableRecommendedTools(agent.id, crypto.randomUUID()); setCapabilityVersion((value) => value + 1) } catch (failure) { setError(asApiError(failure)) } finally { setEnabling(false) }
   }
   const load = useCallback((signal: AbortSignal) => messages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const { resource, reload } = useResource(load)
@@ -89,9 +96,9 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
     if (useAgent && selectedFiles.length === 0 && !allowRoutineProposal) {
       const content = draft.trim()
       // Mesmo UUID enquanto o texto não mudar: reenvio reconcilia sem criar outra tarefa.
-      if (agentIdentity.current?.content !== `${research}:${content}`) agentIdentity.current = { content: `${research}:${content}`, id: crypto.randomUUID() }
+      if (agentIdentity.current?.content !== content) agentIdentity.current = { content, id: crypto.randomUUID() }
       try {
-        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, controller.current.signal, research ? 'research' : 'agent')
+        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, controller.current.signal, 'agent')
         if (controller.current.signal.aborted) return
         agentIdentity.current = null
         updateComposer({ type: 'success' }); refresh()
@@ -137,19 +144,12 @@ export function Chat({ agent }: { agent: AgentSummary & { conversation_id: strin
       <ConversationArtifacts agentId={agent.id} conversationId={agent.conversation_id} selected={selectedFiles} onSelected={(items) => { setSelectedFiles(items); setFileConsentRevision(null) }} onReady={setFilesReady} blocked={busy || agent.status !== 'active'} />
       <form className="chat-composer" onSubmit={(event) => { void submit(event) }}>
         <label htmlFor="chat-input" className="sr-only">{t('messageLabel')}</label>
-        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => { if (failed && event.target.value !== draft) { setFileConsentRevision(null); setAllowRoutineProposal(false) } updateComposer({ type: 'draft', value: event.target.value }) }} disabled={busy || agent.status !== 'active'} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
+        <textarea id="chat-input" ref={inputRef} value={draft} onChange={(event) => { if (failed && event.target.value !== draft) { setFileConsentRevision(null); setAllowRoutineProposal(false) } updateComposer({ type: 'draft', value: event.target.value }) }} disabled={busy || agent.status !== 'active'} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={t('messagePlaceholder')} rows={3} required maxLength={16000} aria-describedby="chat-help" />
         {selectedFiles.length > 0 && (agent.provider_config ? <label className="checkbox-field"><input type="checkbox" checked={attachmentConsent} disabled={busy || !filesReady || agent.status !== 'active'} onChange={(event) => setFileConsentRevision(event.target.checked ? agent.revision : null)} /><span>{artifacts('consentUse')}<small>{artifacts('consentHelp', { model: agent.provider_config.model, endpoint: agent.provider_config.endpoint })}</small></span></label> : <p className="quiet-note">{artifacts('noDestination')}</p>)}
-        {capabilities?.available && <fieldset className="agent-mode"><legend>{agentText('modeLabel')}</legend>
-          <label><input type="radio" name="agent-mode" checked={useAgent && !research} onChange={() => { setAgentMode(true); setResearch(false) }} disabled={busy} /> {agentText('modeAgent')}</label>
-          <label><input type="radio" name="agent-mode" checked={useAgent && research} onChange={() => { setAgentMode(true); setResearch(true) }} disabled={busy} /> {agentText('modeResearch')}</label>
-          <label><input type="radio" name="agent-mode" checked={!useAgent} onChange={() => setAgentMode(false)} disabled={busy} /> {agentText('modeChat')}</label>
-          <small>{agentText(!useAgent ? 'modeChatHelp' : research ? 'modeResearchHelp' : 'modeAgentHelp')}</small>
-          {useAgent && capabilities.worker && !capabilities.worker.available && <small className="transfer-notice">{agentText('workerOffline')}</small>}
-        </fieldset>}
+        {useAgent && capabilities?.worker && !capabilities.worker.available && <small className="transfer-notice">{agentText('workerOffline')}</small>}
         {capabilities && !capabilities.available && capabilities.tool_calls_supported && !capabilities.recommended_installed && <div className="agent-enable"><strong>{agentText('enableTitle')}</strong><small>{agentText('enableHelp')}</small><button type="button" className="button secondary" onClick={() => { void enableTools() }} disabled={enabling || busy}>{agentText(enabling ? 'enabling' : 'enableButton')}</button></div>}
         {capabilities && !capabilities.tool_calls_supported && <p className="quiet-note">{agentText('noToolModel')}</p>}
         {useAgent ? null : supportsDelegation ? <label className="checkbox-field"><input type="checkbox" checked={allowDelegation} onChange={(event) => updateComposer({ type: 'consent', value: event.target.checked })} disabled={busy || agent.status !== 'active'} /><span>{t('chatAllowDelegation')}<small>{t('chatAllowDelegationHelp')}</small></span></label> : <p className="quiet-note">{t('chatDelegationUnavailable')}</p>}
-        <label className="checkbox-field"><input type="checkbox" checked={allowRoutineProposal} onChange={(event) => setAllowRoutineProposal(event.target.checked)} disabled={busy || agent.status !== 'active'} /><span>{t('chatRoutineProposal')}<small>{t('chatRoutineProposalHelp')}</small></span></label>
         {(dictation.supported || canSpeak()) && <div className="voice-controls">
           {dictation.supported && <button type="button" className="button secondary" aria-pressed={dictation.listening} disabled={busy || agent.status !== 'active'} onClick={() => { if (dictation.listening) { dictation.stop() } else { dictation.start() } }}>{voice(dictation.listening ? 'stopDictation' : 'dictate')}</button>}
           {dictation.listening && <small role="status">{dictation.interim || voice('listening')}</small>}
