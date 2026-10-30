@@ -23,7 +23,7 @@ def test_defaults_apply_to_the_spawned_process_and_its_children():
         check=True,
     )
     # bash reporta -f em blocos de 1024 bytes.
-    assert result.stdout.split() == ["512", str(4096 * 1024), "0", "512"]
+    assert result.stdout.split() == ["8192", str(4096 * 1024), "0", "8192"]
 
 
 def test_configured_values_and_invalid_input_fall_back():
@@ -32,7 +32,7 @@ def test_configured_values_and_invalid_input_fall_back():
     )
     assert "--nproc=128" in custom and f"--fsize={64 * 1024 * 1024}" in custom
     for invalid in ({"BEES_COMPUTER_MAX_PROCESSES": "x"}, {"BEES_COMPUTER_MAX_PROCESSES": "1"}):
-        assert "--nproc=512" in account_limits(invalid)
+        assert "--nproc=8192" in account_limits(invalid)
 
 
 def test_big_file_write_is_refused_by_the_kernel(tmp_path):

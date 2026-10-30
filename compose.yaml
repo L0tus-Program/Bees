@@ -64,12 +64,12 @@ services:
     environment:
       BEES_API_URL: http://bees:8000
       BEES_EXECUTOR_INVITE_FILE: /run/bees-computer-link/invite.json
-      BEES_COMPUTER_MAX_PROCESSES: ${BEES_COMPUTER_MAX_PROCESSES:-512}
+      BEES_COMPUTER_MAX_PROCESSES: ${BEES_COMPUTER_MAX_PROCESSES:-8192}
       BEES_COMPUTER_MAX_FILE_MB: ${BEES_COMPUTER_MAX_FILE_MB:-4096}
     # Teto do conjunto de computadores; cada conta ainda recebe limite próprio (prlimit).
     cpus: ${BEES_COMPUTER_CPUS:-2}
     mem_limit: ${BEES_COMPUTER_MEMORY:-4g}
-    pids_limit: ${BEES_COMPUTER_PIDS:-2048}
+    pids_limit: ${BEES_COMPUTER_PIDS:-16384}
     volumes:
       - bees-computers:/computers
       - bees-computer-state:/var/lib/bees-executor

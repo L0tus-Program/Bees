@@ -18,8 +18,8 @@ def test_computer_service_has_resource_ceilings_with_overrides():
     for line in (
         "cpus: ${BEES_COMPUTER_CPUS:-2}",
         "mem_limit: ${BEES_COMPUTER_MEMORY:-4g}",
-        "pids_limit: ${BEES_COMPUTER_PIDS:-2048}",
-        "BEES_COMPUTER_MAX_PROCESSES: ${BEES_COMPUTER_MAX_PROCESSES:-512}",
+        "pids_limit: ${BEES_COMPUTER_PIDS:-16384}",
+        "BEES_COMPUTER_MAX_PROCESSES: ${BEES_COMPUTER_MAX_PROCESSES:-8192}",
         "BEES_COMPUTER_MAX_FILE_MB: ${BEES_COMPUTER_MAX_FILE_MB:-4096}",
     ):
         assert line in computer
