@@ -52,6 +52,9 @@ def exchange(api: str, token: str, state: Path) -> dict:
         with urllib.request.urlopen(request, timeout=20, context=_ssl_context(api)) as response:
             payload = json.loads(response.read())
     except urllib.error.HTTPError as error:
+        if error.code >= 500:
+            # Falha do servidor (ex.: proxy sem a API ainda): transitória, o convite segue válido.
+            raise ConnectionError(f"exchange_unavailable_{error.code}") from None
         raise CredentialRejected(f"exchange_failed_{error.code}") from None
     credential = {
         "executor_id": payload["executor_id"],
