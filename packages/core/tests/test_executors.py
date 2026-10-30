@@ -427,3 +427,84 @@ def test_claim_refuses_after_tool_grant_or_plugin_is_disabled(state):
     disabled = command()
     assert queue.claim(runtime["executor_id"], "conn-1") == []
     assert status(queue, disabled) == ("expired", "tool_grant_revoked")
+
+
+def test_restart_spec_is_computer_only_and_in_the_computer_bundle():
+    from bees_core.agent_tools.catalog import BUNDLES, by_function
+    from bees_core.executors import is_visual
+
+    restart = spec("computer.restart")
+    assert restart is not None and by_function("computer_restart") is restart
+    assert (restart.target, restart.effect, restart.default_effect) == (
+        "computer",
+        "external",
+        "allow",
+    )
+    assert restart.schema["properties"] == {} and restart.timeout_seconds >= 60
+    assert "arquivos e logins são preservados" in restart.description
+    assert spec("personal.restart") is None
+    tools = {bundle["plugin_key"]: bundle["tools"] for bundle in BUNDLES}
+    assert "computer.restart" in tools["bees.computer"]
+    assert "computer.restart" not in tools["bees.personal"]
+    assert is_visual("computer.restart") and is_visual("computer.browser.open")
+    assert not is_visual("computer.files.read") and not is_visual("computer.shell.run")
+
+
+def test_restart_disputes_the_screen_and_respects_human_control(state):
+    from bees_core.agent_tools.service import ToolTarget
+    from bees_core.executors import visual_holder
+
+    database, store, agent, service, _ = state
+    runtime = pair(service)
+    computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+    service.report_computer(runtime["executor_id"], computer["id"], "ready")
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+    restart = queued(
+        store,
+        runtime["executor_id"],
+        agent,
+        "computer.restart",
+        computer_id=computer["id"],
+        generation=generation,
+    )
+    target = ToolTarget(
+        "computer",
+        computer["id"],
+        f"computer:{computer['id']}",
+        "bee_account",
+        runtime["executor_id"],
+    )
+    with store.transaction(write=False) as unit:
+        owner = str(unit.runs.get(unit.actions.get(UUID(restart)).run_id).task_id)
+        # Reinício de uma tarefa viva segura a tela; outra tarefa aguarda (e vice-versa).
+        assert visual_holder(unit, uuid4(), target, "computer.browser.open") == owner
+        assert visual_holder(unit, uuid4(), target, "computer.restart") == owner
+        assert visual_holder(unit, UUID(owner), target, "computer.restart") is None
+        assert visual_holder(unit, uuid4(), target, "computer.files.read") is None
+    service.set_control(agent.id, computer["id"], {"expected_revision": 1, "holder": "human"})
+    with store.transaction(write=False) as unit:
+        with pytest.raises(ToolError) as blocked:
+            require_online(unit, agent.id, spec("computer.restart"), target)
+        assert blocked.value.code == "human_control"
+    queue = CommandQueue(database)
+    assert queue.claim(runtime["executor_id"], "conn-1") == []
+    assert status(queue, restart) == ("expired", "human_control")
+
+
+def test_restart_target_requires_ready_owned_and_online_computer(state):
+    from bees_core.storage.store import NotFoundError
+
+    database, store, agent, service, clock = state
+    runtime = pair(service)
+    computer = service.create_computer(agent.id, {"client_request_id": uuid4()})
+    with pytest.raises(ExecutorError, match="computer_unavailable"):
+        service.restart_target(agent.id, computer["id"])
+    service.report_computer(runtime["executor_id"], computer["id"], "ready")
+    target = service.restart_target(agent.id, computer["id"])
+    assert target["executor_id"] == runtime["executor_id"] and target["online"]
+    with pytest.raises(NotFoundError):
+        service.restart_target(uuid4(), computer["id"])
+    clock.now += timedelta(minutes=2)
+    with pytest.raises(ExecutorError, match="executor_offline"):
+        service.restart_target(agent.id, computer["id"])

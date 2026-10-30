@@ -165,6 +165,38 @@ def test_recommended_tools_chat_message_approval_and_reply(state):
     ]
 
 
+def test_recommended_tools_upgrade_an_outdated_computer_bundle(state):
+    from bees_core.agent_tools.catalog import BUNDLES, manifest_for
+    from bees_core.tools import ToolService
+
+    client, agent, _ = state
+    bundle = next(item for item in BUNDLES if item["plugin_key"] == "bees.computer")
+    # Instalação anterior ao reinício: manifesto imutável sem computer.restart.
+    outdated = bundle | {
+        "version": "1.0.0",
+        "tools": tuple(name for name in bundle["tools"] if name != "computer.restart"),
+    }
+    tools = ToolService(client.app.state.database)
+    old = tools.install({"client_request_id": uuid4(), "manifest": manifest_for(outdated)})
+    # A pessoa desligou o terminal na versão antiga: a atualização não religa.
+    tools.set_grant(
+        agent.id, old.id, "computer.shell.run", {"expected_revision": 0, "enabled": False}
+    )
+    base = f"/api/v1/agents/{agent.id}"
+    response = client.post(
+        f"{base}/agent/recommended-tools",
+        json={"client_request_id": str(uuid4())},
+        headers=headers(client),
+    )
+    assert response.status_code == 200, response.text
+    assert "computer.restart" in response.json()["granted"]
+    assert client.get(f"{base}/agent/capabilities").json()["recommended_installed"]
+    granted = {row["tool_name"] for row in tools.list_tools(agent.id, limit=1000) if row["granted"]}
+    assert {"computer.restart", "computer.browser.open"} <= granted
+    assert "computer.shell.run" not in granted
+    assert len(tools.list_plugins(limit=100)) == len(BUNDLES) + 1
+
+
 def test_agent_task_requires_tool_capable_model(state):
     client, agent, _ = state
     with client.app.state.store.transaction() as unit:

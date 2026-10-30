@@ -73,10 +73,11 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
     getAgentCapabilities(agent.id, controller.signal).then(setCapabilities, () => { if (!controller.signal.aborted) setCapabilities(null) })
     return () => controller.abort()
   }, [agent.id, agent.revision, capabilityVersion])
-  // Plug and play: com modelo compatível, ativa as ferramentas recomendadas uma vez.
+  // Plug and play: com modelo compatível, ativa (ou atualiza, quando o pacote ganha ferramentas
+  // novas) as ferramentas recomendadas uma vez; o que a pessoa desligou continua desligado.
   const autoEnabled = useRef<string | null>(null)
   useEffect(() => {
-    if (!capabilities || capabilities.available || !capabilities.tool_calls_supported || capabilities.recommended_installed || autoEnabled.current === agent.id) return
+    if (!capabilities || !capabilities.tool_calls_supported || capabilities.recommended_installed || autoEnabled.current === agent.id) return
     autoEnabled.current = agent.id
     void enableRecommendedTools(agent.id, crypto.randomUUID()).then(() => setCapabilityVersion((value) => value + 1), () => undefined)
   }, [capabilities, agent.id])

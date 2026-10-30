@@ -8,6 +8,8 @@ autenticam executores e executores nunca acessam rotas humanas.
 import asyncio
 import json
 import os
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -25,6 +27,7 @@ from bees_core.executors import (
     ExecutorService,
     GrantInput,
     InviteInput,
+    RestartInput,
     RevisionInput,
 )
 from bees_core.security.identity import Session
@@ -33,6 +36,60 @@ _SESSION = Annotated[Session, Depends(require_session)]
 router = APIRouter(prefix="/api/v1", tags=["executors"])
 DISPATCH_SECONDS = 0.25
 HEARTBEAT_SECONDS = 10
+RESTART_SECONDS = 90
+RESTART_KEEP_SECONDS = 600
+
+
+@dataclass
+class _Restart:
+    executor_id: str
+    request: dict
+    done: asyncio.Future
+    created: float = field(default_factory=time.monotonic)
+    sent: bool = False
+
+
+class RestartHub:
+    """Reinícios pedidos pela pessoa: saem pela conexão atual do runtime e a rota aguarda.
+
+    O identificador do pedido torna a repetição idempotente: o mesmo pedido aguarda (ou
+    devolve) o mesmo recibo e nunca reinicia o computador duas vezes.
+    """
+
+    def __init__(self):
+        self.requests: dict[str, _Restart] = {}
+
+    def request(self, executor_id: str, computer_id: str, request_id: str) -> asyncio.Future:
+        now = time.monotonic()
+        for key, item in list(self.requests.items()):
+            if now - item.created > RESTART_KEEP_SECONDS:
+                self.requests.pop(key, None)
+        current = self.requests.get(request_id)
+        if current is not None:
+            if current.request["computer_id"] != computer_id:
+                raise ExecutorError("idempotency_conflict")
+            return current.done
+        restart = _Restart(
+            executor_id,
+            {"type": "computer_restart", "request": request_id, "computer_id": computer_id},
+            asyncio.get_running_loop().create_future(),
+        )
+        self.requests[request_id] = restart
+        return restart.done
+
+    def pending(self, executor_id: str) -> list[dict]:
+        requests = []
+        for restart in self.requests.values():
+            if restart.executor_id == executor_id and not restart.sent:
+                restart.sent = True
+                requests.append(restart.request)
+        return requests
+
+    def finish(self, executor_id: str, request_id: str, status, code) -> None:
+        restart = self.requests.get(request_id)
+        if restart is None or restart.executor_id != executor_id or restart.done.done():
+            return
+        restart.done.set_result((status, code if isinstance(code, str) else None))
 
 
 def _service(request) -> ExecutorService:
@@ -124,6 +181,24 @@ def control_computer(
     return _service(request).set_control(agent_id, computer_id, body)
 
 
+@router.post("/agents/{agent_id}/computers/{computer_id}/restart")
+async def restart_computer(
+    agent_id: UUID, computer_id: UUID, body: RestartInput, request: Request, session: _SESSION
+):
+    """Fecha programas e sobe a área de trabalho de novo; arquivos e logins ficam."""
+    computer = await asyncio.to_thread(_service(request).restart_target, agent_id, computer_id)
+    done = request.app.state.restart_hub.request(
+        computer["executor_id"], computer["id"], str(body.client_request_id)
+    )
+    try:
+        status, code = await asyncio.wait_for(asyncio.shield(done), timeout=RESTART_SECONDS)
+    except TimeoutError:
+        raise ExecutorError("computer_restart_timeout") from None
+    if status != "confirmed":
+        raise ExecutorError(code or "computer_restart_failed")
+    return computer | {"restarted": True}
+
+
 def _bearer(websocket: WebSocket) -> str | None:
     values = websocket.headers.getlist("authorization")
     if len(values) != 1 or not values[0].startswith("Bearer be_"):
@@ -201,6 +276,15 @@ async def connect(websocket: WebSocket) -> None:
                     )
                 except ExecutorError, Exception:
                     pass
+            elif kind == "computer_restarted":
+                hub = getattr(websocket.app.state, "restart_hub", None)
+                if hub is not None:
+                    hub.finish(
+                        executor_id,
+                        str(message.get("request")),
+                        message.get("status"),
+                        message.get("code"),
+                    )
             elif kind == "pong":
                 await asyncio.to_thread(service.touch, executor_id, connection_id)
             elif kind == "view_failed":
@@ -246,10 +330,11 @@ async def connect(websocket: WebSocket) -> None:
                         ensure_ascii=False,
                     )
                 )
-            hub = getattr(websocket.app.state, "view_hub", None)
-            if hub is not None:
-                for request in hub.pending(executor_id):
-                    await websocket.send_text(json.dumps(request))
+            for name in ("view_hub", "restart_hub"):
+                hub = getattr(websocket.app.state, name, None)
+                if hub is not None:
+                    for request in hub.pending(executor_id):
+                        await websocket.send_text(json.dumps(request))
             await asyncio.sleep(DISPATCH_SECONDS)
 
     tasks = [asyncio.create_task(receiver()), asyncio.create_task(dispatcher())]
