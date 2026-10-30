@@ -174,6 +174,21 @@ try {
   await page.getByText('Usou 1 ferramenta').waitFor()
   await auditWidths(page, '6-agente-arquivo')
   await page.setViewportSize({ width: 1280, height: 900 })
+  // Conversa maior que a janela: nada fora da lista pode esticar a página (rolando a lista para cima e para baixo).
+  await page.setViewportSize({ width: 1280, height: 300 })
+  for (const position of ['top', 'bottom']) {
+    const shell = await page.evaluate((where) => {
+      const log = document.querySelector('[role="log"]')
+      // Simula conversa longa: texto só para leitor de tela (sr-only, posição absoluta) no fim de uma lista alta.
+      if (!document.getElementById('e2e-long')) log.insertAdjacentHTML('beforeend', '<div id="e2e-long"><div style="height:4000px"></div><span class="sr-only">fim</span></div>')
+      const list = log.parentElement
+      list.scrollTop = where === 'top' ? 0 : list.scrollHeight
+      return { list: list.scrollHeight - list.clientHeight, extra: document.documentElement.scrollHeight - document.documentElement.clientHeight }
+    }, position)
+    if (shell.list <= 0 || shell.extra > 1) violations.push({ page: `janela-baixa-${position}`, id: 'page-scroll', impact: 'serious', nodes: 1, sample: JSON.stringify(shell) })
+  }
+  await page.evaluate(() => document.getElementById('e2e-long')?.remove())
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByRole('button', { name: 'Atividade', exact: true }).click()
   await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
   await audit(page, '7-atividade-lateral')

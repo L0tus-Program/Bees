@@ -115,7 +115,8 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const toggle = (next: Panel) => setPanel((current) => current === next ? null : next)
   const sideContent = panel === 'computer' ? <ComputerPanel key={selected.id} agentId={selected.id} name={selected.name} /> : <ActivityPanel activity={activity} onOpen={setTaskId} />
   return <TooltipProvider>
-    <div data-shell className="ui flex h-dvh overflow-hidden bg-background font-sans text-foreground">
+    {/* Fixa na janela: contém e recorta elementos absolutos (ex.: textos sr-only) que esticariam a página. */}
+    <div data-shell className="ui fixed inset-0 flex overflow-hidden bg-background font-sans text-foreground">
       <aside className="hidden w-72 shrink-0 border-r bg-muted/30 lg:block" aria-label={t('bees')}>{sidebar}</aside>
       {!wide && <Sheet open={menu} onOpenChange={setMenu} title="bees." closeLabel={t('closePanel')} side="left" className="max-w-xs [&>div:last-child]:p-0">{sidebar}</Sheet>}
       <main id="main" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none">
