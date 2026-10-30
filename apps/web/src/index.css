@@ -68,10 +68,12 @@
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 
-/* Base mínima só para o que usa as classes novas (escopo .ui). */
+/* Base mínima só para o que usa as classes novas (escopo .ui), sem tocar nos componentes
+   antigos embutidos (.legacy-scope), que mantêm o CSS legado até serem migrados. */
 @layer base {
-  .ui, .ui *, .ui *::before, .ui *::after { border-color: var(--ui-border); box-sizing: border-box; }
-  .ui :where(h1, h2, h3, h4, p, ul, ol) { margin: 0; }
-  .ui :where(ul, ol) { padding: 0; list-style: none; }
-  .ui :where(button) { font: inherit; letter-spacing: normal; }
+  .ui :where(*):not(:where(.legacy-scope, .legacy-scope *)), .ui { border-color: var(--ui-border); box-sizing: border-box; }
+  .ui :where(h1, h2, h3, h4, p, ul, ol):not(:where(.legacy-scope *)) { margin: 0; }
+  .ui :where(ul, ol):not(:where(.legacy-scope *)) { padding: 0; list-style: none; }
+  .ui :where(button, input, select, textarea):not(:where(.legacy-scope *)) { font: inherit; color: inherit; letter-spacing: normal; }
+  .ui :where(h1, h2, h3, h4):not(:where(.legacy-scope *)) { font-family: inherit; letter-spacing: normal; white-space: normal; line-height: 1.3; }
 }

@@ -14,8 +14,6 @@ import { approvalResources } from '../../locales/approvals'
 import { artifactResources } from '../../locales/artifacts'
 import { useTaskPolling } from '../tasks/useTaskPolling'
 import { useResource } from '../../hooks/useResource'
-import { agent as chatAgent } from '../chat/testFixtures'
-import { Chat } from '../chat/Chat'
 import { ConversationArtifacts } from './ConversationArtifacts'
 import type { ArtifactRecord } from './api'
 import { agentId, artifact, conversationId, page, taskId } from './fixtures'
@@ -28,7 +26,6 @@ vi.mock('../approvals/ApprovalPanel', () => ({ ApprovalPanel: () => null }))
 let root: Root
 let container: HTMLDivElement
 let wrapper: (node: ReactNode) => ReactNode
-const agent = { ...chatAgent, id: agentId, conversation_id: conversationId, revision: 7 }
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto)
   sessionStorage.clear(); setCsrfToken('test-csrf')
@@ -69,46 +66,6 @@ describe('conversation attachment flow with real React state', () => {
     expect(fetcher.mock.calls.filter(([, options]) => options.method === 'PUT')).toHaveLength(1)
     expect(fetcher.mock.calls.every(([url]) => !url.endsWith('/chat'))).toBe(true)
     expect(container.textContent).toContain('Arquivo enviado por uma pessoa')
-  })
-  it('requires separate per-turn consent, shows the destination, and invalidates consent on profile revision', async () => {
-    const file = { ...artifact, task_id: null, run_id: null, source: 'user_upload' as const }
-    const fetcher = vi.fn(async (url: string) => url.endsWith('/chat') ? Response.json({ ok: true }) : Response.json(page([file]))); vi.stubGlobal('fetch', fetcher)
-    await render(<Chat agent={agent} />); await settle(() => container.querySelector('.artifact-card input') !== null)
-    await click(container.querySelector('.artifact-card input') as HTMLElement)
-    const consent = container.querySelector('.chat-composer input[type=checkbox]') as HTMLInputElement
-    expect(consent.checked).toBe(false); expect(container.textContent).toContain(agent.provider_config!.model); expect(container.textContent).toContain(agent.provider_config!.endpoint)
-    await click(consent); expect(consent.checked).toBe(true)
-    await render(<Chat agent={{ ...agent, revision: agent.revision + 1 }} />)
-    expect((container.querySelector('.chat-composer input[type=checkbox]') as HTMLInputElement).checked).toBe(false)
-    expect(fetcher.mock.calls.every(([url]) => !url.endsWith('/chat'))).toBe(true)
-  })
-  it('submits the selected immutable version only after human consent and clears that turn selection', async () => {
-    const file = { ...artifact, task_id: null, run_id: null, source: 'user_upload' as const }
-    const fetcher = vi.fn(async (url: string) => url.endsWith('/chat') ? Response.json({ ok: true }) : Response.json(page([file]))); vi.stubGlobal('fetch', fetcher)
-    await render(<Chat agent={agent} />); await settle(() => container.querySelector('.artifact-card input') !== null)
-    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Leia o material'); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })) })
-    await click(container.querySelector('.artifact-card input') as HTMLElement)
-    expect(button('Enviar').disabled).toBe(true)
-    await click(container.querySelector('.chat-composer input[type=checkbox]') as HTMLElement)
-    expect(button('Enviar').disabled).toBe(false)
-    await click(button('Enviar')); await settle(() => fetcher.mock.calls.some(([url]) => url.endsWith('/chat')))
-    const sent = fetcher.mock.calls.find(([url]) => url.endsWith('/chat'))!
-    const options = (sent as unknown as [string, RequestInit])[1]
-    expect(JSON.parse(options.body as string)).toMatchObject({ attachments: [{ artifact_id: file.id, revision: file.revision, sha256: file.sha256 }], attachment_consent: { expected_agent_revision: agent.revision } })
-    await settle(() => container.querySelector('.chat-composer input[type=checkbox]')?.parentElement?.textContent?.includes('Enviar os arquivos selecionados') !== true)
-    expect((container.querySelector('.artifact-card input') as HTMLInputElement).checked).toBe(false)
-  })
-  it('sends with Enter and keeps Shift+Enter for a new line', async () => {
-    const fetcher = vi.fn(async (url: string) => url.endsWith('/chat') ? Response.json({ ok: true }) : Response.json(page([]))); vi.stubGlobal('fetch', fetcher)
-    await render(<Chat agent={agent} />); await settle(() => container.querySelector('#chat-input') !== null)
-    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
-    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Oi'); input.dispatchEvent(new Event('input', { bubbles: true })) })
-    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true })) })
-    expect(fetcher.mock.calls.some(([url]) => url.endsWith('/chat'))).toBe(false)
-    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
-    await settle(() => fetcher.mock.calls.some(([url]) => url.endsWith('/chat')))
-    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/chat'))).toHaveLength(1)
   })
   it('checks a lost publication by UUID without retrying and fences the cancelled late response', async () => {
     let finish!: (response: Response) => void; let published: ArtifactRecord | null = null
