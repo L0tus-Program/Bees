@@ -4,7 +4,7 @@ O mantenedor escolheu explicitamente **Apache-2.0 em 26/10/2026**, no aceite da 
 
 O texto padrão foi obtido de `/usr/share/common-licenses/Apache-2.0`, distribuído pelo sistema Debian deste ambiente, sem modificar seus termos. A referência oficial é <https://www.apache.org/licenses/LICENSE-2.0>; a tentativa de obter o texto diretamente desse site neste ambiente retornou HTTP403.
 
-Cada projeto Python inclui cópias de LICENSE/NOTICE em sua wheel e sdist. O verificador da wheel do executor recusa licença ausente, divergente ou sem a expressão SPDX. O bundle web inclui `third-party-notices.txt`, com textos integrais e créditos dos pacotes de produção/peer do lockfile, inclusive noVNC. As imagens conservam avisos do sistema e recebem os avisos do Bees em `/usr/share/doc/bees`.
+Cada projeto Python inclui cópias de LICENSE/NOTICE em sua wheel e sdist. O verificador da wheel do executor recusa licença ausente, divergente ou sem a expressão SPDX. O bundle web inclui `third-party-notices.txt`, com textos integrais e créditos dos pacotes de produção/peer do lockfile, inclusive noVNC. Depois de mudar dependências de produção da interface, regenere com `python scripts/web-notices.py` (com `node_modules` instalado); `--check` confere se o arquivo está atualizado. Ferramentas de build (Tailwind, Vite) ficam em `devDependencies` e fora do aviso. As imagens conservam avisos do sistema e recebem os avisos do Bees em `/usr/share/doc/bees`.
 
 Os avisos versionados usam finais de linha LF em todas as plataformas; as leituras
 textuais declaram UTF-8. As verificações de artefato comparam bytes exatos, sem
