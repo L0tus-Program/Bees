@@ -5,6 +5,7 @@ referências valem para o último snapshot; uma página nova exige outro snapsho
 """
 
 import os
+import signal
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -47,6 +48,31 @@ SNAPSHOT_SCRIPT = r"""
 """
 
 
+def release_profile(profile: Path) -> None:
+    """Libera o perfil antes de abrir o navegador da abelha.
+
+    Ao parar o container, o Chromium não fecha limpo e deixa ``SingletonLock`` com o
+    hostname antigo; no container seguinte (outro hostname) ele recusa o perfil e sai com
+    código 21. Também encerra Chromium órfão (mesmo usuário) preso a este perfil.
+    """
+    marker = f"--user-data-dir={profile}".encode()
+    uid = os.getuid()
+    for entry in Path("/proc").iterdir() if Path("/proc").is_dir() else ():
+        if not entry.name.isdigit() or int(entry.name) == os.getpid():
+            continue
+        try:
+            if entry.stat().st_uid != uid or marker not in (entry / "cmdline").read_bytes():
+                continue
+            os.kill(int(entry.name), signal.SIGKILL)
+        except (OSError, ValueError):
+            continue
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        try:
+            (profile / name).unlink()
+        except FileNotFoundError:
+            pass
+
+
 class Browser:
     def __init__(self, profile: Path, screenshots: Path, *, headless: bool | None = None):
         self.profile = profile
@@ -56,17 +82,41 @@ class Browser:
         self.lock = threading.Lock()
         self._playwright = None
         self._context = None
+        self._closed = False
 
     def call(self, name: str, arguments: dict, timeout: float = 60) -> dict:
         return self.pool.submit(self._dispatch, name, arguments).result(timeout=timeout)
 
+    def _reset(self) -> None:
+        """Navegador fechado (janela fechada, processo morto): a próxima ação abre outro."""
+        for stop in (
+            getattr(self._context, "close", None),
+            getattr(self._playwright, "stop", None),
+        ):
+            try:
+                if stop:
+                    stop()
+            except Exception:
+                pass
+        self._context = self._playwright = None
+
     def _page(self):
+        if self._context is not None and not self._closed:
+            try:
+                # Checagem barata: navegador morto (janela fechada) é aberto de novo.
+                if self._context.pages:
+                    self._context.pages[-1].evaluate("1")
+            except Exception:
+                self._closed = True
+        if self._context is not None and self._closed:
+            self._reset()
         if self._context is None:
             try:
                 from playwright.sync_api import sync_playwright
             except ImportError:
                 raise ToolFailure("browser_unavailable", "Playwright não instalado.") from None
             self.profile.mkdir(parents=True, exist_ok=True)
+            release_profile(self.profile)
             self._playwright = sync_playwright().start()
             options = {
                 "headless": self.headless,
@@ -77,9 +127,16 @@ class Browser:
             executable = os.environ.get("BEES_BROWSER_EXECUTABLE")
             if executable:
                 options["executable_path"] = executable
-            self._context = self._playwright.chromium.launch_persistent_context(
-                str(self.profile), **options
-            )
+            try:
+                self._context = self._playwright.chromium.launch_persistent_context(
+                    str(self.profile), **options
+                )
+            except Exception as error:
+                # Não abriu: nenhuma ação aconteceu, então é falha (não resultado desconhecido).
+                self._reset()
+                raise ToolFailure("browser_unavailable", str(error)[:300]) from None
+            self._closed = False
+            self._context.on("close", lambda *_: setattr(self, "_closed", True))
             self._context.set_default_timeout(20000)
         pages = [page for page in self._context.pages if not page.is_closed()]
         return pages[-1] if pages else self._context.new_page()
