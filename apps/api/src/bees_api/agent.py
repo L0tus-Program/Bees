@@ -124,13 +124,21 @@ def enable_recommended(
         if unit.agents.get(agent_id) is None:
             raise NotFoundError("Abelha não encontrada.")
         plugins = unit.plugins.list(limit=1000)
-    keys = set()
+    keys = {}
     for plugin in plugins:
         try:
-            keys.add(ToolService._manifest(plugin).plugin_key)
+            keys.setdefault(ToolService._manifest(plugin).plugin_key, set()).add(str(plugin.id))
         except Exception:
             continue
     by_key = _current_bundles(plugins)
+    # Ferramentas desligadas pela pessoa em versões antigas do pacote continuam desligadas.
+    rows = tools.list_tools(agent_id, limit=1000)
+    denied = {
+        (key, row["tool_name"])
+        for key, ids in keys.items()
+        for row in rows
+        if row["plugin_id"] in ids and not row["granted"] and row["grant_revision"]
+    }
     granted = []
     for bundle in bundles():
         manifest = PluginManifest.model_validate(manifest_for(bundle)).model_dump(mode="json")
@@ -155,6 +163,8 @@ def enable_recommended(
         }
         for name in bundle["tools"]:
             row = current.get(name)
+            if (bundle["plugin_key"], name) in denied and not (row and row["grant_revision"]):
+                continue
             if row is None or not row["granted"]:
                 tools.set_grant(
                     agent_id,

@@ -123,4 +123,16 @@ describe('chat as an assistant conversation', () => {
     await show()
     expect(spy).not.toHaveBeenCalled()
   })
+
+  it('updates the recommended tools once when the bee already has tools but a newer bundle exists', async () => {
+    capabilities = { ...capabilities, available: true, recommended_installed: false }
+    await show()
+    await show()
+    expect(calls('/agent/recommended-tools')).toHaveLength(1)
+  })
+
+  it('leaves the tools alone when the recommended bundle is current', async () => {
+    await show()
+    expect(calls('/agent/recommended-tools')).toHaveLength(0)
+  })
 })

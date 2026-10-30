@@ -177,7 +177,11 @@ def test_recommended_tools_upgrade_an_outdated_computer_bundle(state):
         "tools": tuple(name for name in bundle["tools"] if name != "computer.restart"),
     }
     tools = ToolService(client.app.state.database)
-    tools.install({"client_request_id": uuid4(), "manifest": manifest_for(outdated)})
+    old = tools.install({"client_request_id": uuid4(), "manifest": manifest_for(outdated)})
+    # A pessoa desligou o terminal na versão antiga: a atualização não religa.
+    tools.set_grant(
+        agent.id, old.id, "computer.shell.run", {"expected_revision": 0, "enabled": False}
+    )
     base = f"/api/v1/agents/{agent.id}"
     response = client.post(
         f"{base}/agent/recommended-tools",
@@ -189,6 +193,7 @@ def test_recommended_tools_upgrade_an_outdated_computer_bundle(state):
     assert client.get(f"{base}/agent/capabilities").json()["recommended_installed"]
     granted = {row["tool_name"] for row in tools.list_tools(agent.id, limit=1000) if row["granted"]}
     assert {"computer.restart", "computer.browser.open"} <= granted
+    assert "computer.shell.run" not in granted
     assert len(tools.list_plugins(limit=100)) == len(BUNDLES) + 1
 
 
