@@ -87,7 +87,11 @@ def available_tools(unit, agent_id, *, resolver=None) -> list[tuple]:
         try:
             resolver.resolve(unit, agent_id, spec)
         except ToolError:
-            continue
+            from bees_core.executors import computer_startable
+
+            # Computador ainda desligado: oferecido mesmo assim; o worker liga antes de usar.
+            if spec.target != "computer" or not computer_startable(unit, agent_id):
+                continue
         chosen[tool_name] = (spec, plugin.id)
     return sorted(chosen.values(), key=lambda item: item[0].function)
 
@@ -720,6 +724,10 @@ class AgentTaskWorker(TaskWorker):
             return {"status": "rejected", "code": "invalid_tool_arguments"}, False, claim
         if self._wait_visual(claim, task, spec):
             return None, False, claim
+        if spec.target == "computer":
+            claim, ready = await self._ensure_computer(claim, task)
+            if not ready:
+                return {"status": "rejected", "code": "computer_unavailable"}, False, claim
         preparation = self.agent_tools.prepare(
             task.agent_id,
             run.id,
@@ -777,6 +785,41 @@ class AgentTaskWorker(TaskWorker):
                 task.agent_id, effect.id, outcome.code or "executor_result_unknown"
             )
         return self._effect_payload(effect), effect.status == "outcome_unknown", claim
+
+    async def _ensure_computer(self, claim, task, timeout: float = 120.0):
+        """Liga o computador da abelha quando ela precisa e espera ficar pronto (lease renovado)."""
+        from bees_core.executors import ExecutorError, ExecutorService, computer_startable
+
+        service = ExecutorService(self.store.database)
+        with self.store.transaction(write=False) as unit:
+            startable = computer_startable(unit, task.agent_id)
+        current = [item for item in service.computers(task.agent_id) if item["status"] != "removed"]
+        if not current:
+            if not startable:
+                return claim, False
+            try:
+                request_id = uuid5(task.id, "bees.agent-computer/v1")
+                service.create_computer(task.agent_id, {"client_request_id": request_id})
+            except ExecutorError:
+                return claim, False
+        deadline = time.monotonic() + timeout
+        next_renew = time.monotonic() + min(5, self.lease_seconds / 3)
+        while time.monotonic() < deadline:
+            listed = service.computers(task.agent_id)
+            active = [item for item in listed if item["status"] != "removed"]
+            status = active[0]["status"] if active else None
+            if status == "ready":
+                return claim, True
+            if status != "provisioning":
+                return claim, False
+            if time.monotonic() >= next_renew:
+                with self.store.transaction(actor="worker", source="agent_computer_wait") as unit:
+                    claim = unit.execution.renew(
+                        claim, now=utc_now(), ttl_seconds=self.lease_seconds
+                    )
+                next_renew = time.monotonic() + min(5, self.lease_seconds / 3)
+            await asyncio.sleep(0.5)
+        return claim, False
 
     def _visual_target(self, unit, task, spec):
         from bees_core.executors import is_visual

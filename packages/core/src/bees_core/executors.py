@@ -34,6 +34,22 @@ Kind = Literal["computer_runtime", "personal"]
 DESKTOP_ACTIONS = ("browser.",)
 
 
+def computer_startable(unit, agent_id) -> bool:
+    """Sem computador ativo e com runtime online: a abelha pode ligar o próprio computador."""
+    active = _select(
+        unit, "computers", COMPUTER_COLUMNS, "agent_id=? AND status!='removed'", (str(agent_id),)
+    )
+    if active:
+        return False
+    if unit.safety.state().status != "running":
+        return False
+    now = _now()
+    runtimes = _select(
+        unit, "executors", EXECUTOR_COLUMNS, "kind='computer_runtime' AND status='active'", ()
+    )
+    return any(online(row, now) for row in runtimes)
+
+
 def is_visual(tool_name: str) -> bool:
     """Ações que disputam a mesma tela/navegador do computador ou do conector."""
     return tool_name.split(".", 1)[-1].startswith(DESKTOP_ACTIONS)
