@@ -2,12 +2,13 @@
 
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
 
 import pytest
-from test_executor_gateway import Server, free_port
+from test_executor_gateway import Server
 
 from bees_core.executors import ExecutorService
 
@@ -15,7 +16,12 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX 
 
 
 def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
-    port = free_port()
+    # Porta reservada (bind sem listen): conexões são recusadas e outro teste paralelo
+    # não a ocupa enquanto a API ainda não subiu.
+    reserved = socket.socket()
+    reserved.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    reserved.bind(("127.0.0.1", 0))
+    port = reserved.getsockname()[1]
     monkeypatch.setattr("test_executor_gateway.free_port", lambda: port)
     # O convite é emitido num banco preparado antes; a API só sobe depois do executor.
     from bees_core.storage.database import Database
@@ -46,7 +52,8 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
     )
     try:
         time.sleep(4)  # pelo menos uma tentativa falha com conexão recusada
-        assert process.poll() is None
+        assert process.poll() is None, (tmp_path / "executor.log").read_text()
+        reserved.close()
         server = Server(tmp_path)
         try:
             service = ExecutorService(server.database)
@@ -61,5 +68,6 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
         finally:
             server.stop()
     finally:
+        reserved.close()
         process.send_signal(signal.SIGKILL)
         process.wait(timeout=10)
