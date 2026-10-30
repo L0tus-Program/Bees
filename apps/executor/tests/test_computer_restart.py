@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,9 @@ import pytest
 from bees_executor import computers
 from bees_executor.cli import ComputerRuntime
 from bees_executor.computers import MultiUserComputers, SingleComputers
+
+# Modo multiusuário só existe no container Linux (contas, killpg, Xvfb).
+LINUX_ONLY = pytest.mark.skipif(sys.platform != "linux", reason="Computador multiusuário é Linux.")
 
 RESTART = {"id": "r1", "tool": "computer.restart", "arguments": {}}
 
@@ -96,6 +100,7 @@ def multi(tmp_path, monkeypatch):
     )
 
 
+@LINUX_ONLY
 def test_multiuser_restart_kills_session_cleans_display_and_starts_again(multi):
     (multi.x11 / ".X12-lock").write_text("101")
     (multi.x11 / ".X11-unix" / "X12").write_text("")
@@ -113,6 +118,7 @@ def test_multiuser_restart_kills_session_cleans_display_and_starts_again(multi):
     assert [process.pid for process in multi.supervisor.processes["c1"]] == [201]
 
 
+@LINUX_ONLY
 def test_multiuser_restart_waits_for_the_computer_lock(multi):
     async def scenario():
         lock = multi.supervisor.locks.setdefault("c1", asyncio.Lock())
@@ -127,6 +133,7 @@ def test_multiuser_restart_waits_for_the_computer_lock(multi):
     assert multi.started == ["c1"]
 
 
+@LINUX_ONLY
 def test_multiuser_restart_failure_is_reported(multi, monkeypatch):
     async def broken(computer_id):
         raise subprocess.CalledProcessError(1, "Xvfb")
