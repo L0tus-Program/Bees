@@ -115,6 +115,9 @@ jobs:
       - name: Primeiro acesso, abelha e conversa com axe (390/1280, pt/en/es)
         run: npm run e2e -- e2e-results
         working-directory: apps/web
+      - name: Recuperar perfil sem encerrar outro Chromium
+        run: npm run e2e:browser-recovery -- e2e-results
+        working-directory: apps/web
       - uses: actions/upload-artifact@v5
         if: always()
         with:

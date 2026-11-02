@@ -43,3 +43,19 @@ Caminhos relativos partem de `~/workspace`; o executor resolve o caminho real e 
 - Volumes: `bees-computers` (homes), `bees-computer-state` (credencial e registro), `bees-computer-link` (convite).
 - Revogar o runtime (API `POST /api/v1/executors/{id}/revoke`) encerra a conexão, expira comandos pendentes e marca os computadores como falhos.
 - Comandos sem envio até o prazo expiram sem efeito; enviados sem recibo ficam com resultado desconhecido e exigem reconhecimento humano.
+
+## Recuperação do perfil no Linux
+
+Antes de reabrir o Chromium, o executor libera travas antigas do perfil solicitado
+e encerra processos órfãos da mesma conta que usam exatamente aquele diretório.
+A comparação usa o argumento completo `--user-data-dir=...`, respeitando as
+fronteiras de argumentos de `/proc`; perfis com nomes semelhantes permanecem
+independentes. Os arquivos do perfil são preservados.
+
+`npm --prefix apps/web run e2e:browser-recovery` verifica esse recorte com dois
+perfis Chromium reais e descartáveis, incluindo espaço e acento no caminho:
+fecha o perfil exato, conserva o outro navegador e reabre o perfil recuperado.
+Exige a `.venv`, as dependências web e o Chromium do Playwright já preparados.
+O job Chromium da CI executa o roteiro e publica `browser-recovery.json` junto
+aos demais resultados. A prova usa Linux e não equivale ao aceite Windows,
+de VM ou de contas/sessões pessoais do mantenedor.

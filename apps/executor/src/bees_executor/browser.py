@@ -55,13 +55,16 @@ def release_profile(profile: Path) -> None:
     hostname antigo; no container seguinte (outro hostname) ele recusa o perfil e sai com
     código 21. Também encerra Chromium órfão (mesmo usuário) preso a este perfil.
     """
-    marker = f"--user-data-dir={profile}".encode()
+    marker = os.fsencode(f"--user-data-dir={profile}")
     uid = os.getuid()
     for entry in Path("/proc").iterdir() if Path("/proc").is_dir() else ():
         if not entry.name.isdigit() or int(entry.name) == os.getpid():
             continue
         try:
-            if entry.stat().st_uid != uid or marker not in (entry / "cmdline").read_bytes():
+            if entry.stat().st_uid != uid:
+                continue
+            arguments = (entry / "cmdline").read_bytes().split(b"\0")
+            if marker not in arguments:
                 continue
             os.kill(int(entry.name), signal.SIGKILL)
         except (OSError, ValueError):
