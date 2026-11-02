@@ -145,6 +145,28 @@ após commit e recuperaram o pedido original sem POST no reload. Os detalhes e
 limites estão em [rotinas](routines.md#evidência-e-limites); não há inferência de
 LLM real, VM ou aceite humano de qualidade. O bloqueio de logs da CI permanece.
 
+## Matriz de processos e rotinas — 02/11/2026
+
+A [matriz de falhas](../apps/executor/tests/test_failure_matrix.py), executada pelo
+job **Matriz de falhas / processos reais**, inclui seis cenários: os três de
+tarefas avulsas já entregues e três de rotinas. A API usa uvicorn em thread do
+teste; worker/scheduler e conector pessoal são subprocessos reais, com modelo
+HTTP controlado e arquivos próprios concedidos. Não há frontend durante a execução.
+
+| Rotina | Efeito após restart | Estado e duplicação |
+| --- | --- | --- |
+| Agendada e confirmada | Uma linha no arquivo, um comando confirmado | Uma ocorrência e uma tarefa, duas gerações ao todo; restart não gera novamente. |
+| Manual, efeito aplicado sem recibo | Uma linha; comando `unknown` e tarefa pausada | Ocorrência `outcome_unknown`; replay do UUID devolve os mesmos IDs. Uma tarefa/comando e uma geração. |
+| Esperando aprovação | Zero efeitos/comandos antes da mesma decisão; uma linha depois | A decisão e a tarefa sobrevivem ao restart; uma ocorrência/tarefa/comando, duas gerações ao todo. |
+
+Na execução local deste recorte, o teste integrado com os seis cenários passou
+em 138,20 s; os 46 testes dirigidos de agente/rotinas, scheduler e execução manual
+também passaram. São verificações distintas, não uma contagem de gerações nem um
+resultado de CI remoto. O relatório `failure-matrix.json` do job publica somente
+cenários, estados e contagens. O [runbook](recovery.md) contém o comando de execução.
+Modelo real, navegador, VM e máquina pessoal do mantenedor permanecem fora desta
+prova; a [#83](https://github.com/L0tus-Program/Bees/issues/83) conserva seus aceites amplos.
+
 ## Contagens locais e regra contra dupla contagem
 
 | Observação independente | Números | Interpretação |

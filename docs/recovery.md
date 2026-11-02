@@ -176,9 +176,27 @@ privada/cofre e reset destrutivo não são caminhos de retomada deste roteiro.
 | Rotina manual, rollback e recuperação do mesmo pedido | [Testes manuais](../packages/core/tests/test_routine_manual.py): SQLite, reinício, ocorrência única e unknown bloqueando novo pedido. |
 | Leitura após resposta perdida/reinício da API | [Atenção por conversa](attention.md): prova Chromium com API real e comparação canônica; leitura não executa tarefa. |
 | Worker e conector pessoal mortos com SIGKILL (processos reais) | [Matriz de falhas](../apps/executor/tests/test_failure_matrix.py), job de CI próprio: efeito aplicado sem recibo fica `unknown` com 1 efeito no disco; executor congelado que recebeu o comando e morreu deixa 0 efeitos e `unknown`; efeito confirmado não repete após reiniciar tudo; nenhum comando novo nasce dos reinícios. Modelo simulado por HTTP, Linux; sem VM, navegador ou máquina pessoal real. |
+| Rotina agendada confirmada e reinício dos processos | A mesma matriz executa o scheduler real no worker, sem frontend. Depois do restart conserva uma ocorrência, uma tarefa, um comando confirmado e uma linha no arquivo; duas gerações do modelo controlado, sem geração adicional no restart. |
+| Rotina manual com efeito sem recibo e replay | Depois de matar worker/conector com efeito no disco, a ocorrência conserva `outcome_unknown`, a tarefa fica pausada e o comando fica `unknown`. Reapresentar o mesmo UUID manual conserva os IDs, uma ocorrência/tarefa/comando e um efeito; apenas uma geração do modelo controlado. |
+| Rotina esperando decisão durante o restart | A mesma decisão reaparece. Antes de aprovar há zero comandos/efeitos e uma geração. Depois da aprovação explícita termina com um comando, uma linha no arquivo e duas gerações no total; nenhuma nova tarefa ou ocorrência. |
 
-Esses cenários foram executados nos checkpoints das PRs #135, #136, #139, #142 e
-#146. São provas do recorte nativo com provider controlado, não de qualidade de LLM
+Para repetir os seis cenários em uma instalação de teste Linux, execute da raiz:
+
+```sh
+BEES_FAILURE_MATRIX=1 BEES_FAILURE_MATRIX_OUT=failure-matrix.json \
+  .venv/bin/python -m pytest -q apps/executor/tests/test_failure_matrix.py
+```
+
+A API usa uvicorn em thread do processo de teste; worker/scheduler e conector são
+subprocessos do produto, mortos e reiniciados com seus arquivos privados preservados.
+O modelo é um servidor HTTP controlado; os efeitos são arquivos reais em uma pasta
+descartável concedida ao conector. O relatório exporta apenas cenário, estados e
+contagens, sem caminhos, tokens, prompts ou dados privados.
+
+Os cenários anteriores de transporte e ciclo foram executados nos checkpoints
+das PRs #135, #136, #139, #142 e #146. A matriz de tarefas veio da #176 e foi
+ampliada para rotinas na [subtarefa #212](https://github.com/L0tus-Program/Bees/issues/212).
+São provas do recorte nativo com provider controlado, não de qualidade de LLM
 real, VM, aplicativos ou máquina pessoal. RecoveryService composto, inspeção externa
 com identidade/recurso exatos, diagnóstico que componha evidência externa e matriz física de falhas
 continuam nos aceites de #82/#83/#84. Um lease vencido ou PID ausente, isoladamente,
