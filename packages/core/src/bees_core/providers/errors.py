@@ -20,6 +20,10 @@ ErrorCode = Literal[
     "provider_unavailable",
     "redirect_refused",
     "provider_rejected",
+    "tool_schema_rejected",
+    "model_tools_unsupported",
+    "unsupported_model_parameter",
+    "context_window_exceeded",
     "invalid_secret_reference",
     "invalid_secret",
     "invalid_history",
@@ -64,6 +68,14 @@ MESSAGES: dict[str, str] = {
     "provider_unavailable": "O provedor está indisponível.",
     "redirect_refused": "Redirecionamento recusado; revise o endpoint explícito.",
     "provider_rejected": "O provedor recusou a requisição.",
+    "tool_schema_rejected": (
+        "O provedor recusou o formato de uma ferramenta. Revise a compatibilidade do modelo."
+    ),
+    "model_tools_unsupported": "Este modelo ou endpoint recusou o uso de ferramentas.",
+    "unsupported_model_parameter": "O modelo não aceita uma das opções enviadas pelo Bees.",
+    "context_window_exceeded": (
+        "O histórico e as ferramentas excedem a janela de contexto do modelo."
+    ),
     "invalid_secret_reference": "Referência de credencial inválida ou não suportada.",
     "invalid_secret": "Credencial inválida para o transporte configurado.",
     "invalid_history": "Histórico incompatível com o contrato de conversa.",
@@ -99,6 +111,7 @@ class ProviderError(RuntimeError):
         retryable: bool = False,
         upstream_status: int | None = None,
         undelivered: bool = False,
+        parameter: str | None = None,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
@@ -111,4 +124,17 @@ class ProviderError(RuntimeError):
         ):
             raise ValueError("Status do provedor inválido.")
         self.upstream_status = upstream_status
+        # Apenas nomes de campos conhecidos; nunca valores ou mensagens do fornecedor.
+        allowed = {
+            "tools",
+            "tools.function.parameters",
+            "tools.function.strict",
+            "messages",
+            "model",
+            "store",
+            "stream",
+        }
+        if parameter is not None and parameter not in allowed:
+            raise ValueError("Parâmetro público inválido.")
+        self.parameter = parameter
         super().__init__(self.message)

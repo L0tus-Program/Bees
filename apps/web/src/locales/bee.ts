@@ -1,4 +1,5 @@
 const pt = {
+  accountCredential: 'Credencial da sua conta Bees', newCredential: 'Cadastrar outra chave', savedCredential: 'Chave salva {{number}}', accountCredentialHelp: 'Reutilize esta chave em suas abelhas. Ela continua no cofre e só é enviada a este provedor e endereço.',
   agentActive: 'Estado atual confirmado: abelha ativa. Revise a parada global e cada trabalho antes de continuar.',
   beeNavigation: 'Gerenciar abelha', view_conversation: 'Conversa', view_profile: 'Perfil', view_model: 'Modelo', view_memories: 'Memórias',
   status_active: 'Ativa', status_paused: 'Pausada', status_archived: 'Arquivada', inactiveConversation: 'Abelha {{status}}. O histórico continua disponível; novas mensagens estão desabilitadas.',
@@ -31,6 +32,7 @@ const pt = {
 }
 
 const en: Record<keyof typeof pt, string> = {
+  accountCredential: 'Your Bees account credential', newCredential: 'Add another key', savedCredential: 'Saved key {{number}}', accountCredentialHelp: 'Reuse this key across your bees. It stays in the vault and is only sent to this provider and endpoint.',
   agentActive: 'Current state confirmed: bee active. Review global stop and each job before continuing.',
   beeNavigation: 'Manage bee', view_conversation: 'Conversation', view_profile: 'Profile', view_model: 'Model', view_memories: 'Memories',
   status_active: 'Active', status_paused: 'Paused', status_archived: 'Archived', inactiveConversation: 'Bee {{status}}. History remains available; new messages are disabled.',
@@ -47,6 +49,7 @@ const en: Record<keyof typeof pt, string> = {
 }
 
 const es: Record<keyof typeof pt, string> = {
+  accountCredential: 'Credencial de tu cuenta Bees', newCredential: 'Añadir otra clave', savedCredential: 'Clave guardada {{number}}', accountCredentialHelp: 'Reutiliza esta clave en tus abejas. Sigue en la bóveda y solo se envía a este proveedor y dirección.',
   agentActive: 'Estado actual confirmado: abeja activa. Revisa la parada global y cada trabajo antes de continuar.',
   beeNavigation: 'Gestionar abeja', view_conversation: 'Conversación', view_profile: 'Perfil', view_model: 'Modelo', view_memories: 'Memorias', status_active: 'Activa', status_paused: 'Pausada', status_archived: 'Archivada', inactiveConversation: 'Abeja {{status}}. El historial sigue disponible; los mensajes nuevos están deshabilitados.',
   profileTitle: 'Perfil de la abeja', profileDescription: 'Ajusta su propósito y cómo debe responder. Los próximos mensajes usan estas decisiones.', instructionsDistinction: 'Las instrucciones definen un comportamiento permanente. Los hechos y preferencias editables están en Memorias. Ninguna opción concede acceso a herramientas u ordenadores.', memoryEnabled: 'Usar memorias relevantes en las conversaciones', memoryEnabledHelp: 'Incluye datos personales, de la abeja y de la tarea cuando corresponda. Desactivar no elimina memorias; el historial de conversación sigue usándose.', saveProfile: 'Guardar perfil', profileSaved: 'Perfil actualizado. El historial se conservó.', profileResourceScope: 'Editar el perfil no cambia los permisos. Gestiona el acceso de la abeja en Autonomía, Herramientas y Ordenador.',

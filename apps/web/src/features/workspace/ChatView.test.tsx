@@ -50,7 +50,7 @@ beforeEach(() => {
   delegations = { delegations: [], has_more: false, next_offset: null }; messages = []
   capabilities = { available: true, tool_calls_supported: true, recommended_installed: true, tools: [], worker: { available: true, last_seen: null }, defaults: { max_calls: 30, max_active_seconds: 1200 } }
   reload = vi.fn()
-  vi.mocked(useResource).mockImplementation(() => ({ resource: { state: 'ready', data: { conversation_id: conversationId, messages } }, reload }) as never)
+  vi.mocked(useResource).mockImplementation(() => ({ resource: { state: 'ready', data: { conversation_id: conversationId, revision: 3, messages } }, reload }) as never)
   vi.mocked(useTaskPolling).mockImplementation(() => ({ data: delegations, loading: false, error: null, refresh: vi.fn() }) as never)
   fetcher = vi.fn(async (url: string) => {
     if (url.includes('/agent/capabilities')) return Response.json(capabilities)
@@ -61,10 +61,10 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
 
-async function show() {
+async function show(onCleared?: () => void) {
   const i18n = createInstance()
   await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { workspace: workspaceResources['pt-BR'], agent: agentResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
-  await act(async () => root.render(<I18nextProvider i18n={i18n}><TooltipProvider><ChatView agent={agent} onTaskDetails={vi.fn()} /></TooltipProvider></I18nextProvider>))
+  await act(async () => root.render(<I18nextProvider i18n={i18n}><TooltipProvider><ChatView agent={agent} onTaskDetails={vi.fn()} onCleared={onCleared} /></TooltipProvider></I18nextProvider>))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
 }
 const calls = (fragment: string) => fetcher.mock.calls.filter(([url]) => String(url).includes(fragment))
@@ -174,4 +174,35 @@ describe('chat as an assistant conversation', () => {
     expect(container.textContent).not.toContain('foto.png')
     expect(container.querySelector('[role="alert"], .notice, [class*="error"]')).not.toBeNull()
   })
+})
+
+
+it('clears only after confirmation, bound to the displayed conversation and revision', async () => {
+  messages = [user, reply]
+  const cleared = vi.fn(); const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal('confirm', confirm)
+  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ conversation_id: '99999999-9999-4999-8999-999999999999' }) : Response.json(capabilities))
+  await show(cleared)
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
+  await act(async () => button.click())
+  expect(calls('/clear')).toHaveLength(0); expect(cleared).not.toHaveBeenCalled()
+  expect(confirm.mock.calls[0][0]).toContain('Memórias, configurações, tarefas e entregas serão preservadas')
+  confirm.mockReturnValue(true)
+  await act(async () => button.click())
+  expect(calls('/clear')).toHaveLength(1); expect(cleared).toHaveBeenCalledOnce()
+  const [path, options] = calls('/clear')[0] as [string, RequestInit]
+  expect(path).toBe(`/api/v1/agents/${agentId}/conversations/${conversationId}/clear`)
+  expect(JSON.parse(options.body as string)).toMatchObject({ consent: 'clear_conversation', expected_revision: agent.revision, expected_conversation_revision: 3 })
+  confirm.mockRestore()
+})
+
+it('keeps the conversation and explains why pending work prevents clearing', async () => {
+  messages = [user, reply]
+  const cleared = vi.fn(); const confirm = vi.fn().mockReturnValue(true); vi.stubGlobal('confirm', confirm)
+  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ error: { code: 'conversation_has_pending_work' } }, { status: 409 }) : Response.json(capabilities))
+  await show(cleared)
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
+  await act(async () => button.click())
+  expect(cleared).not.toHaveBeenCalled(); expect(container.textContent).toContain(user.content)
+  expect(container.textContent).toContain('Abra Atividade')
+  confirm.mockRestore()
 })

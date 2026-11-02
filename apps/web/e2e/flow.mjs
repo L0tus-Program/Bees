@@ -1,6 +1,7 @@
 // Fluxo ponta a ponta com interface compilada, API, worker e modelo simulado por HTTP.
 // Primeiro acesso → criar abelha → conversar; axe-core em cada tela (390 e 1280 px,
 // pt-BR/en/es). Uso: npm run build && node e2e/flow.mjs [pasta-de-evidências]
+import { randomBytes } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -25,7 +26,7 @@ function freePort() {
 }
 
 // Modelo OpenAI-compatível: devolve um texto com marcador e conta as gerações.
-const model = { requests: 0 }
+const model = { requests: 0, failNext: false }
 const modelServer = createServer((request, response) => {
   let body = ''
   request.on('data', (chunk) => { body += chunk })
@@ -33,6 +34,12 @@ const modelServer = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
     if (request.method === 'GET' && request.url.endsWith('/models')) { response.end(JSON.stringify({ data: [{ id: 'modelo-e2e' }] })); return }
     model.requests += 1
+    if (model.failNext) {
+      model.failNext = false
+      response.statusCode = 400
+      response.end(JSON.stringify({ error: { code: 'invalid_function_parameters', param: 'tools[0].function.parameters', message: 'Mensagem privada do provedor simulado' } }))
+      return
+    }
     const payload = JSON.parse(body || '{}')
     const messages = payload.messages ?? []
     if (payload.tools?.length && !messages.some((item) => item.role === 'tool')) {
@@ -129,7 +136,7 @@ try {
   const [apiPort, modelPort, localPortA, localPortB] = await Promise.all([freePort(), freePort(), freePort(), freePort()])
   await new Promise((done) => modelServer.listen(modelPort, '127.0.0.1', done))
   await Promise.all(localBackends.map(({ server }, index) => new Promise((done) => server.listen(index ? localPortB : localPortA, '127.0.0.1', done))))
-  const env = { BEES_DATA_DIR: data, BEES_PORT: String(apiPort), BEES_WEB_DIST: join(web, 'dist') }
+  const env = { BEES_VAULT_KEY: randomBytes(32).toString('base64url') + '=', BEES_DATA_DIR: data, BEES_PORT: String(apiPort), BEES_WEB_DIST: join(web, 'dist') }
   const origin = `http://127.0.0.1:${apiPort}`
   start('api', ['-c', 'from bees_api.cli import main; main()'], env)
   await waitFor(async () => (await fetch(`${origin}/api/v1/health`)).ok, 'API')
@@ -164,6 +171,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByLabel('Provedor').selectOption('custom')
   await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${modelPort}/v1`)
+  await page.getByLabel('Chave da API').fill('E2E-CHAVE-SINTETICA-SEM-ACESSO-REAL')
   await page.getByLabel(/^Digitar outro modelo/).check()
   await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-e2e')
   await page.getByLabel('Nome da abelha').fill('Abelha E2E')
@@ -191,6 +199,8 @@ try {
   await page.getByRole('heading', { name: 'Crie sua abelha.' }).waitFor()
   await page.getByLabel('Provedor').selectOption('custom')
   await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${modelPort}/v1`)
+  await page.getByLabel('Credencial da sua conta Bees').selectOption({ label: 'Chave salva 1' })
+  if (await page.locator('#api-key').count()) throw new Error('Reuso da conta exigiu redigitar a chave.')
   await page.getByLabel(/^Digitar outro modelo/).check()
   await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-agente')
   await page.getByLabel(/declara suporte a chamadas de ferramentas/).evaluate((element) => { if (!element.checked) element.click() })
@@ -314,10 +324,28 @@ try {
   await audit(page, '12-modelo-local-endpoint-atual')
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
+  // Limpeza só arquiva: cancelar preserva a conversa; confirmar cria contexto vazio sem gerar.
+  await page.getByRole('button', { name: 'Limpar conversa', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancelar', exact: true }).click()
+  await page.getByText(marker).last().waitFor()
+  await page.getByRole('button', { name: 'Limpar conversa', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Limpar conversa', exact: true }).click()
+  await page.getByRole('heading', { name: 'Como posso ajudar?' }).waitFor()
+  await auditWidths(page, '13-conversa-limpa')
+  if (model.requests !== 3) throw new Error('Limpar a conversa iniciou uma geração.')
+  // Recusa do modelo precisa explicar a causa no turno, preservando o aviso de resultado incerto.
+  model.failNext = true
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('#chat-input').fill('Teste de diagnóstico do modelo')
+  await page.locator('#chat-input').press('Enter')
+  await page.getByText('O provedor recusou o formato de uma ferramenta.', { exact: false }).waitFor({ timeout: 60_000 })
+  await page.getByText('Detalhes do erro', { exact: true }).click()
+  await page.getByText('tools.function.parameters', { exact: true }).waitFor()
+  await auditWidths(page, '14-erro-modelo-explicado')
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))
   console.log(JSON.stringify({ model_requests: model.requests, violations: violations.length, serious: serious.length }))
-  if (model.requests !== 3) throw new Error(`Esperava 3 gerações (1 conversa + 2 do agente), houve ${model.requests}.`)
+  if (model.requests !== 4) throw new Error(`Esperava 4 chamadas (1 conversa + 2 do agente + 1 recusa), houve ${model.requests}.`)
   if (serious.length) { console.error(JSON.stringify(serious, null, 2)); process.exitCode = 1 }
 } catch (error) {
   console.error(error)

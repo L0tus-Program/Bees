@@ -47,7 +47,7 @@ export interface DelegationOutcome { tool_call_id: string; status: 'created' | '
 export interface MessageAttachment { artifact_id: string; revision: number; sha256: string; name: string; media_type: string; size_bytes: number; source: ArtifactRecord['source'] }
 export interface AttachmentUse { attachments: { artifact_id: string; revision: number; sha256: string }[]; attachment_consent: { expected_agent_revision: number } }
 export interface Message { id: string; role: string; content: string | null; created_at: string; delegation_results?: DelegationOutcome[]; attachments?: MessageAttachment[] }
-export interface Conversation { conversation_id: string; messages: Message[]; has_more?: boolean }
+export interface Conversation { revision?: number; conversation_id: string; messages: Message[]; has_more?: boolean }
 
 export function isModelConfig(value: unknown): value is ModelConfig {
   return record(value) && ['openai_compatible', 'ollama'].includes(String(value.kind))
@@ -92,21 +92,21 @@ export async function onboarding(signal?: AbortSignal): Promise<Onboarding> {
   return value as unknown as Onboarding
 }
 
-export async function testModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string): Promise<Diagnostic> {
-  const value = await request('/models/test', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}) }, authenticated: true, signal, timeoutMs: 40000 })
+export async function testModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string, credentialId?: string): Promise<Diagnostic> {
+  const value = await request('/models/test', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}), ...(credentialId ? { credential_id: credentialId } : {}) }, authenticated: true, signal, timeoutMs: 40000 })
   if (!record(value) || value.status !== 'ok' || typeof value.code !== 'string' || !record(value.capabilities)
     || typeof value.capabilities.text !== 'boolean' || typeof value.capabilities.tool_calls !== 'boolean'
     || typeof value.validation_token !== 'string' || !value.validation_token) throw new ApiError('invalid_response')
   return value as unknown as Diagnostic
 }
 
-export async function prepareModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string): Promise<{ validation_token: string }> {
-  const value = await request('/models/prepare', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}) }, authenticated: true, signal })
+export async function prepareModel(config: ModelConfig, apiKey: string, signal?: AbortSignal, agentId?: string, credentialId?: string): Promise<{ validation_token: string }> {
+  const value = await request('/models/prepare', { body: { config, ...(apiKey ? { api_key: apiKey } : {}), ...(agentId ? { agent_id: agentId } : {}), ...(credentialId ? { credential_id: credentialId } : {}) }, authenticated: true, signal })
   if (!record(value) || typeof value.validation_token !== 'string' || !value.validation_token) throw new ApiError('invalid_response')
   return { validation_token: value.validation_token }
 }
 
-export async function createAgent(body: { name: string; purpose: string; instructions: string; config: ModelConfig; validation_token: string; api_key?: string }, signal?: AbortSignal): Promise<AgentSummary> {
+export async function createAgent(body: { name: string; purpose: string; instructions: string; config: ModelConfig; validation_token: string; api_key?: string; credential_id?: string }, signal?: AbortSignal): Promise<AgentSummary> {
   const value = await request('/agents', { body, authenticated: true, signal, timeoutMs: 15000 })
   if (!isAgent(value)) throw new ApiError('invalid_response')
   return value
@@ -114,7 +114,7 @@ export async function createAgent(body: { name: string; purpose: string; instruc
 
 export async function messages(id: string, conversationId: string, signal?: AbortSignal): Promise<Conversation> {
   const value = await request(`/agents/${encodeURIComponent(id)}/messages?conversation_id=${encodeURIComponent(conversationId)}`, { authenticated: true, signal })
-  if (!record(value) || value.conversation_id !== conversationId || !Array.isArray(value.messages)
+  if (!record(value) || value.conversation_id !== conversationId || (value.revision !== undefined && (!Number.isSafeInteger(value.revision) || Number(value.revision) < 1)) || !Array.isArray(value.messages)
     || !value.messages.every((item) => record(item) && ['id', 'role', 'created_at'].every((key) => typeof item[key] === 'string')
       && (item.content === null || typeof item.content === 'string')
       && (item.attachments === undefined || checkedMessageAttachments(item.attachments))
@@ -147,4 +147,13 @@ export async function sendChat(id: string, conversationId: string, content: stri
 export function configurationSignature(config: ModelConfig, apiKey: string) {
   // Memory only. Used to invalidate the successful check on every configuration edit.
   return JSON.stringify({ config, apiKey })
+}
+
+export async function clearConversation(agent: AgentSummary & { conversation_id: string }, conversationRevision: number, requestId: string, signal?: AbortSignal): Promise<string> {
+  const value = await request(`/agents/${encodeURIComponent(agent.id)}/conversations/${encodeURIComponent(agent.conversation_id)}/clear`, {
+    authenticated: true, signal, body: { client_request_id: requestId, expected_revision: agent.revision,
+      expected_conversation_revision: conversationRevision, consent: 'clear_conversation' },
+  })
+  if (!record(value) || !uuid(value.conversation_id) || value.conversation_id === agent.conversation_id) throw new ApiError('invalid_response')
+  return value.conversation_id
 }

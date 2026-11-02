@@ -70,11 +70,11 @@ async def public(host, port):
 
 
 class Case:
-    def __init__(self, tmp_path, script, *, extra_tools=()):
+    def __init__(self, tmp_path, script, *, extra_tools=(), model="fixture-agent"):
         config = ProviderConfig(
             kind="openai_compatible",
             endpoint="https://fixture.test/v1",
-            model="fixture-agent",
+            model=model,
             capabilities={"text": True, "tool_calls": True},
         )
         self.database, self.store, self.agent, self.chat, _ = fixture_state(tmp_path, config=config)
@@ -474,3 +474,38 @@ def test_pending_agent_decision_is_actionable_attention_once(tmp_path):
     case.work(1)  # sem efeito enquanto aguarda: nenhum item duplicado
     items = [i for i in attention.list(case.agent.id).items if i.kind == "approval_required"]
     assert len(items) == 1
+
+
+@pytest.mark.parametrize("model", ["gpt-5.5", "gpt-5.6-terra"])
+def test_model_tool_rejection_keeps_safe_cause_and_never_retries(tmp_path, model):
+    case = Case(
+        tmp_path,
+        [
+            httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "code": "invalid_function_parameters",
+                        "param": "tools[0].function.parameters",
+                        "message": "PRIVATE response with SECRET https://private.invalid/token",
+                    }
+                },
+            )
+        ],
+        model=model,
+    )
+    assert case.work()
+    detail = case.detail()
+    assert detail.task.status == "paused" and detail.unknown_model_calls == 1
+    failure = detail.runs[-1].checkpoint["model_failure"]
+    assert failure["code"] == "tool_schema_rejected"
+    assert failure["http_status"] == 400
+    assert failure["parameter"] == "tools.function.parameters"
+    assert detail.calls[-1].error_code == "tool_schema_rejected"
+    assert (
+        "SECRET" not in detail.model_dump_json()
+        and "PRIVATE response" not in detail.model_dump_json()
+    )
+    assert case.requests[0]["model"] == model
+    assert all(tool["function"]["strict"] is False for tool in case.requests[0]["tools"])
+    assert not case.work() and len(case.requests) == 1

@@ -232,6 +232,9 @@ class ProviderService:
             if config is not None:
                 self._check_config_for_agent(uow, agent, config, requirements)
                 updates["provider_config"] = config.model_dump(mode="json")
+                from bees_core.providers.credentials import register_credential
+
+                register_credential(uow, config)
             updated = uow.agents.update(
                 agent.model_copy(update=updates), expected_revision=expected_revision
             )

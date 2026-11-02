@@ -33,7 +33,7 @@ As opções **API compatível personalizada** e **Ollama personalizado** preserv
 
 Rotas autenticadas: `GET /api/v1/providers` devolve conexões e sugestões `models: [{id, name}]`; `POST /api/v1/models/discover` recebe `provider_id`, chave transitória ou referência autorizada e endpoint apenas para conexão personalizada. A resposta contém somente identificadores e nomes dos modelos. A descoberta respeita CSRF, sessão, concorrência e revisão do agente; não devolve valores de credenciais. Endereços de presets não podem ser substituídos nessa rota.
 
-Antes de criar/salvar, a interface chama `POST /api/v1/models/prepare`: valida localmente destino, configuração e disponibilidade da credencial/cofre, sem rede nem gravação de chave. Devolve somente um `validation_token` de uso único por cinco minutos, vinculado à sessão/configuração e à abelha na edição. Isso permite servidores de conversa sem `/models`; não afirma autenticação remota ou suporte do modelo. O salvamento preserva revisão otimista, replay de criação e rollback do cofre. Referências existentes `env:`/`vault:` só podem ser reutilizadas explicitamente na mesma conexão de uma abelha; a ponte interna `env:BEES_REQUEST_KEY` é reservada.
+Antes de criar/salvar, a interface chama `POST /api/v1/models/prepare`: valida localmente destino, configuração e disponibilidade da credencial/cofre, sem rede nem gravação de chave. Devolve somente um `validation_token` de uso único por cinco minutos, vinculado à sessão/configuração e à abelha na edição. Isso permite servidores de conversa sem `/models`; não afirma autenticação remota ou suporte do modelo. O salvamento preserva revisão otimista, replay de criação e rollback do cofre. Referências existentes `env:`/`vault:` no campo bruto `secret_ref` continuam limitadas à mesma conexão da abelha. Chaves do cofre também podem ser escolhidas pelo catálogo da conta via `credential_id`, descrito abaixo; a ponte interna `env:BEES_REQUEST_KEY` é reservada.
 
 ### Preparar modelo local pela interface
 
@@ -68,6 +68,14 @@ Os exemplos em [examples/providers](../examples/providers) são modelos de confi
 `secret_ref` aceita `env:NOME_DA_VARIAVEL` ou `vault:UUID` criado pelo cofre do Bees. O valor é resolvido no processo imediatamente antes da requisição e enviado no cabeçalho de autenticação ao endpoint escolhido. Não copie a chave para o JSON, o banco, o chat ou variáveis `VITE_*`. O resolver não lê `.env` automaticamente e não tenta outras credenciais quando uma referência está ausente. A configuração da abelha guarda somente a referência. Erros públicos não reproduzem corpo de resposta, cabeçalho ou entrada de configuração inválida.
 
 O onboarding guarda chaves em arquivos cifrados pelo DPAPI CurrentUser no Windows ou por Fernet com chave externa no Linux. API e CLI usam o mesmo resolver composto, sem fallback silencioso. Variáveis de ambiente exigem provisionamento e proteção pelo operador; exportação de segredos continua pendente. [Primeiro acesso](onboarding.md) descreve configuração e limites do cofre.
+
+## Credenciais da conta
+
+Na criação ou edição, escolha **Credencial da sua conta Bees** para reutilizar uma chave salva sem digitá-la novamente. Chaves novas são registradas no catálogo da conta; a migração 0025 adota as referências `vault:` que as abelhas existentes já usam. Trocar o modelo de uma abelha não remove sua chave do catálogo. O valor permanece cifrado no cofre.
+
+`GET /api/v1/model-credentials` exige sessão e retorna apenas `id`, `kind` e `endpoint`. `credential_id` é aceito na descoberta, preparação, diagnóstico e salvamento. Não pode ser combinado com uma chave digitada ou `secret_ref`. O servidor exige o mesmo tipo e endpoint normalizado; trocar o destino limpa a seleção na interface. O comprovante de preparação inclui a escolha da credencial. Referências `env:` continuam sob controle do operador e não entram nesse catálogo.
+
+O catálogo fica em `identity_users.llm_credentials_json`, fora das exportações comuns e da restauração portátil. Nenhum valor de chave entra no SQLite. O catálogo preserva as referências após trocas de configuração; gerenciamento de nomes e remoção de chaves não fazem parte deste fluxo.
 
 ## Primeiro fluxo pelo terminal
 
@@ -104,6 +112,10 @@ A troca preserva o estado e recusa incompatibilidades com funções presentes no
 `--data-dir` ou `BEES_DATA_DIR` escolhe o mesmo diretório privado da API. A CLI usa o acesso do operador do sistema; a interface web exige sessão e CSRF. Pare o serviço antes de atualizar dependências ou migrar o banco.
 
 ## Uso, erros e concorrência
+
+No modo agente, a causa registrada aparece no turno e nos detalhes da tarefa, inclusive quando a chamada tem resultado desconhecido. O diagnóstico identifica código, modelo/provedor usados e, quando disponível, HTTP e nome do campo recusado. Registros anteriores usam a causa do journal já existente; campos nunca registrados não são reconstruídos.
+
+Recusas HTTP 400/422 têm leitura limitada a 8 KB para classificar `tool_schema_rejected`, `model_tools_unsupported`, `unsupported_model_parameter` e `context_window_exceeded`. Somente códigos e nomes de campos conhecidos participam da classificação; mensagem bruta e valores nunca são exibidos ou persistidos. JSON inválido, grande ou sem classificação mantém `provider_rejected` e o status HTTP. O envio de funções declara `strict: false`, coerente com os campos opcionais do contrato Bees; a validação local e as autorizações continuam obrigatórias. Isso não comprova o aceite de um modelo específico. A compatibilidade real de `gpt-5.6-terra` permanece pendente do erro/reteste da instalação relatada em #218.
 
 Rejeição remota HTTP 401 é `authentication_failed`; HTTP 403 é `access_denied`, pois pode representar restrição de conta/chave/destino em vez de chave inválida. Erros HTTP do provedor incluem `error.upstream_status` numérico quando disponível. O HTTP local continua usando o contrato da API (por exemplo, 502 para falha remota); nunca reproduz corpo, cabeçalhos ou chave do fornecedor. O código e a mensagem traduzida orientam o usuário, e uma falha de descoberta mantém a seleção disponível.
 

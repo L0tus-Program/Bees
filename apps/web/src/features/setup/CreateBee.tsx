@@ -31,7 +31,7 @@ export function CreateBee({ vault, onCreated, onCancel, onReconcile }: { vault: 
     controller.current = connection.beginSave()
     const operation = controller.current
     try {
-      const agent = await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => createAgent({ name: name.trim(), purpose: purpose.trim(), instructions: instructions.trim(), config: connection.config, validation_token: validationToken, ...(connection.apiKey ? { api_key: connection.apiKey } : {}) }, operation.signal))
+      const agent = await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => createAgent({ name: name.trim(), purpose: purpose.trim(), instructions: instructions.trim(), config: connection.config, validation_token: validationToken, ...(connection.apiKey ? { api_key: connection.apiKey } : {}), ...(connection.credentialId ? { credential_id: connection.credentialId } : {}) }, operation.signal), undefined, connection.credentialId)
       if (!operation.signal.aborted) { connection.clear(); onCreated(agent) }
     } catch (failure) {
       if (!operation.signal.aborted) {

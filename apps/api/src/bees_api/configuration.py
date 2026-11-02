@@ -43,12 +43,12 @@ def configure(
         if current.revision != body.expected_revision:
             raise RevisionConflict("Perfil alterado; atualize antes de salvar.")
         validate_existing_reference(current, bound.config)
-    _model_selection(request, bound)
+    selected, _, _ = _model_selection(request, bound)
     request.app.state.receipts.consume(body.validation_token, _signature(bound, _binding(request)))
     reference = None
     committed = False
     try:
-        config = body.config
+        config = selected
         if body.api_key is not None:
             reference = request.app.state.vault.put(body.api_key)
             config = ProviderConfig.model_validate(config.model_dump() | {"secret_ref": reference})

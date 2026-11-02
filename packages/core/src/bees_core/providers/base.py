@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -66,6 +67,57 @@ def decode_json(raw: bytes) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ProviderError("invalid_response")
     return value
+
+
+async def rejection(response: httpx.Response) -> ProviderError:
+    """Classifica recusa HTTP limitada; textos externos não entram no diagnóstico."""
+    code = "provider_rejected"
+    parameter = None
+    if response.headers.get("content-encoding", "identity").lower() == "identity":
+        try:
+            raw = bytearray()
+            if response.is_stream_consumed:
+                if len(response.content) <= 8192:
+                    raw.extend(response.content)
+            else:
+                async for chunk in response.aiter_raw():
+                    if len(raw) + len(chunk) > 8192:
+                        raw.clear()
+                        break
+                    raw.extend(chunk)
+            if raw:
+                error = decode_json(bytes(raw)).get("error")
+                if isinstance(error, dict):
+                    field = error.get("param")
+                    if isinstance(field, str):
+                        field = re.sub(r"\[\d{1,3}\]", "", field)
+                        if field in {
+                            "tools",
+                            "tools.function.parameters",
+                            "tools.function.strict",
+                            "messages",
+                            "model",
+                            "store",
+                            "stream",
+                        }:
+                            parameter = field
+                    reason = error.get("code")
+                    if reason == "context_length_exceeded":
+                        code = "context_window_exceeded"
+                    elif (
+                        reason in ("invalid_function_parameters", "invalid_tool_schema")
+                        or parameter == "tools.function.parameters"
+                    ):
+                        code = "tool_schema_rejected"
+                    elif reason in ("unsupported_parameter", "unsupported_value"):
+                        code = (
+                            "model_tools_unsupported"
+                            if parameter == "tools"
+                            else "unsupported_model_parameter"
+                        )
+        except ProviderError, httpx.RequestError:
+            pass
+    return ProviderError(code, upstream_status=response.status_code, parameter=parameter)
 
 
 class HTTPAdapter:
@@ -148,6 +200,8 @@ class HTTPAdapter:
                 raise ProviderError("model_unavailable", upstream_status=status)
             if status >= 500:
                 raise ProviderError("provider_unavailable", retryable=True, upstream_status=status)
+            if status in (400, 422):
+                raise await rejection(response)
             if status < 200 or status >= 300:
                 raise ProviderError("provider_rejected", upstream_status=status)
             if response.headers.get("content-encoding", "identity").lower() != "identity":

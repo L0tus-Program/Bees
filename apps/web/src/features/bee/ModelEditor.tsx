@@ -25,7 +25,7 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
     setBusy(true); setError(null); controller.current = connection.beginSave()
     const operation = controller.current
     try {
-      await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => saveConfiguration(agent.id, agent.revision, connection.config, validationToken, connection.apiKey, operation.signal), agent.id)
+      await preparedSave(connection.config, connection.apiKey, operation.signal, (validationToken) => saveConfiguration(agent.id, agent.revision, connection.config, validationToken, connection.apiKey, operation.signal, connection.credentialId), agent.id, connection.credentialId)
       if (!operation.signal.aborted) { connection.clear(); onSaved() }
     } catch (failure) {
       if (!operation.signal.aborted) { connection.invalidate(); setError(asApiError(failure)) }
@@ -44,7 +44,7 @@ export function ModelEditor({ agent, vault, onSaved, onReload }: { agent: AgentS
     <form onSubmit={(event) => { void submit(event) }}>
       <p className="transfer-notice">{bee('transferNotice')}</p>
       <p className="quiet-note">{t('saveWithoutTest')}</p>
-      {agent.provider_config?.secret_ref && !connection.config.secret_ref && !connection.apiKey && <p className="transfer-notice">{bee('credentialRemoved')}</p>}
+      {agent.provider_config?.secret_ref && !connection.config.secret_ref && !connection.apiKey && !connection.credentialId && <p className="transfer-notice">{bee('credentialRemoved')}</p>}
       <button type="submit" className="button primary wide" disabled={busy || !connection.canSave(vault.available)}>{busy ? t('working') : bee('saveModel')}</button>
     </form>
   </section>

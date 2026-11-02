@@ -47,6 +47,9 @@ def wire_tools(request: ChatRequest) -> list[dict]:
                 "name": tool.name,
                 "description": tool.description,
                 "parameters": tool.parameters,
+                # O contrato Bees aceita campos opcionais. Não delegar ao modelo
+                # a escolha de um modo estrito que exige todos os campos.
+                "strict": False,
             },
         }
         for tool in request.tools

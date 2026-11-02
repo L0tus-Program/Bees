@@ -3,7 +3,7 @@ import type { ModelConfig } from './onboarding'
 
 export interface Provider { id: string; name: string; kind: ModelConfig['kind']; endpoint: string; requires_api_key: boolean; models: AvailableModel[] }
 export interface AvailableModel { id: string; name: string }
-export interface DiscoveryRequest { provider_id: string; endpoint?: string; api_key?: string; agent_id?: string; secret_ref?: string }
+export interface DiscoveryRequest { provider_id: string; endpoint?: string; api_key?: string; agent_id?: string; secret_ref?: string; credential_id?: string }
 
 function isModelList(value: unknown): value is AvailableModel[] {
   return Array.isArray(value) && value.every((item) => record(item) && typeof item.id === 'string' && !!item.id
@@ -27,4 +27,12 @@ export async function discoverModels(body: DiscoveryRequest, signal?: AbortSigna
   if (!record(value) || value.provider_id !== body.provider_id || !isModelList(value.models)) throw new ApiError('invalid_response')
   // Keep only display fields; credentials and provider payloads never become UI state.
   return value.models.map((item) => ({ id: item.id, name: item.name }))
+}
+
+export interface ModelCredential { id: string; kind: ModelConfig['kind']; endpoint: string }
+export async function getModelCredentials(signal?: AbortSignal): Promise<ModelCredential[]> {
+  const value = await request('/model-credentials', { authenticated: true, signal })
+  if (!record(value) || !Array.isArray(value.credentials) || !value.credentials.every((item) => record(item)
+    && typeof item.id === 'string' && item.id.startsWith('vault:') && item.kind === 'openai_compatible' && typeof item.endpoint === 'string')) throw new ApiError('invalid_response')
+  return value.credentials.map((item) => ({ id: item.id, kind: item.kind, endpoint: item.endpoint }))
 }

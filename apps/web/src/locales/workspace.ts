@@ -1,4 +1,6 @@
 const pt = {
+  failureUnknown: 'O provedor não devolveu uma resposta confirmada. A causa específica não foi registrada nesta execução.', failureOther: 'A execução parou. Consulte o código abaixo para identificar a causa.', modelOutcomeUnknown: 'Pode ter havido consumo de créditos. Nenhuma chamada de modelo será repetida automaticamente; revise os detalhes antes de retomar.', toolOutcomeUnknown: 'O efeito de uma ferramenta ainda não foi confirmado. Confira o que aconteceu antes de retomar.', failureDetails: 'Detalhes do erro', failureCode: 'Código', failureModel: 'Modelo usado', failureProvider: 'Provedor', failureParameter: 'Campo recusado',
+  clearConversation: 'Limpar conversa', clearing: 'Limpando…', clearConfirm: 'Limpar esta conversa? As mensagens sairão da tela e não serão usadas nas próximas respostas. O histórico anterior será arquivado. Memórias, configurações, tarefas e entregas serão preservadas. Encerre trabalhos pendentes antes. Resultados incertos continuam disponíveis em Atividade.',
   bees: 'Suas abelhas', newBee: 'Nova abelha', menu: 'Abrir menu', settings: 'Configurações da abelha', backToChat: 'Voltar à conversa',
   settingsSection: 'Seção das configurações', settingsBee: 'Sua abelha', settingsWork: 'Trabalho e entregas', settingsAccess: 'Acesso e execução',
   computer: 'Computador', activity: 'Atividade', files: 'Arquivos da conversa', closePanel: 'Fechar painel', data: 'Meus dados', signOut: 'Sair',
@@ -23,6 +25,8 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
+  failureUnknown: 'The provider did not return a confirmed response. This run did not record a specific cause.', failureOther: 'Execution stopped. Check the code below to identify the cause.', modelOutcomeUnknown: 'Credits may have been consumed. Model calls will not be repeated automatically; review the details before resuming.', toolOutcomeUnknown: 'A tool’s effect has not been confirmed. Check what happened before resuming.', failureDetails: 'Error details', failureCode: 'Code', failureModel: 'Model used', failureProvider: 'Provider', failureParameter: 'Rejected field',
+  clearConversation: 'Clear conversation', clearing: 'Clearing…', clearConfirm: 'Clear this conversation? Messages will leave this view and will not be used in future replies. The previous history will be archived. Memories, settings, tasks and deliveries will be preserved. Finish pending work first. Uncertain outcomes remain available in Activity.',
   bees: 'Your bees', newBee: 'New bee', menu: 'Open menu', settings: 'Bee settings', backToChat: 'Back to chat',
   settingsSection: 'Settings section', settingsBee: 'Your bee', settingsWork: 'Work and deliveries', settingsAccess: 'Access and execution',
   computer: 'Computer', activity: 'Activity', files: 'Conversation files', closePanel: 'Close panel', data: 'My data', signOut: 'Sign out',
@@ -46,6 +50,8 @@ const en: Translations = {
   status: { queued: 'Queued', running: 'Running', waiting_approval: 'Needs you', waiting_resource: 'Waiting for browser', paused: 'Paused', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' },
 }
 const es: Translations = {
+  failureUnknown: 'El proveedor no devolvió una respuesta confirmada. Esta ejecución no registró una causa específica.', failureOther: 'La ejecución se detuvo. Consulta el código para identificar la causa.', modelOutcomeUnknown: 'Puede haber consumo de créditos. No se repetirán llamadas al modelo automáticamente; revisa los detalles antes de reanudar.', toolOutcomeUnknown: 'El efecto de una herramienta aún no se confirmó. Revisa lo ocurrido antes de reanudar.', failureDetails: 'Detalles del error', failureCode: 'Código', failureModel: 'Modelo utilizado', failureProvider: 'Proveedor', failureParameter: 'Campo rechazado',
+  clearConversation: 'Limpiar conversación', clearing: 'Limpiando…', clearConfirm: '¿Limpiar esta conversación? Los mensajes saldrán de esta vista y no se usarán en las próximas respuestas. El historial anterior se archivará. Se conservarán memorias, ajustes, tareas y entregas. Termina el trabajo pendiente primero. Los resultados inciertos siguen en Actividad.',
   bees: 'Tus abejas', newBee: 'Nueva abeja', menu: 'Abrir menú', settings: 'Configuración de la abeja', backToChat: 'Volver a la conversación',
   settingsSection: 'Sección de configuración', settingsBee: 'Tu abeja', settingsWork: 'Trabajo y entregas', settingsAccess: 'Acceso y ejecución',
   computer: 'Ordenador', activity: 'Actividad', files: 'Archivos de la conversación', closePanel: 'Cerrar panel', data: 'Mis datos', signOut: 'Salir',

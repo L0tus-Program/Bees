@@ -8,8 +8,8 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import BoundedSemaphore, RLock
-from typing import Annotated
-from uuid import UUID
+from typing import Annotated, Literal
+from uuid import UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
@@ -26,11 +26,16 @@ from bees_core.providers.catalog import (
     provider_preset,
 )
 from bees_core.providers.contracts import ConnectionConfig, ProviderConfig, validate_capabilities
+from bees_core.providers.credentials import (
+    account_credentials,
+    register_credential,
+    select_credential,
+)
 from bees_core.providers.discovery import DiscoveryAdapter
 from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import ProviderService
 from bees_core.security.identity import Session
-from bees_core.storage.store import NotFoundError, StateStore
+from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
 
 _SESSION = Annotated[Session, Depends(require_session)]
 
@@ -45,6 +50,7 @@ class Input(BaseModel):
 
 class ModelInput(Input):
     agent_id: UUID | None = None
+    credential_id: str | None = Field(default=None, min_length=1, max_length=128)
     config: ProviderConfig
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=8192, repr=False)
 
@@ -55,6 +61,7 @@ class DiscoverInput(Input):
     api_key: SecretStr | None = Field(default=None, min_length=1, max_length=8192, repr=False)
     agent_id: UUID | None = None
     secret_ref: str | None = Field(default=None, max_length=128)
+    credential_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
 class CreateAgentInput(ModelInput):
@@ -81,6 +88,13 @@ class ChatInput(Input):
     client_request_id: UUID | None = None
     attachments: list[AttachmentRef] = Field(default_factory=list, max_length=4)
     attachment_consent: AttachmentConsent | None = None
+
+
+class ClearConversationInput(Input):
+    client_request_id: UUID
+    expected_revision: int = Field(strict=True, ge=1)
+    expected_conversation_revision: int = Field(strict=True, ge=1)
+    consent: Literal["clear_conversation"]
 
 
 class Receipts:
@@ -149,6 +163,8 @@ def _signature(body: ModelInput, binding: str, *, creation: bool = False) -> str
     }
     if body.agent_id is not None:
         data["agent_id"] = str(body.agent_id)
+    if body.credential_id is not None:
+        data["credential_id"] = body.credential_id
     if creation:
         data.update(name=body.name, purpose=body.purpose, instructions=body.instructions)
     raw = json.dumps(data, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -201,7 +217,15 @@ def _model_selection(request: Request, body: ModelInput):
             if previous is None:
                 raise NotFoundError("Abelha não encontrada.")
         validate_existing_reference(previous, body.config)
-    config, resolver = _connection(request, body)
+    if body.credential_id is not None:
+        if body.api_key is not None:
+            raise ProviderError("invalid_config")
+        with request.app.state.store.transaction(write=False) as unit:
+            config = select_credential(unit, body.config, body.credential_id)
+        validate_capabilities(config)
+        resolver = request.app.state.resolver
+    else:
+        config, resolver = _connection(request, body)
     if config.secret_ref is not None:
         # Preflight privado local: nenhuma credencial é colocada no comprovante.
         validate_bearer_secret(resolver.resolve(config.secret_ref))
@@ -254,6 +278,12 @@ def providers(request: Request, session: _SESSION) -> dict:
     return {"providers": [provider.model_dump(mode="json") for provider in PROVIDERS]}
 
 
+@router.get("/model-credentials")
+def credentials(request: Request, session: _SESSION) -> dict:
+    with request.app.state.store.transaction(write=False) as unit:
+        return {"credentials": account_credentials(unit)}
+
+
 @router.post("/models/discover")
 async def discover_models(body: DiscoverInput, request: Request, session: _SESSION) -> dict:
     if body.secret_ref == "env:BEES_REQUEST_KEY":
@@ -272,6 +302,11 @@ async def discover_models(body: DiscoverInput, request: Request, session: _SESSI
         if body.secret_ref is not None:
             validate_existing_reference(previous, config)
     resolver = request.app.state.resolver
+    if body.credential_id is not None:
+        if body.api_key is not None:
+            raise ProviderError("invalid_config")
+        with request.app.state.store.transaction(write=False) as unit:
+            config = select_credential(unit, config, body.credential_id)
     if body.api_key is not None:
         if config.kind == "ollama":
             raise ProviderError("invalid_config")
@@ -362,12 +397,12 @@ def create_agent(body: CreateAgentInput, request: Request, session: _SESSION) ->
                 reject("command_conflict", "O pedido já foi usado com outros parâmetros.")
             return _summary(unit, agent)
 
-    _model_selection(request, body)
+    selected, _, _ = _model_selection(request, body)
     request.app.state.receipts.consume(body.validation_token, _signature(body, binding))
     reference = None
     committed = False
     try:
-        config = body.config
+        config = selected
         if body.api_key is not None:
             reference = request.app.state.vault.put(body.api_key)
             config = ProviderConfig.model_validate(config.model_dump() | {"secret_ref": reference})
@@ -386,6 +421,7 @@ def create_agent(body: CreateAgentInput, request: Request, session: _SESSION) ->
         )
         conversation = Conversation(agent_id=agent.id)
         with store.transaction(source="web_onboarding") as unit:
+            register_credential(unit, config)
             unit.agents.create(agent)
             unit.conversations.create(conversation)
             result = _summary(unit, agent)
@@ -412,6 +448,7 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
         )
     return {
         "conversation_id": str(conversation_id),
+        "revision": conversation.revision,
         "has_more": count > 1000,
         "messages": [
             {
@@ -427,6 +464,67 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
             for record in records
         ],
     }
+
+
+@router.post("/agents/{agent_id}/conversations/{conversation_id}/clear")
+def clear_conversation(
+    agent_id: UUID,
+    conversation_id: UUID,
+    body: ClearConversationInput,
+    request: Request,
+    session: _SESSION,
+) -> dict:
+    new_id = uuid5(conversation_id, "bees.clear/v1:" + str(body.client_request_id))
+    command = {"previous_conversation_id": str(conversation_id), **body.model_dump(mode="json")}
+    with request.app.state.receipts.operation(conversation_id):
+        with request.app.state.store.transaction(source="clear_conversation") as unit:
+            agent = unit.agents.get(agent_id)
+            old = unit.conversations.get(conversation_id)
+            if agent is None or old is None or old.agent_id != agent.id:
+                raise NotFoundError("Conversa não encontrada.")
+            existing = unit.conversations.get(new_id)
+            if existing is not None:
+                if (
+                    existing.agent_id != agent.id
+                    or existing.metadata.get("clear_command") != command
+                ):
+                    raise ProviderError("state_conflict")
+                return {"conversation_id": str(existing.id)}
+            if (
+                agent.revision != body.expected_revision
+                or old.revision != body.expected_conversation_revision
+            ):
+                raise RevisionConflict("A conversa mudou; atualize antes de limpar.")
+            if old.status != "active" or old.metadata.get("execution_kind"):
+                raise ProviderError("conversation_inactive")
+            # Inclui tarefas privadas que entregam na conversa, além das ligadas diretamente.
+            rows = unit.agents._context.connection.execute(
+                "SELECT id,status FROM tasks WHERE (agent_id=? AND (conversation_id=? OR "
+                "json_extract(metadata_json,'$.delegation.origin_conversation_id')=? OR "
+                "json_extract(metadata_json,'$.agent_chat.conversation_id')=?)) OR "
+                "(json_extract(metadata_json,'$.delegated_from.agent_id')=? AND "
+                "json_extract(metadata_json,'$.delegated_from.conversation_id')=?)",
+                (str(agent.id), *(str(old.id),) * 3, str(agent.id), str(old.id)),
+            ).fetchall()
+            if any(
+                row[1] not in ("completed", "failed", "cancelled")
+                or any(unit.model_calls.for_task(row[0], status="dispatch_started"))
+                or any(unit.actions.for_task(row[0], status="dispatch_started"))
+                for row in rows
+            ):
+                reject(
+                    "conversation_has_pending_work",
+                    "Revise ou encerre os trabalhos desta conversa antes de limpar.",
+                )
+            unit.conversations.update(old.model_copy(update={"status": "archived"}), old.revision)
+            unit.conversations.create(
+                Conversation(
+                    id=new_id,
+                    agent_id=agent.id,
+                    metadata={"clear_command": command},
+                )
+            )
+            return {"conversation_id": str(new_id)}
 
 
 @router.post("/agents/{agent_id}/chat")

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowUp, ChevronRight, FileText, ListTodo, Loader2, Mic, MicOff, Paperclip, Volume2, VolumeX, X } from 'lucide-react'
+import { ArrowUp, ChevronRight, FileText, ListTodo, Loader2, Mic, MicOff, Paperclip, Trash2, Volume2, VolumeX, X } from 'lucide-react'
 import { ApiError as ApiErrorClass, asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
-import { messages as loadMessages, sendChat } from '../../api/onboarding'
+import { clearConversation, messages as loadMessages, sendChat } from '../../api/onboarding'
 import type { AgentSummary, Message } from '../../api/onboarding'
 import { getDelegations } from '../../api/delegations'
 import type { Delegation, DelegationCollection } from '../../api/delegations'
 import { enableRecommendedTools, getAgentCapabilities, sendAgentMessage } from '../../api/agent'
 import type { AgentCapabilities } from '../../api/agent'
+import { confirmAction } from '../../components/confirmAction'
 import { ErrorNotice } from '../../components/Feedback'
 import { publishArtifact } from '../artifacts/api'
 import type { ArtifactRecord } from '../artifacts/api'
@@ -64,7 +65,7 @@ function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
 }
 
 /** Conversa no estilo assistente: uma rolagem, campo fixo embaixo, a abelha decide o que fazer. */
-export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: Agent; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void }) {
+export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
   const { t, i18n } = useTranslation('workspace')
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
   const [capabilityVersion, setCapabilityVersion] = useState(0)
@@ -104,6 +105,10 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   const [uploading, setUploading] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const clearController = useRef<AbortController | null>(null)
+  const clearIdentity = useRef(commandIdentity())
+  useEffect(() => () => clearController.current?.abort(), [])
   const [error, setError] = useState<ApiError | null>(null)
   const [identity] = useState(commandIdentity)
   const agentIdentity = useRef<{ content: string; id: string } | null>(null)
@@ -159,7 +164,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
   async function submit(event?: FormEvent) {
     event?.preventDefault()
     const content = draft.trim()
-    if (busy || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    if (busy || clearing || resource.state !== 'ready' || !content || agent.status !== 'active') return
     setBusy(true); setError(null); follow.current = true
     try {
       if (useAgent) {
@@ -181,8 +186,30 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
     }
   }
 
+  async function clear() {
+    if (busy || clearing || uploading || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
+    const operation = new AbortController()
+    clearController.current = operation
+    setClearing(true); setError(null)
+    const snapshot = resource.data.revision
+    let confirmed = false
+    try {
+      if (!await confirmAction(t('clearConfirm'), t('clearConversation')) || operation.signal.aborted) return
+      const requestId = clearIdentity.current.forPayload({ conversation: agent.conversation_id, agentRevision: agent.revision, revision: snapshot })
+      await clearConversation(agent, snapshot, requestId, operation.signal)
+      if (!operation.signal.aborted) { confirmed = true; onCleared() }
+    } catch (failure) {
+      if (!operation.signal.aborted) {
+        const error = asApiError(failure)
+        setError(error); reload(); monitor.refresh()
+        if (['mutation_network', 'mutation_timeout', 'invalid_response'].includes(error.code)) onCleared()
+      }
+    } finally { if (!operation.signal.aborted && !confirmed) setClearing(false) }
+  }
+
   const empty = resource.state === 'ready' && list.length === 0 && delegations.length === 0
   return <div className="flex min-h-0 flex-1 flex-col">
+    {onCleared && <div className="flex justify-end px-4 py-1"><Button variant="ghost" size="sm" onClick={() => { void clear() }} disabled={busy || clearing || uploading || resource.state !== 'ready' || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
     <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6" role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions">
         {resource.state === 'loading' && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('thinking')}</p>}
@@ -226,19 +253,19 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity }: { agent: 
             {uploading && <li className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t('uploading')}</li>}
           </ul>}
           <label htmlFor="chat-input" className="sr-only">{t('placeholder', { name: agent.name })}</label>
-          <Textarea id="chat-input" ref={inputRef} value={draft} rows={1} maxLength={16000} disabled={agent.status !== 'active'} placeholder={t('placeholder', { name: agent.name })} className="max-h-60 px-4 pt-3" aria-describedby="chat-enter-hint"
+          <Textarea id="chat-input" ref={inputRef} value={draft} rows={1} maxLength={16000} disabled={clearing || agent.status !== 'active'} placeholder={t('placeholder', { name: agent.name })} className="max-h-60 px-4 pt-3" aria-describedby="chat-enter-hint"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
           <div className="flex items-center gap-1 px-2 pb-2">
             {useAgent && <>
               <input ref={fileInput} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void attach(event.target.files) }} />
-              <Tooltip label={`${t('attach')} — ${t('attachHint')}`}><Button variant="ghost" size="icon-sm" aria-label={t('attach')} disabled={uploading || busy || files.length >= 4} onClick={() => fileInput.current?.click()}><Paperclip /></Button></Tooltip>
+              <Tooltip label={`${t('attach')} — ${t('attachHint')}`}><Button variant="ghost" size="icon-sm" aria-label={t('attach')} disabled={clearing || uploading || busy || files.length >= 4} onClick={() => fileInput.current?.click()}><Paperclip /></Button></Tooltip>
             </>}
             {dictation.supported && <Tooltip label={t(dictation.listening ? 'stopDictation' : 'dictate')}><Button variant="ghost" size="icon-sm" aria-label={t(dictation.listening ? 'stopDictation' : 'dictate')} aria-pressed={dictation.listening} onClick={() => { if (dictation.listening) { dictation.stop() } else { dictation.start() } }}>{dictation.listening ? <MicOff /> : <Mic />}</Button></Tooltip>}
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={clearing || busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>

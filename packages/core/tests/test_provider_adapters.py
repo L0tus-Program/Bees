@@ -462,3 +462,47 @@ async def test_ollama_rejects_truncated_or_malformed_tool_completion(done_reason
     with pytest.raises(ProviderError) as error:
         await adapter.complete(config("ollama"), request(tools=True))
     assert error.value.code == "invalid_response"
+
+
+@pytest.mark.parametrize(
+    ("upstream", "field", "expected"),
+    [
+        ("invalid_function_parameters", "tools[12].function.parameters", "tool_schema_rejected"),
+        ("unsupported_value", "tools", "model_tools_unsupported"),
+        ("unsupported_parameter", "store", "unsupported_model_parameter"),
+        ("context_length_exceeded", "messages", "context_window_exceeded"),
+        ("private-secret-code", "https://private.invalid/token", "provider_rejected"),
+    ],
+)
+def test_rejection_classifies_safe_fields_without_exposing_provider_text(upstream, field, expected):
+    def respond(_):
+        return httpx.Response(
+            400, json={"error": {"code": upstream, "param": field, "message": "API-KEY-PRIVATE"}}
+        )
+
+    adapter = create_adapter("openai_compatible", transport=httpx.MockTransport(respond))
+    with pytest.raises(ProviderError) as caught:
+        asyncio.run(adapter.complete(config("openai_compatible"), request(tools=True)))
+    assert caught.value.code == expected and caught.value.upstream_status == 400
+    assert "API-KEY-PRIVATE" not in str(caught.value)
+    assert caught.value.parameter == (
+        None
+        if field.startswith("https:")
+        else "tools.function.parameters"
+        if upstream == "invalid_function_parameters"
+        else field
+    )
+
+
+@pytest.mark.parametrize(
+    "payload", [b"not-json", b'{"error":' + b" " * 9000, b'{"error":"PRIVATE"}']
+)
+def test_unreadable_or_large_rejection_keeps_original_status(payload):
+    adapter = create_adapter(
+        "openai_compatible",
+        transport=httpx.MockTransport(lambda _: httpx.Response(422, content=payload)),
+    )
+    with pytest.raises(ProviderError) as caught:
+        asyncio.run(adapter.complete(config("openai_compatible"), request()))
+    assert caught.value.code == "provider_rejected" and caught.value.upstream_status == 422
+    assert caught.value.parameter is None

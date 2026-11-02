@@ -136,7 +136,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
           </>}
         </header>
         {settings ? <SettingsPanel key={selected.id} agent={selected} data={data} initial={settings} onReload={reload} />
-          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} onTaskDetails={setTaskId} onComputerActivity={openComputer} />
+          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} onTaskDetails={setTaskId} onComputerActivity={openComputer} onCleared={reload} />
             : <div className="grid flex-1 place-items-center p-6 text-center"><div className="flex flex-col items-center gap-3"><p className="text-muted-foreground">{t('noModel')}</p><Button onClick={() => setSettings('model')}>{t('configureModel')}</Button></div></div>}
       </main>
       {!settings && panel && wide && <aside className={cn('flex min-h-0 shrink-0 flex-col overflow-hidden border-l', panel === 'computer' ? 'w-[min(44vw,640px)]' : 'w-80 xl:w-96')} aria-label={t('panel')}>
