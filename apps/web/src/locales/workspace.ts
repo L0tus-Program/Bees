@@ -1,5 +1,6 @@
 const pt = {
   bees: 'Suas abelhas', newBee: 'Nova abelha', menu: 'Abrir menu', settings: 'Configurações da abelha', backToChat: 'Voltar à conversa',
+  settingsSection: 'Seção das configurações', settingsBee: 'Sua abelha', settingsWork: 'Trabalho e entregas', settingsAccess: 'Acesso e execução',
   computer: 'Computador', activity: 'Atividade', files: 'Arquivos da conversa', closePanel: 'Fechar painel', data: 'Meus dados', signOut: 'Sair',
   safety: 'Execução', safetyRunning: 'Executando normalmente', safetyStopped: 'Tudo parado',
   emptyTitle: 'Como posso ajudar?', emptyHint: 'Peça uma pesquisa, um relatório, para mexer no computador da abelha ou só converse.',
@@ -23,6 +24,7 @@ const pt = {
 type Translations = typeof pt
 const en: Translations = {
   bees: 'Your bees', newBee: 'New bee', menu: 'Open menu', settings: 'Bee settings', backToChat: 'Back to chat',
+  settingsSection: 'Settings section', settingsBee: 'Your bee', settingsWork: 'Work and deliveries', settingsAccess: 'Access and execution',
   computer: 'Computer', activity: 'Activity', files: 'Conversation files', closePanel: 'Close panel', data: 'My data', signOut: 'Sign out',
   safety: 'Execution', safetyRunning: 'Running normally', safetyStopped: 'Everything stopped',
   emptyTitle: 'How can I help?', emptyHint: 'Ask for research, a report, to use the bee’s computer, or just chat.',
@@ -45,6 +47,7 @@ const en: Translations = {
 }
 const es: Translations = {
   bees: 'Tus abejas', newBee: 'Nueva abeja', menu: 'Abrir menú', settings: 'Configuración de la abeja', backToChat: 'Volver a la conversación',
+  settingsSection: 'Sección de configuración', settingsBee: 'Tu abeja', settingsWork: 'Trabajo y entregas', settingsAccess: 'Acceso y ejecución',
   computer: 'Ordenador', activity: 'Actividad', files: 'Archivos de la conversación', closePanel: 'Cerrar panel', data: 'Mis datos', signOut: 'Salir',
   safety: 'Ejecución', safetyRunning: 'Funcionando con normalidad', safetyStopped: 'Todo detenido',
   emptyTitle: '¿En qué puedo ayudar?', emptyHint: 'Pide una investigación, un informe, usar el ordenador de la abeja o simplemente conversa.',

@@ -1,0 +1,129 @@
+/* Os painéis compartilham os tokens da conversa. O escopo mantém primeiro acesso,
+   previews e controles fora das configurações com seus estilos próprios. */
+.settings-content {
+  --theme-ink: var(--ui-foreground);
+  --theme-muted: var(--ui-muted-foreground);
+  --theme-canvas: var(--ui-background);
+  --theme-surface: var(--ui-card);
+  --theme-input: var(--ui-background);
+  --theme-elevated: var(--ui-muted);
+  --theme-surface-muted: var(--ui-muted);
+  --theme-border: var(--ui-border);
+  --theme-positive: var(--ui-muted);
+  --theme-warning: var(--ui-accent);
+  --theme-accent-text: var(--ui-accent-foreground);
+  --theme-button-background: var(--ui-secondary);
+  --theme-button-text: var(--ui-secondary-foreground);
+  --theme-button-hover: var(--ui-muted);
+  --theme-error-background: color-mix(in oklch, var(--ui-destructive) 10%, var(--ui-card));
+  --theme-error-text: var(--ui-destructive);
+  --ink: var(--ui-foreground);
+  --muted: var(--ui-muted-foreground);
+  --line: var(--ui-border);
+  --border: var(--ui-border);
+  --accent: var(--ui-accent-foreground);
+  --honey: var(--ui-primary);
+  --button-background: var(--ui-secondary);
+  --button-text: var(--ui-secondary-foreground);
+  color: var(--ui-foreground);
+  font-size: .875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  scrollbar-gutter: stable;
+}
+
+.settings-content .surface {
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-card);
+  color: var(--ui-card-foreground);
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  margin-block: 0;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .03);
+}
+.settings-content .surface h2 { font-size: 1rem; font-weight: 600; line-height: 1.5; }
+.settings-content :is(h3, h4) { font-size: .875rem; font-weight: 600; }
+.settings-content .form-heading { flex-wrap: wrap; align-items: center; gap: .75rem; }
+.settings-content .form-introduction { margin: .5rem 0 1.5rem; font-size: .875rem; line-height: 1.65; }
+.settings-content :is(.quiet-note, .field small, .checkbox-field small, .provider-label) { font-size: .75rem; line-height: 1.65; color: var(--ui-muted-foreground); }
+.settings-content .quiet-note { margin-top: .75rem; }
+.settings-content .field { gap: .5rem; margin-bottom: 1.25rem; }
+.settings-content .field > span { font-size: .875rem; font-weight: 500; }
+.settings-content :is(input:not([type="checkbox"], [type="radio"], [type="file"]), select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--ui-input);
+  border-radius: calc(var(--ui-radius) - 4px);
+  background: var(--ui-background);
+  color: var(--ui-foreground);
+  padding: .625rem .75rem;
+  font: inherit;
+  line-height: 1.5;
+}
+.settings-content textarea { width: 100%; resize: vertical; }
+.settings-content input[type="file"] { max-width: 100%; }
+.settings-content :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--ui-accent-foreground); }
+.settings-content :is(input, select, textarea, button, a, summary):focus-visible {
+  outline: 2px solid var(--ui-ring);
+  outline-offset: 3px;
+}
+.settings-content :is(input, select, textarea):disabled { background: var(--ui-muted); opacity: .65; }
+.settings-content .checkbox-field { gap: .75rem; font-size: .875rem; }
+.settings-content .checkbox-field input { margin-top: .25rem; }
+.settings-content :is(.button, .text-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  max-width: 100%;
+  min-height: 2.75rem;
+  padding: .625rem 1rem;
+  border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) - 2px);
+  background: var(--ui-secondary);
+  color: var(--ui-secondary-foreground);
+  font-size: .875rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: center;
+  white-space: normal;
+}
+.settings-content :is(.button, .text-button):hover:not(:disabled) { background: var(--ui-muted); }
+.settings-content .button.primary { border-color: transparent; background: var(--ui-primary); color: var(--ui-primary-foreground); }
+.settings-content .button.primary:hover:not(:disabled) { background: color-mix(in oklch, var(--ui-primary) 90%, var(--ui-card)); }
+.settings-content .button.secondary { background: var(--ui-card); color: var(--ui-foreground); }
+.settings-content .text-button { border-color: transparent; background: transparent; }
+.settings-content :is(.destructive-text, .text-button.danger) { color: var(--ui-destructive); }
+.settings-content .button.danger { border-color: transparent; background: var(--ui-destructive); color: var(--ui-destructive-foreground); }
+.settings-content .button.danger:hover:not(:disabled) { background: color-mix(in oklch, var(--ui-destructive) 88%, black); }
+:root[data-theme="dark"] .settings-content .button.danger { color: var(--ui-background); }
+:root[data-theme="dark"] .settings-content .button.danger:hover:not(:disabled) { background: color-mix(in oklch, var(--ui-destructive) 88%, white); }
+.settings-content :is(.button, .text-button):disabled { opacity: .5; cursor: default; }
+.settings-content :is(.form-error, .form-success, .transfer-notice) {
+  border: 1px solid var(--ui-border);
+  border-radius: calc(var(--ui-radius) - 4px);
+  padding: .875rem 1rem;
+  margin-block: 1rem;
+  font-size: .8125rem;
+  line-height: 1.65;
+}
+.settings-content .form-success { background: var(--ui-muted); color: var(--ui-foreground); }
+.settings-content .form-error { background: var(--theme-error-background); color: var(--ui-destructive); }
+.settings-content .transfer-notice { background: var(--ui-accent); color: var(--ui-accent-foreground); }
+.settings-content .saved-notice { margin: 0; }
+.settings-content :is(.memory-card, .policy-card, .tool-card, .tool-catalog-card, .channel-card, .attention-card, .computer-card, .computer-runtime, .connector-card, .environment-card, .local-model, .task-card, .activity-task, .routine-list > li, .delivery-list > li) {
+  border-color: var(--ui-border);
+  border-radius: calc(var(--ui-radius) - 2px);
+  background: var(--ui-background);
+}
+.settings-content :is(.memory-empty, .policy-empty, .tool-empty, .computer-empty) { padding: 1.25rem; border: 1px dashed var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-background); }
+.settings-content :is(.memory-badges > span, .tool-status, .policy-effect, .task-status) { border-radius: .375rem; font-size: .75rem; }
+.settings-content .loading-notice { padding: 2.5rem 1rem; }
+.settings-content summary { cursor: pointer; min-height: 2.75rem; padding-block: .625rem; }
+.settings-content :is(pre, code) { overflow-wrap: anywhere; white-space: pre-wrap; }
+.settings-content :is(.policy-list, .task-list, .memory-list, .channel-list, .routine-list, .delivery-list, .attention-list) { margin-block: 1rem; }
+@media (max-width: 767px) {
+  .settings-content .form-heading { align-items: stretch; }
+  .settings-content .memory-toolbar { grid-template-columns: minmax(0, 1fr); }
+}

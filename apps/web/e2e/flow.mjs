@@ -92,6 +92,19 @@ async function auditWidths(page, name) {
   }
 }
 
+async function selectSettings(page, value) {
+  const option = page.locator(`#settings-section option[value="${value}"]`)
+  const label = await option.textContent()
+  if (page.viewportSize().width >= 768) {
+    await page.locator('[data-settings] nav').getByRole('button', { name: label, exact: true }).click()
+  } else {
+    await page.getByLabel('Seção das configurações').selectOption(value)
+  }
+  await page.getByRole('region', { name: label, exact: true }).waitFor()
+  await page.waitForTimeout(150)
+  await waitFor(async () => await page.locator('[data-settings] .loading-notice, [data-settings] [aria-busy="true"]').count() === 0, `configurações ${value}`)
+}
+
 let browser
 const data = mkdtempSync(join(tmpdir(), 'bees-e2e-'))
 try {
@@ -197,7 +210,69 @@ try {
   await audit(page, '7-computador-lateral')
   await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
   await page.getByRole('button', { name: 'Voltar à conversa' }).waitFor()
-  await audit(page, '8-configuracoes')
+  // Exercita o caminho real de edição, sem gerar: salvar perfil e modelo mantém a abelha e a conversa.
+  await page.getByRole('textbox', { name: 'Propósito', exact: true }).fill('Perfil salvo nas configurações novas.')
+  await page.getByRole('button', { name: 'Salvar perfil', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: 'Perfil atualizado.' }).waitFor()
+  await selectSettings(page, 'model')
+  if (await page.locator('#settings-heading').evaluate((element) => element !== document.activeElement)) throw new Error('Navegação não levou o foco ao título da seção.')
+  await page.keyboard.press('Tab')
+  if (await page.locator('#provider-kind').evaluate((element) => element !== document.activeElement)) throw new Error('Teclado não alcançou o primeiro campo do modelo.')
+  await page.getByLabel(/^Digitar outro modelo/).check()
+  await page.getByRole('textbox', { name: 'Modelo', exact: true }).fill('modelo-e2e')
+  await page.getByRole('button', { name: /^Testar conexão/ }).click()
+  await page.getByRole('status').filter({ hasText: 'Modelo encontrado' }).waitFor()
+  await page.getByRole('button', { name: 'Salvar e usar este modelo', exact: true }).click()
+  await page.getByRole('status').filter({ hasText: 'Modelo atualizado.' }).waitFor()
+  await selectSettings(page, 'profile')
+  if (await page.getByRole('textbox', { name: 'Propósito', exact: true }).inputValue() !== 'Perfil salvo nas configurações novas.') throw new Error('Perfil salvo não foi preservado.')
+
+  // A revisão de uma revogação continua explícita; audita também o botão destrutivo em hover, sem confirmar.
+  await selectSettings(page, 'tools')
+  await page.getByRole('button', { name: 'Revogar uso', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Confirmar alteração', exact: true }).hover()
+  await auditWidths(page, '8-configuracoes-confirmacao-clara')
+  await page.locator('.tool-confirmation').getByRole('button', { name: 'Cancelar', exact: true }).click()
+  const sections = await page.locator('#settings-section option').evaluateAll((items) => items.map((item) => item.value))
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const section of sections) {
+      await selectSettings(page, section)
+      await audit(page, `8-configuracoes-${section}-${width}`)
+    }
+  }
+  // O seletor móvel permanece focado, permitindo percorrer as seções pelo teclado nativo.
+  await page.locator('#settings-section').focus()
+  await selectSettings(page, 'model')
+  if (await page.locator('#settings-section').evaluate((element) => element !== document.activeElement)) throw new Error('Seletor móvel perdeu o foco ao trocar seção.')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  for (const language of ['en', 'es']) {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('.language-select select').first().selectOption(language)
+    await page.waitForTimeout(150)
+    await auditWidths(page, `9-configuracoes-modelo-${language}`)
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('.language-select select').first().selectOption('pt-BR')
+  await page.locator('.appearance-select select').first().selectOption('dark')
+  for (const section of ['profile', 'model', 'routines', 'tools']) {
+    await selectSettings(page, section)
+    await auditWidths(page, `10-configuracoes-${section}-escuro`)
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
+  await page.getByRole('button', { name: 'Revogar uso', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Confirmar alteração', exact: true }).hover()
+  await auditWidths(page, '10-configuracoes-confirmacao-escura')
+  await page.locator('.tool-confirmation').getByRole('button', { name: 'Cancelar', exact: true }).click()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('.appearance-select select').first().selectOption('light')
+  // Navegação cabe também na janela baixa, sem cortar as últimas seções ou rolar a página.
+  await page.setViewportSize({ width: 768, height: 500 })
+  await selectSettings(page, 'usage')
+  await audit(page, '11-configuracoes-768')
+  await page.setViewportSize({ width: 1920, height: 900 })
+  await selectSettings(page, 'profile')
+  await audit(page, '11-configuracoes-1920')
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))

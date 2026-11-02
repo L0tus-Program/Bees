@@ -44,4 +44,26 @@ amplo permanece em [BEES-025.3](https://github.com/L0tus-Program/Bees/issues/88)
 
 ## Verificação ponta a ponta
 
-`npm --prefix apps/web run build && npm --prefix apps/web run e2e` sobe API, worker e um modelo simulado por HTTP, e percorre no Chromium o primeiro acesso, a criação da abelha e uma conversa. Em cada tela roda o axe-core (WCAG 2.1 A/AA) em 390 e 1280 px e, na conversa, em pt-BR/en/es; falha com qualquer violação séria/crítica, rolagem horizontal ou geração a mais. O próprio script confere antes que o axe acusa falhas conhecidas. O job **Interface ponta a ponta / Chromium** do CI publica capturas e `e2e.json`. Cobre esse fluxo; não substitui revisão com leitor de tela nem as demais telas.
+`npm --prefix apps/web run build && npm --prefix apps/web run e2e` sobe API, worker
+e um modelo simulado por HTTP, e percorre no Chromium o primeiro acesso, a criação
+da abelha, conversa e publicação de arquivo. Em cada tela roda o axe-core
+(WCAG 2.1 A/AA) em 390 e 1280 px e, na conversa, em pt-BR/en/es; falha com qualquer
+violação séria/crítica, rolagem horizontal ou geração a mais. O próprio script
+confere antes que o axe acusa falhas conhecidas. O job **Interface ponta a ponta /
+Chromium** do CI publica capturas e `e2e.json`.
+
+As configurações usam os mesmos tokens da conversa em todas as 13 seções. No
+desktop, a navegação agrupa perfil/modelo/memórias, trabalho/entregas e
+acesso/execução; no celular, um seletor nomeado oferece todas as seções. A seleção
+no desktop leva o foco ao título do conteúdo; o seletor móvel mantém seu foco
+para permitir navegação nativa pelo teclado. A navegação e o conteúdo têm rolagem
+própria quando necessário, sem esticar a página.
+
+O roteiro verifica salvamento real de Perfil e Modelo, foco de teclado, as 13
+seções em 390/1280 px, Modelo também em inglês/espanhol, e Perfil/Modelo/Rotinas/
+Ferramentas no tema escuro, incluindo a confirmação de revogação (sem confirmar
+a ação) e o contraste do botão destrutivo em hover. Acrescenta 768 px com janela baixa e 1920 px nas
+configurações. A edição de configuração não deve acrescentar gerações às três
+esperadas do fluxo de conversa/arquivo. Os cenários percorrem os estados da
+instalação de teste; não cobrem todos os erros, conteúdos ou integrações externas,
+nem substituem revisão humana com leitor de tela.
