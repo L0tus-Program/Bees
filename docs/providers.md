@@ -43,6 +43,16 @@ Na instalação Docker, ative o Ollama com `docker compose --profile local-model
 
 API: `GET /api/v1/local-models`, `POST /api/v1/local-models/pulls` (`confirm_download: true`), `GET /api/v1/local-models/pulls/{id}`, `POST /api/v1/local-models/pulls/{id}/cancel`, `POST /api/v1/local-models/delete` (`confirm_delete: true`). Somente endpoints loopback.
 
+Ao editar o endereço do Ollama, o painel começa uma consulta para aquele destino
+e descarta a lista, o progresso e os avisos do endereço anterior. Respostas
+atrasadas e confirmações de uma tela encerrada não podem iniciar uma operação ou
+preencher o painel atual. Enquanto uma confirmação/operação está pendente, os
+controles do painel ficam indisponíveis para evitar pedidos concorrentes.
+Sair da tela ou trocar o endereço interrompe o acompanhamento no navegador;
+isso não desfaz um download que o servidor já iniciou. Ao voltar ao mesmo
+endereço, o painel consulta os downloads em andamento. **Cancelar download**
+continua sendo a ação explícita para interromper o download no servidor.
+
 Fontes dos presets e catálogos: [OpenAI — listar modelos](https://developers.openai.com/api/reference/resources/models/methods/list), [Gemini — compatibilidade OpenAI e listagem](https://ai.google.dev/gemini-api/docs/openai#list-models), [OpenRouter — catálogo](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties) e [Ollama — modelos locais](https://docs.ollama.com/api/tags).
 
 Sugestões consultadas em 05/10/2026: [OpenAI GPT-5 mini](https://developers.openai.com/api/docs/models/gpt-5-mini), [GPT-5 nano](https://developers.openai.com/api/docs/models/gpt-5-nano), [GPT-4.1](https://developers.openai.com/api/docs/models/gpt-4.1), [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [GPT-4o mini](https://developers.openai.com/api/docs/models/gpt-4o-mini); [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) e [3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite); OpenRouter [GPT-4.1 mini](https://openrouter.ai/openai/gpt-4.1-mini), [Gemini 2.5 Flash](https://openrouter.ai/google/gemini-2.5-flash), [Claude Sonnet 4](https://openrouter.ai/anthropic/claude-sonnet-4); Ollama [Llama 3.2](https://ollama.com/library/llama3.2) e [Qwen 3](https://ollama.com/library/qwen3). Novas versões podem ser adicionadas por descoberta ou digitação. A disponibilidade no intermediário pode diferir da API direta.

@@ -23,8 +23,8 @@ export async function getLocalModels(endpoint: string | undefined, signal?: Abor
   return value as unknown as LocalModelStatus
 }
 
-export async function startLocalPull(endpoint: string | undefined, model: string, clientRequestId: string): Promise<LocalModelPull> {
-  const value = await request(`${base}/pulls`, { authenticated: true, body: { client_request_id: clientRequestId, model, confirm_download: true, ...(endpoint ? { endpoint } : {}) } })
+export async function startLocalPull(endpoint: string | undefined, model: string, clientRequestId: string, signal?: AbortSignal): Promise<LocalModelPull> {
+  const value = await request(`${base}/pulls`, { authenticated: true, signal, body: { client_request_id: clientRequestId, model, confirm_download: true, ...(endpoint ? { endpoint } : {}) } })
   if (!isPull(value)) throw new ApiError('invalid_response')
   return value
 }
@@ -35,14 +35,14 @@ export async function getLocalPull(id: string, signal?: AbortSignal): Promise<Lo
   return value
 }
 
-export async function cancelLocalPull(id: string): Promise<LocalModelPull> {
-  const value = await request(`${base}/pulls/${encodeURIComponent(id)}/cancel`, { authenticated: true, body: {} })
+export async function cancelLocalPull(id: string, signal?: AbortSignal): Promise<LocalModelPull> {
+  const value = await request(`${base}/pulls/${encodeURIComponent(id)}/cancel`, { authenticated: true, signal, body: {} })
   if (!isPull(value)) throw new ApiError('invalid_response')
   return value
 }
 
-export async function deleteLocalModel(endpoint: string | undefined, model: string) {
-  await request(`${base}/delete`, { authenticated: true, body: { model, confirm_delete: true, ...(endpoint ? { endpoint } : {}) } })
+export async function deleteLocalModel(endpoint: string | undefined, model: string, signal?: AbortSignal) {
+  await request(`${base}/delete`, { authenticated: true, signal, body: { model, confirm_delete: true, ...(endpoint ? { endpoint } : {}) } })
 }
 
 export function formatBytes(value: number, locale: string) {

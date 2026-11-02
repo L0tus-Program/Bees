@@ -45,6 +45,24 @@ const modelServer = createServer((request, response) => {
   })
 })
 
+// Dois backends Ollama controlados: exercitam troca de destino e resposta atrasada sem baixar modelos.
+const localBackends = ['a', 'b'].map((name) => {
+  const state = { holdTags: false, waiting: [], writes: 0 }
+  const tags = JSON.stringify({ models: [{ name: `modelo-local-${name}:latest`, size: 12 }] })
+  const server = createServer((request, response) => {
+    response.setHeader('content-type', 'application/json')
+    if (request.method !== 'GET') { state.writes += 1; response.end('{"error":"unexpected_mutation"}'); return }
+    if (request.url === '/api/version') { response.end(JSON.stringify({ version: `teste-${name}` })); return }
+    if (request.url === '/api/tags') {
+      if (state.holdTags) state.waiting.push(response)
+      else response.end(tags)
+      return
+    }
+    response.statusCode = 404; response.end('{}')
+  })
+  return { state, server, release() { state.holdTags = false; for (const response of state.waiting.splice(0)) response.end(tags) } }
+})
+
 const children = []
 function start(name, args, env) {
   const log = join(out, `${name}.log`)
@@ -108,8 +126,9 @@ async function selectSettings(page, value) {
 let browser
 const data = mkdtempSync(join(tmpdir(), 'bees-e2e-'))
 try {
-  const [apiPort, modelPort] = await Promise.all([freePort(), freePort()])
+  const [apiPort, modelPort, localPortA, localPortB] = await Promise.all([freePort(), freePort(), freePort(), freePort()])
   await new Promise((done) => modelServer.listen(modelPort, '127.0.0.1', done))
+  await Promise.all(localBackends.map(({ server }, index) => new Promise((done) => server.listen(index ? localPortB : localPortA, '127.0.0.1', done))))
   const env = { BEES_DATA_DIR: data, BEES_PORT: String(apiPort), BEES_WEB_DIST: join(web, 'dist') }
   const origin = `http://127.0.0.1:${apiPort}`
   start('api', ['-c', 'from bees_api.cli import main; main()'], env)
@@ -273,6 +292,26 @@ try {
   await page.setViewportSize({ width: 1920, height: 900 })
   await selectSettings(page, 'profile')
   await audit(page, '11-configuracoes-1920')
+  // Atualização de A em voo não pode repor sua lista depois da troca para B (#210).
+  await selectSettings(page, 'model')
+  await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+  await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${localPortA}`)
+  const local = page.locator('.local-model')
+  await local.getByText('modelo-local-a:latest', { exact: true }).waitFor()
+  localBackends[0].state.holdTags = true
+  await local.getByRole('button', { name: 'Verificar de novo', exact: true }).click()
+  await waitFor(() => localBackends[0].state.waiting.length === 1, 'consulta antiga em voo')
+  await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${localPortB}`)
+  await local.getByText('modelo-local-b:latest', { exact: true }).waitFor()
+  localBackends[0].release()
+  await page.waitForTimeout(300)
+  if (await local.getByText('modelo-local-a:latest', { exact: true }).count()) throw new Error('Resposta antiga substituiu os modelos do endpoint atual.')
+  await local.getByRole('button', { name: 'Baixar', exact: true }).first().click()
+  const confirmation = page.getByRole('dialog')
+  await confirmation.getByText(`http://127.0.0.1:${localPortB}`, { exact: false }).waitFor()
+  await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click()
+  if (localBackends.some(({ state }) => state.writes)) throw new Error('Troca ou confirmação cancelada iniciou uma operação no Ollama.')
+  await audit(page, '12-modelo-local-endpoint-atual')
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
@@ -297,5 +336,6 @@ try {
   await browser?.close()
   for (const child of children) child.kill()
   modelServer.close()
+  for (const backend of localBackends) { backend.release(); backend.server.close() }
   try { rmSync(data, { recursive: true, force: true }) } catch { /* processo ainda fechando */ }
 }

@@ -10,6 +10,8 @@ import { LocalModelPanel } from './LocalModelPanel'
 import { localModelResources } from '../../locales/localModel'
 import { productResources } from '../../locales/product'
 import { setCsrfToken } from '../../api/client'
+import { registerConfirmHost } from '../../components/confirmAction'
+import type { ConfirmRequest } from '../../components/confirmAction'
 
 const status = {
   endpoint: 'http://127.0.0.1:11434', reachable: true, version: '0.40.6',
@@ -29,9 +31,9 @@ beforeEach(async () => {
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { localModel: localModelResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
 })
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setCsrfToken() })
-async function render(onSelect = vi.fn()) {
-  await act(async () => root.render(<I18nextProvider i18n={i18n}><LocalModelPanel endpoint="http://127.0.0.1:11434" model="" onSelect={onSelect} /></I18nextProvider>))
+afterEach(async () => { await act(async () => root.unmount()); registerConfirmHost(null); container.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setCsrfToken() })
+async function render(onSelect = vi.fn(), endpoint = status.endpoint) {
+  await act(async () => root.render(<I18nextProvider i18n={i18n}><LocalModelPanel endpoint={endpoint} model="" onSelect={onSelect} /></I18nextProvider>))
   return onSelect
 }
 function button(text: string) { return [...container.querySelectorAll('button')].find((item) => item.textContent === text) }
@@ -100,4 +102,121 @@ it('keeps following the download after a transient read failure', async () => {
   await render()
   await vi.waitFor(() => expect(container.textContent).toContain('qwen3:8b está pronto'), { timeout: 5000 })
   expect(reads).toBe(2)
+})
+
+const otherEndpoint = 'http://127.0.0.1:11435'
+const otherStatus = { ...status, endpoint: otherEndpoint, models: [{ name: 'modelo-outro:latest', size_bytes: 12, modified_at: null }] }
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+it('ignores an old status response after changing the Ollama endpoint', async () => {
+  const old = deferred<Response>()
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.includes('11435') ? Promise.resolve(Response.json(otherStatus)) : old.promise))
+  await render()
+  await render(vi.fn(), otherEndpoint)
+  expect(container.textContent).toContain('modelo-outro:latest')
+  await act(async () => old.resolve(Response.json(status)))
+  expect(container.textContent).toContain('modelo-outro:latest')
+  expect(container.textContent).not.toContain('selecionado')
+  expect(button('Usar este modelo')).toBeTruthy()
+  const onSelect = await render(vi.fn(), otherEndpoint)
+  await act(async () => button('Usar este modelo')!.click())
+  expect(onSelect).toHaveBeenCalledWith('modelo-outro:latest')
+})
+
+it('drops old progress and ignores an in-flight poll when the endpoint changes', async () => {
+  const poll = deferred<Response>()
+  const fetcher = vi.fn((url: string) => {
+    if (url.includes('/pulls/p1')) return poll.promise
+    return Promise.resolve(Response.json(url.includes('11435') ? otherStatus : { ...status, pulls: [pull] }))
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await render()
+  await vi.waitFor(() => expect(fetcher.mock.calls.some(([url]) => url.includes('/pulls/p1'))).toBe(true), { timeout: 2500 })
+  await render(vi.fn(), otherEndpoint)
+  expect(button('Cancelar download')).toBeUndefined()
+  expect(container.querySelector('progress')).toBeNull()
+  await act(async () => poll.resolve(Response.json({ ...pull, status: 'completed', phase: 'success' })))
+  expect(container.textContent).not.toContain('qwen3:8b está pronto')
+  expect(container.textContent).toContain('modelo-outro:latest')
+})
+
+it.each(['Baixar', 'Remover'])('does not execute an old %s confirmation after changing endpoint', async (action) => {
+  const confirmations: ConfirmRequest[] = []
+  registerConfirmHost((request) => confirmations.push(request))
+  const writes: unknown[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(options.body); return Response.json(pull) }
+    return Response.json(url.includes('11435') ? otherStatus : status)
+  }))
+  await render()
+  await act(async () => button(action)!.click())
+  expect(confirmations).toHaveLength(1)
+  await render(vi.fn(), otherEndpoint)
+  await act(async () => confirmations[0].resolve(true))
+  expect(writes).toHaveLength(0)
+  expect(container.textContent).toContain('modelo-outro:latest')
+})
+
+it('allows only one pending confirmation and download even with rapid clicks', async () => {
+  const confirmations: ConfirmRequest[] = []
+  registerConfirmHost((request) => confirmations.push(request))
+  const writes: unknown[] = []
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(options.body); return Response.json(pull) }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => { button('Baixar')!.click(); button('Baixar')!.click() })
+  expect(confirmations).toHaveLength(1)
+  await act(async () => confirmations[0].resolve(true))
+  expect(writes).toHaveLength(1)
+})
+
+it('ignores an old download receipt after changing endpoint', async () => {
+  const receipt = deferred<Response>()
+  const fetcher = vi.fn((url: string, options: RequestInit) => options.method === 'POST'
+    ? receipt.promise : Promise.resolve(Response.json(url.includes('11435') ? otherStatus : status)))
+  vi.stubGlobal('fetch', fetcher); vi.stubGlobal('confirm', () => true)
+  await render()
+  await act(async () => button('Baixar')!.click())
+  await render(vi.fn(), otherEndpoint)
+  await act(async () => receipt.resolve(Response.json(pull)))
+  expect(container.querySelector('progress')).toBeNull()
+  expect(button('Cancelar download')).toBeUndefined()
+  expect(container.textContent).toContain('modelo-outro:latest')
+})
+
+it('cancels the current download explicitly and stops displaying progress', async () => {
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled' }) }
+    return Response.json({ ...status, pulls: [pull] })
+  }))
+  await render()
+  await act(async () => { button('Cancelar download')!.click(); button('Cancelar download')!.click() })
+  expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  expect(container.textContent).toContain('Download cancelado')
+  expect(container.querySelector('progress')).toBeNull()
+})
+
+it('rediscovers a server-side download when returning to its endpoint without cancelling it', async () => {
+  const receipt = deferred<Response>()
+  let started = false
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn((url: string, options: RequestInit) => {
+    if (options.method === 'POST') { started = true; writes.push(url); return receipt.promise }
+    return Promise.resolve(Response.json(url.includes('11435') ? otherStatus : { ...status, pulls: started ? [pull] : [] }))
+  })); vi.stubGlobal('confirm', () => true)
+  await render()
+  await act(async () => button('Baixar')!.click())
+  await render(vi.fn(), otherEndpoint)
+  await render()
+  expect(container.querySelector('progress')?.value).toBe(40)
+  expect(button('Cancelar download')).toBeTruthy()
+  await act(async () => receipt.resolve(Response.json(pull)))
+  expect(writes).toEqual(['/api/v1/local-models/pulls'])
 })
