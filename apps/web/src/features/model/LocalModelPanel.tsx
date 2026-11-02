@@ -11,7 +11,14 @@ type State = { state: 'loading' } | { state: 'ready'; data: LocalModelStatus } |
 const MODEL = /^[a-z0-9][a-z0-9._-]{0,99}(\/[a-z0-9][a-z0-9._-]{0,99})?(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$/
 const canonical = (value: string) => value.split('/').pop()?.includes(':') ? value : `${value}:latest`
 
-export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: string; model: string; onSelect: (model: string) => void }) {
+type Props = { endpoint: string; model: string; onSelect: (model: string) => void }
+
+export function LocalModelPanel(props: Props) {
+  // Uma troca de destino começa uma sessão nova; callbacks antigos conservam seu destino.
+  return <LocalModelSession key={props.endpoint} {...props} />
+}
+
+function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const { t, i18n } = useTranslation('localModel')
   const [status, setStatus] = useState<State>({ state: 'loading' })
   const [pull, setPull] = useState<LocalModelPull | null>(null)
@@ -19,59 +26,94 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
   const [notice, setNotice] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
   const [failure, setFailure] = useState<ApiError | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [pending, setPending] = useState(false)
+  const reading = useRef<AbortController | null>(null)
+  const operation = useRef<AbortController | null>(null)
   const target = endpoint || undefined
   const size = (value: number) => formatBytes(value, i18n.language)
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const load = useCallback(async () => {
+    reading.current?.abort()
+    const controller = new AbortController(); reading.current = controller
     setStatus({ state: 'loading' })
     try {
-      const data = await getLocalModels(target, signal)
+      const data = await getLocalModels(target, controller.signal)
+      if (controller.signal.aborted) return
       setStatus({ state: 'ready', data })
       setPull((current) => current ?? data.pulls.find((item) => item.status === 'running') ?? null)
-    } catch (error) { if (!signal?.aborted) setStatus({ state: 'error', error: asApiError(error) }) }
+    } catch (error) { if (!controller.signal.aborted) setStatus({ state: 'error', error: asApiError(error) }) }
   }, [target])
 
   useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
+    void load()
+    return () => reading.current?.abort()
   }, [load])
+  useEffect(() => () => operation.current?.abort(), [])
 
   useEffect(() => {
-    if (!pull || pull.status !== 'running') return
-    timer.current = setTimeout(() => {
-      getLocalPull(pull.id).then((next) => {
+    if (!pull || pull.status !== 'running' || pending) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      getLocalPull(pull.id, controller.signal).then((next) => {
+        if (controller.signal.aborted) return
         setFailure(null); setRetry(0); setPull(next)
         if (next.status === 'completed') { setNotice(t('completed', { model: next.model })); void load() }
       }).catch((error) => {
+        if (controller.signal.aborted) return
         const failure = asApiError(error)
         // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
         if (failure.code === 'pull_not_found') { setPull(null); setNotice(t('interrupted', { model: pull.model })); void load(); return }
         setFailure(failure); setRetry((value) => value + 1)
       })
     }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
-    return () => { if (timer.current) clearTimeout(timer.current) }
-  }, [pull, retry, load, t])
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [pull, retry, load, t, pending])
+
+  function beginOperation() {
+    if (operation.current || status.state !== 'ready') return null
+    const controller = new AbortController(); operation.current = controller
+    setPending(true); setFailure(null)
+    return controller
+  }
+  function finishOperation(controller: AbortController) {
+    if (operation.current !== controller) return
+    operation.current = null
+    if (!controller.signal.aborted) setPending(false)
+  }
 
   async function download(name: string, suggestion?: SuggestedLocalModel) {
     const message = suggestion
       ? t('confirmKnown', { model: name, size: size(suggestion.download_bytes), source: suggestion.source, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint, memory: suggestion.min_memory_gb })
       : t('confirmUnknown', { model: name, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint })
-    if (!await confirmAction(message)) return
-    setNotice(null); setFailure(null)
-    try { setPull(await startLocalPull(target, name, crypto.randomUUID())) } catch (error) { setFailure(asApiError(error)) }
+    const controller = beginOperation(); if (!controller) return
+    try {
+      if (!await confirmAction(message) || controller.signal.aborted) return
+      setNotice(null)
+      const next = await startLocalPull(target, name, crypto.randomUUID(), controller.signal)
+      if (!controller.signal.aborted) setPull(next)
+    } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
+    finally { finishOperation(controller) }
   }
 
   async function cancel() {
     if (!pull) return
-    try { setPull(await cancelLocalPull(pull.id)); setNotice(t('cancelled')) } catch (error) { setFailure(asApiError(error)) }
+    const controller = beginOperation(); if (!controller) return
+    try {
+      const next = await cancelLocalPull(pull.id, controller.signal)
+      if (!controller.signal.aborted) { setPull(next); setNotice(t('cancelled')) }
+    } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
+    finally { finishOperation(controller) }
   }
 
   async function remove(name: string) {
-    if (!await confirmAction(t('removeConfirm', { model: name }))) return
-    setNotice(null); setFailure(null)
-    try { await deleteLocalModel(target, name); setNotice(t('removed')); await load() } catch (error) { setFailure(asApiError(error)) }
+    const controller = beginOperation(); if (!controller) return
+    try {
+      if (!await confirmAction(t('removeConfirm', { model: name })) || controller.signal.aborted) return
+      setNotice(null)
+      await deleteLocalModel(target, name, controller.signal)
+      if (!controller.signal.aborted) { setNotice(t('removed')); await load() }
+    } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
+    finally { finishOperation(controller) }
   }
 
   const data = status.state === 'ready' ? status.data : null
@@ -79,7 +121,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
   const running = pull?.status === 'running'
   const percent = pull && pull.total_bytes ? Math.floor((pull.completed_bytes / pull.total_bytes) * 100) : null
   return (
-    <section className="local-model" aria-labelledby="local-model-title">
+    <section className="local-model" aria-labelledby="local-model-title" aria-busy={pending}>
       <h3 id="local-model-title">{t('title')}</h3>
       <p className="quiet-note">{t('help')}</p>
       <div aria-live="polite">
@@ -89,7 +131,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
         {notice && <p className="status-ok">{notice}</p>}
         {failure && <ErrorNotice error={failure} />}
       </div>
-      <button type="button" className="text-button" onClick={() => { void load() }} disabled={status.state === 'loading'}>{t('refresh')}</button>
+      <button type="button" className="text-button" onClick={() => { void load() }} disabled={pending || status.state === 'loading'}>{t('refresh')}</button>
       {data?.reachable && <>
         <h4>{t('installed')}</h4>
         {!data.models.length && <p className="quiet-note">{t('noneInstalled')}</p>}
@@ -99,8 +141,8 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
             return <li key={item.name}>
               <span><strong>{item.name}</strong>{item.size_bytes !== null && <small> · {size(item.size_bytes)}</small>}{current && <small> · {t('selected')}</small>}</span>
               <span className="row-actions">
-                <button type="button" className="button secondary" disabled={current} onClick={() => onSelect(item.name)}>{t('use')}</button>
-                <button type="button" className="text-button" disabled={running} onClick={() => { void remove(item.name) }}>{t('remove')}</button>
+                <button type="button" className="button secondary" disabled={current || pending} onClick={() => onSelect(item.name)}>{t('use')}</button>
+                <button type="button" className="text-button" disabled={running || pending} onClick={() => { void remove(item.name) }}>{t('remove')}</button>
               </span>
             </li>
           })}
@@ -110,7 +152,7 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
           {running && <>
             <progress max={100} value={percent ?? undefined} aria-label={t('phase_downloading')} />
             {pull.total_bytes > 0 && <small>{t('progress', { done: size(pull.completed_bytes), total: size(pull.total_bytes) })}</small>}
-            <button type="button" className="button secondary" onClick={() => { void cancel() }}>{t('cancel')}</button>
+            <button type="button" className="button secondary" disabled={pending} onClick={() => { void cancel() }}>{t('cancel')}</button>
             <p className="quiet-note">{t('restartNote')}</p>
           </>}
         </div>}
@@ -120,13 +162,13 @@ export function LocalModelPanel({ endpoint, model, onSelect }: { endpoint: strin
           {data.suggested.map((item) => <li key={item.id}>
             <span><strong>{item.name}</strong> <code>{item.id}</code><small> · {t('size', { size: size(item.download_bytes) })} · {t('memory', { memory: item.min_memory_gb })}{item.tool_calls ? ` · ${t('tools')}` : ''}</small><small className="block">{t(`note_${item.note}`, { defaultValue: '' })}</small></span>
             {installed.has(canonical(item.id))
-              ? <button type="button" className="button secondary" disabled={canonical(model) === canonical(item.id)} onClick={() => onSelect(item.id)}>{t('use')}</button>
-              : <button type="button" className="button secondary" disabled={running} onClick={() => { void download(item.id, item) }}>{t('download')}</button>}
+              ? <button type="button" className="button secondary" disabled={pending || canonical(model) === canonical(item.id)} onClick={() => onSelect(item.id)}>{t('use')}</button>
+              : <button type="button" className="button secondary" disabled={running || pending} onClick={() => { void download(item.id, item) }}>{t('download')}</button>}
           </li>)}
         </ul>
         <label className="field" htmlFor="local-model-other"><span>{t('other')}</span>
           <span className="inline-field"><input id="local-model-other" value={other} onChange={(event) => setOther(event.target.value.trim())} placeholder={t('otherPlaceholder')} maxLength={200} autoComplete="off" aria-describedby="local-model-other-help" />
-            <button type="button" className="button secondary" disabled={running || !MODEL.test(other) || other.toLowerCase().includes('cloud')} onClick={() => { void download(other) }}>{t('download')}</button></span>
+            <button type="button" className="button secondary" disabled={running || pending || !MODEL.test(other) || other.toLowerCase().includes('cloud')} onClick={() => { void download(other) }}>{t('download')}</button></span>
           <small id="local-model-other-help">{t('otherHelp')}</small></label>
       </>}
     </section>
