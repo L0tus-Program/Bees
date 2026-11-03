@@ -24,6 +24,8 @@ COPY packages/core/src ./packages/core/src
 RUN uv sync --locked --no-dev --no-editable
 
 FROM python:3.14.4-slim-bookworm@sha256:fc74d22ffd0d5ac395a4b7bdda75a4539758862c49ebf3005647084631e63789 AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     BEES_DEPLOYMENT_MODE=container BEES_HOST=0.0.0.0 BEES_PORT=8000 \
     BEES_WEB_DIST=/app/web BEES_DATA_DIR=/var/lib/bees \

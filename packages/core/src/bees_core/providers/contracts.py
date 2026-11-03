@@ -1,5 +1,7 @@
 """Texto e function calls normalizados; não executa ferramentas nem concede acesso."""
 
+import base64
+import binascii
 import ipaddress
 import json
 from typing import Literal, Protocol, Self
@@ -31,6 +33,7 @@ class Contract(BaseModel):
 class ProviderCapabilities(Contract):
     text: bool = True
     tool_calls: bool = False
+    vision: bool = Field(default=False, exclude_if=lambda value: not value)
 
 
 CapabilityRequirements = ProviderCapabilities
@@ -182,14 +185,35 @@ class ToolDefinition(Contract):
         return value
 
 
+class ImageContent(Contract):
+    media_type: Literal["image/png", "image/jpeg"]
+    data: str = Field(min_length=1, max_length=699052)
+
+    @model_validator(mode="after")
+    def valid_image(self) -> Self:
+        from bees_core.images import validate_image
+
+        try:
+            content = base64.b64decode(self.data, validate=True)
+            validate_image(self.media_type, content)
+        except ValueError, binascii.Error:
+            raise ValueError("Imagem inválida.") from None
+        return self
+
+
 class ChatMessage(Contract):
     role: Literal["system", "user", "assistant", "tool"]
     content: str | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list, max_length=64)
     tool_call_id: str | None = None
+    images: list[ImageContent] = Field(
+        default_factory=list, max_length=4, exclude_if=lambda value: not value
+    )
 
     @model_validator(mode="after")
     def valid_role_payload(self) -> Self:
+        if self.images and self.role != "user":
+            raise ValueError("Imagens pertencem somente à entrada do usuário.")
         if self.role != "assistant" and self.tool_calls:
             raise ValueError("Somente assistant pode conter chamadas de ferramenta.")
         if self.role == "tool":
@@ -345,6 +369,11 @@ def validate_capabilities(
         )
     if needs_tools and not config.capabilities.tool_calls:
         raise ProviderError("unsupported_capability")
+    if (
+        (requirements and requirements.vision)
+        or (request and any(message.images for message in request.messages))
+    ) and not config.capabilities.vision:
+        raise ProviderError("image_vision_required")
 
 
 def snapshots(

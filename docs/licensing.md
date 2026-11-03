@@ -25,6 +25,7 @@ Inventário levantado em 23/10/2026 a partir do `uv.lock` (ambiente `.venv`), `a
 | Apache-2.0 (ou dupla com BSD) | cryptography (Apache-2.0 OR BSD-3), packaging (Apache-2.0 OR BSD-2), opentelemetry-api |
 | MPL-2.0 | certifi (dados de CA; uso sem modificação) |
 | PSF-2.0 | typing_extensions |
+| MIT-CMU | Pillow 12.3.0 (validação limitada de PNG/JPEG, #221; wheel preserva avisos próprios e bibliotecas nativas incluídas) |
 | OSI (zlib-like) | apsw |
 | Executor (imagem do computador) | websockets (BSD-3), playwright (Apache-2.0), pypdf (BSD-3) |
 
@@ -38,7 +39,7 @@ react, react-dom, scheduler, use-sync-external-store, i18next, react-i18next, ht
 
 | Imagem | Componentes relevantes | Licenças |
 | --- | --- | --- |
-| `bees` | Python 3.14 (PSF), Debian bookworm slim, bundle web | PSF, licenças Debian (mistas, incluindo GPL em utilitários do sistema) |
+| `bees` | Python 3.14 (PSF), Debian bookworm slim, bundle web, Tesseract e dados de inglês para OCR | PSF, Apache-2.0 (Tesseract), licenças Debian e bibliotecas transitivas (mistas, incluindo GPL em utilitários do sistema) |
 | `computer` | Ubuntu + XFCE, x11vnc, Xvfb, LibreOffice Writer/Calc, pandoc, Chromium (Playwright), iptables | GPL-2.0 (x11vnc, XFCE, pandoc, iptables), MPL-2.0 (LibreOffice), X11/MIT (Xvfb), BSD (Chromium) |
 | `ollama` (opcional) | Ollama | MIT; pesos de modelo têm licenças próprias (ex.: Llama Community License, Apache-2.0 do Qwen) |
 

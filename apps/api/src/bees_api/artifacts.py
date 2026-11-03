@@ -18,6 +18,7 @@ from starlette.requests import ClientDisconnect
 
 from bees_api.auth import require_session
 from bees_core.artifacts import DEFAULT_MAX_BYTES, MEDIA_TYPES, ArtifactStore, display_name
+from bees_core.images import IMAGE_MEDIA_TYPES, MAX_IMAGE_BYTES, validate_image
 from bees_core.models import Artifact
 from bees_core.security.identity import Session
 from bees_core.storage.store import NotFoundError
@@ -96,9 +97,11 @@ def _metadata(request: Request) -> UploadMetadata:
         body = json.loads(decoded.decode("utf-8"), object_pairs_hook=_pairs)
         metadata = UploadMetadata.model_validate(body)
         display_name(metadata.name)
-        if metadata.media_type not in MEDIA_TYPES or (metadata.previous_id is None) != (
-            metadata.expected_revision is None
-        ):
+        if metadata.media_type in IMAGE_MEDIA_TYPES and metadata.size_bytes > MAX_IMAGE_BYTES:
+            _reject("artifact_too_large", 413)
+        if metadata.media_type not in MEDIA_TYPES | IMAGE_MEDIA_TYPES or (
+            metadata.previous_id is None
+        ) != (metadata.expected_revision is None):
             raise ValueError()
     except ValueError, UnicodeError, binascii.Error, ValidationError:
         _reject("artifact_metadata_invalid")
@@ -235,6 +238,11 @@ async def upload_artifact(
         if len(content) != length or hashlib.sha256(content).hexdigest() != metadata.sha256:
             _reject("artifact_content_mismatch")
         require_session(request)
+        if metadata.media_type in IMAGE_MEDIA_TYPES:
+            try:
+                await run_in_threadpool(validate_image, metadata.media_type, bytes(content))
+            except ValueError:
+                _reject("artifact_content_invalid")
         if metadata.previous_id is None:
             artifact = await run_in_threadpool(
                 store.upload, agent_id, conversation_id, content=bytes(content), **arguments

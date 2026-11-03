@@ -1,17 +1,25 @@
 # Modelos substituíveis
 
-O Bees mantém configuração, histórico, memória e tarefas no próprio banco. A conversa envia uma janela recente e memórias selecionadas, descritas em [perfis e memória](memory.md); o histórico canônico completo permanece preservado. Nesta etapa o driver envia texto e declarações de funções para um único endpoint escolhido pelo operador. Receber uma chamada de função não executa ferramenta: permissões, plugins e executores são entregas posteriores.
+O Bees mantém configuração, histórico, memória e tarefas no próprio banco. A conversa envia uma janela recente e memórias selecionadas, descritas em [perfis e memória](memory.md); o histórico canônico completo permanece preservado. O driver envia texto, imagens quando a visão estiver configurada e declarações de funções para um único endpoint escolhido pelo operador. Receber uma chamada de função não executa ferramenta: permissões, plugins e executores são entregas posteriores.
 
 ## Protocolos e capacidades
 
 | Adaptador | Endpoints | Escopo |
 | --- | --- | --- |
-| `openai_compatible` | `/chat/completions`, `/models` na base configurada | API remota HTTPS ou servidor compatível em loopback. Texto e funções conforme declaração explícita do modelo. |
+| `openai_compatible` | `/chat/completions`, `/models` na base configurada | API remota HTTPS ou servidor compatível em loopback. Texto, imagens e funções conforme declaração explícita do modelo. |
 | `ollama` | `/api/tags`, `/api/show`, `/api/chat` | Ollama em loopback, modelo instalado e local. Capacidades verificadas na resposta do servidor. |
 
 O nome do adaptador descreve um protocolo, não exige assinatura OpenAI. O Bees inclui sugestões de modelos por provedor, sem fornecedor ou modelo obrigatório, fallback, retry automático, redirecionamento HTTP ou uso implícito de proxies do ambiente. A configuração remota aceita a URL base do provedor, incluindo seu prefixo, por exemplo `https://api.openai.com/v1`. HTTP fora de loopback, usuário/senha na URL, query e fragmento são recusados.
 
-Texto e funções formam o contrato inicial. Streaming, imagens, áudio, ferramentas hospedadas pelo fornecedor, Responses API e formatos específicos de outros protocolos ainda não são suportados. Não declarar compatibilidade apenas porque um endpoint é “OpenAI compatible”. O diagnóstico remoto confirma acesso e presença do modelo em `/models`; isso não comprova geração nem suporte às funções. A declaração de funções exige documentação/teste do modelo escolhido.
+Texto, imagens PNG/JPEG e funções compõem o contrato. Streaming, áudio, ferramentas hospedadas pelo fornecedor, Responses API e formatos específicos de outros protocolos ainda não são suportados. Não declarar compatibilidade apenas porque um endpoint é “OpenAI compatible”. O diagnóstico remoto confirma acesso e presença do modelo em `/models`; isso não comprova geração, visão ou suporte às funções. A declaração de capacidades exige documentação/teste do modelo escolhido.
+
+### Imagens e OCR local — #221
+
+Em Modelo → Opções avançadas, habilite **Este modelo aceita imagens** somente para um modelo com visão. A configuração usa `capabilities.vision` (padrão falso). OpenAI compatível recebe blocos `image_url` com data URLs; Ollama recebe `images` em base64 e precisa anunciar `vision` no preflight local. Somente os bytes da versão selecionada são enviados ao destino configurado; não há URL externa de imagem, fornecedor alternativo ou repetição automática após recusa.
+
+Sem visão, o Bees tenta OCR local antes de aceitar o pedido. A imagem permanece no Bees; somente o texto extraído é enviado, identificado como OCR em inglês, com referência/hash e aviso de erros e perda de informação visual. Isso não descreve objetos, cores ou layout. OCR indisponível, vazio ou com falha produz erro explícito antes de qualquer geração. A instalação Docker inclui Tesseract e dados de inglês. Na instalação nativa, instalar Tesseract com o idioma `eng` e colocá-lo no PATH do serviço é uma escolha explícita do operador; o Bees não instala nem baixa nada em tempo de uso. Cada extração tem prazo de 15 segundos e limite de 64 KiB de texto, em arquivos temporários privados removidos ao terminar.
+
+O chat aceita até quatro anexos, com limites separados por turno de 64 KiB de texto e 512 KiB de PNG/JPEG. Cada imagem precisa ser estática, decodificável, corresponder ao MIME informado e ter no máximo 8 milhões de pixels. Pillow verifica o formato e a decodificação; o servidor não confia na extensão. Esses limites preservam o teto padrão de 1 MiB da requisição ao modelo. Contextos ou ferramentas maiores ainda podem exceder esse teto e são recusados antes da rede. A reserva de consumo permanece conservadora: inclui a representação serializada das imagens e não afirma contagem real de tokens visuais.
 
 Ollama precisa ter sido instalado e iniciado pelo operador. Bees não instala serviço, baixa modelos ou liga máquinas. Antes de enviar a conversa, consulta o catálogo e os metadados do modelo; rejeita nomes cloud e metadados de encaminhamento remoto. O operador precisa confiar no daemon: os probes não impedem adulteração nem troca do modelo entre consulta e geração. Para modelo servido em outra máquina, use um endpoint remoto compatível explícito, em HTTPS. O adaptador usa `think: false`; raciocínio separado da resposta ainda não integra este contrato.
 

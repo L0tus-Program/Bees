@@ -26,7 +26,7 @@ function freePort() {
 }
 
 // Modelo OpenAI-compatível: devolve um texto com marcador e conta as gerações.
-const model = { requests: 0, failNext: false, attached: false }
+const model = { requests: 0, failNext: false, attached: false, expectedImages: [], imagesReceived: false }
 const modelServer = createServer((request, response) => {
   let body = ''
   request.on('data', (chunk) => { body += chunk })
@@ -42,7 +42,10 @@ const modelServer = createServer((request, response) => {
     }
     const payload = JSON.parse(body || '{}')
     const messages = payload.messages ?? []
-    if (messages.some((item) => typeof item.content === 'string' && item.content.includes('DADO-COLADO-E2E') && item.content.includes('DADO-ARRASTADO-E2E'))) model.attached = true
+    const textOf = (item) => typeof item.content === 'string' ? item.content : (item.content ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('\n')
+    if (messages.some((item) => textOf(item).includes('DADO-COLADO-E2E') && textOf(item).includes('DADO-ARRASTADO-E2E'))) model.attached = true
+    const receivedImages = messages.flatMap((item) => Array.isArray(item.content) ? item.content.filter((part) => part.type === 'image_url').map((part) => part.image_url.url) : [])
+    if (model.expectedImages.length === 2 && model.expectedImages.every((data) => receivedImages.includes(data))) model.imagesReceived = true
     if (payload.tools?.length && !messages.some((item) => item.role === 'tool')) {
       const call = { id: 'call-1', type: 'function', function: { name: 'publish_file', arguments: JSON.stringify({ name: 'relatorio-e2e', kind: 'markdown', content: '# Relatório\n\nConteúdo de teste.' }) } }
       response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
@@ -205,6 +208,7 @@ try {
   await page.getByLabel(/^Digitar outro modelo/).check()
   await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-agente')
   await page.getByLabel(/declara suporte a chamadas de ferramentas/).evaluate((element) => { if (!element.checked) element.click() })
+  await page.getByLabel(/^Este modelo aceita imagens/).evaluate((element) => { if (!element.checked) element.click() })
   await page.getByLabel('Nome da abelha').fill('Abelha Agente')
   await page.getByRole('textbox', { name: 'Propósito' }).fill('Gerar relatórios de teste.')
   await page.getByRole('button', { name: 'Criar abelha' }).click()
@@ -228,12 +232,28 @@ try {
   await page.getByRole('log').dispatchEvent('drop', { dataTransfer: dropped })
   await dropped.dispose()
   await page.getByRole('button', { name: 'Remover arrastado.md', exact: true }).waitFor()
+  // PNG colado e JPEG arrastado devem ser enviados como blocos visuais, com bytes exatos.
+  model.expectedImages = await page.locator('#chat-input').evaluate((input) => {
+    const canvas = document.createElement('canvas'); canvas.width = 240; canvas.height = 80
+    const context = canvas.getContext('2d'); context.fillStyle = 'white'; context.fillRect(0, 0, 240, 80); context.fillStyle = 'black'; context.font = '24px sans-serif'; context.fillText('BEES PRINT 221', 10, 40)
+    const images = ['image/png', 'image/jpeg'].map((mime) => canvas.toDataURL(mime))
+    images.forEach((data, index) => {
+      const bytes = Uint8Array.from(atob(data.split(',')[1]), (char) => char.charCodeAt(0))
+      const transfer = new DataTransfer(); transfer.items.add(new File([bytes], index ? 'arrastado.jpg' : 'colado.png', { type: index ? 'image/jpeg' : 'image/png' }))
+      input.dispatchEvent(index ? new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }) : new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+    })
+    return images
+  })
+  await page.getByRole('button', { name: 'Remover colado.png', exact: true }).waitFor()
+  await page.getByRole('button', { name: 'Remover arrastado.jpg', exact: true }).waitFor()
+  await page.getByText('As imagens serão enviadas ao modelo configurado com esta mensagem.', { exact: true }).waitFor()
   await page.locator('#chat-input').fill('Gere um relatório de teste')
   await page.locator('#chat-input').press('Enter')
   await page.getByRole('link', { name: /relatorio-e2e/ }).waitFor({ timeout: 90_000 })
   await page.getByText(marker).last().waitFor({ timeout: 60_000 })
   await page.getByText('Usou 1 ferramenta').waitFor()
   if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
+  if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')
   await auditWidths(page, '6-agente-arquivo')
   await page.setViewportSize({ width: 1280, height: 900 })
   // Conversa maior que a janela: nada fora da lista pode esticar a página (rolando a lista para cima e para baixo).

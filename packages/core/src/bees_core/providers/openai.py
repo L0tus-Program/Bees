@@ -22,6 +22,14 @@ from bees_core.providers.errors import ProviderError
 
 def wire_message(message: ChatMessage) -> dict[str, Any]:
     result: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.images:
+        result["content"] = [{"type": "text", "text": message.content or ""}] + [
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{image.media_type};base64,{image.data}"},
+            }
+            for image in message.images
+        ]
     if message.tool_call_id is not None:
         result["tool_call_id"] = message.tool_call_id
     if message.tool_calls:

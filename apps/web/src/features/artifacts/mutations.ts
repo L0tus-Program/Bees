@@ -4,7 +4,13 @@ import type { ArtifactRecord } from './api'
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024
 export const MAX_CONTEXT_BYTES = 65536
-export const formats = { txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json' } as const
+export const MAX_IMAGE_BYTES = 512 * 1024
+export const imageType = (mediaType: string) => ['image/png', 'image/jpeg'].includes(mediaType)
+export function attachmentBudget(items: { media_type: string; size_bytes: number }[]) {
+  return items.length <= 4 && items.filter((item) => !imageType(item.media_type)).reduce((sum, item) => sum + item.size_bytes, 0) <= MAX_CONTEXT_BYTES
+    && items.filter((item) => imageType(item.media_type)).reduce((sum, item) => sum + item.size_bytes, 0) <= MAX_IMAGE_BYTES
+}
+export const formats = { txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' } as const
 export interface Candidate { name: string; media_type: string; size_bytes: number; sha256: string; bytes: Uint8Array }
 export interface ArtifactIntent { id: string; agentId: string; conversationId: string; name: string; media_type: string; size_bytes: number; sha256: string; previous: ArtifactRecord | null }
 export interface PublicationState { intent: ArtifactIntent | null; candidate: Candidate | null; phase: 'idle' | 'sending' | 'uncertain' | 'checking' | 'retryable' | 'conflict' | 'rejected' | 'confirmed'; error: ApiError | null; artifact: ArtifactRecord | null }
@@ -14,7 +20,11 @@ export function validName(name: string) { return !!name.trim() && name.trim() ==
 export async function prepareBytes(name: string, mediaType: string, bytes: Uint8Array, signal?: AbortSignal): Promise<Candidate> {
   if (!validName(name) || !Object.values(formats).includes(mediaType as typeof formats[keyof typeof formats])) throw new ApiError('artifact_invalid_format')
   if (bytes.byteLength > MAX_FILE_BYTES) throw new ApiError('artifact_upload_too_large')
-  try { const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (text.includes('\0')) throw new Error(); if (mediaType === 'application/json') JSON.parse(text) } catch { throw new ApiError('artifact_invalid_content') }
+  if (imageType(mediaType)) {
+    const signature = mediaType === 'image/png' ? [137, 80, 78, 71, 13, 10, 26, 10] : [255, 216, 255]
+    if (bytes.byteLength > MAX_IMAGE_BYTES) throw new ApiError('attachment_limit')
+    if (!signature.every((byte, index) => bytes[index] === byte)) throw new ApiError('artifact_invalid_content')
+  } else try { const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); if (text.includes('\0')) throw new Error(); if (mediaType === 'application/json') JSON.parse(text) } catch { throw new ApiError('artifact_invalid_content') }
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice().buffer))
   if (signal?.aborted) throw new ApiError('request_cancelled')
   return { name, media_type: mediaType, size_bytes: bytes.byteLength, sha256: Array.from(hash, (value) => value.toString(16).padStart(2, '0')).join(''), bytes }
@@ -22,6 +32,7 @@ export async function prepareBytes(name: string, mediaType: string, bytes: Uint8
 export async function prepareFile(file: File, signal?: AbortSignal) {
   const extension = file.name.split('.').at(-1)?.toLowerCase()
   if (!extension || !(extension in formats)) throw new ApiError('artifact_invalid_format')
+  if (imageType(formats[extension as keyof typeof formats]) && file.size > MAX_IMAGE_BYTES) throw new ApiError('attachment_limit')
   if (file.size > MAX_FILE_BYTES) throw new ApiError('artifact_upload_too_large')
   return prepareBytes(file.name, formats[extension as keyof typeof formats], new Uint8Array(await file.arrayBuffer()), signal)
 }
@@ -112,5 +123,5 @@ export function restorePublication(agentId: string, conversationId: string): Art
 export function isAttachmentSelection(items: ArtifactRecord[], agentId: string, conversationId: string) {
   return uuid(agentId) && uuid(conversationId) && items.length <= 4 && new Set(items.map((item) => item.id)).size === items.length
     && items.every((item) => item.agent_id === agentId && item.conversation_id === conversationId && item.status === 'ready' && item.sha256 !== null && Object.values(formats).includes(item.media_type as typeof formats[keyof typeof formats]))
-    && items.reduce((sum, item) => sum + item.size_bytes, 0) <= MAX_CONTEXT_BYTES
+    && attachmentBudget(items)
 }

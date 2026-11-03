@@ -161,6 +161,8 @@ class ProviderService:
             text=True,
             tool_calls=bool(requirements and requirements.tool_calls)
             or any(message.tool_calls or message.role == "tool" for message in history),
+            vision=bool(requirements and requirements.vision)
+            or any(message.images for message in history),
         )
 
     def set_config(
@@ -259,7 +261,8 @@ class ProviderService:
         chosen: list[list[ChatMessage]] = []
         count = chars = 0
         for block in reversed(blocks):
-            block_chars = sum(len(message.model_dump_json()) for message in block)
+            # Bytes de imagem têm limite próprio no transporte; não são texto de contexto.
+            block_chars = sum(len(message.model_dump_json(exclude={"images"})) for message in block)
             newest_atomic = (
                 not chosen
                 and bool(block[0].tool_calls)

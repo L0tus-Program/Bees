@@ -4,7 +4,7 @@ BEES-018.1/018.2 reutilizam o `ArtifactStore` em `packages/core/src/bees_core/ar
 
 ## Contrato
 
-- **Formatos aceitos:** `text/plain`, `text/markdown`, `text/csv` e `application/json`. Todos em UTF-8 estrito, sem NUL. JSON sem chaves duplicadas nem `NaN`; CSV analisado em modo estrito. O limite padrão é 25 MiB por arquivo. Outros tipos são recusados antes de gravar qualquer coisa.
+- **Formatos aceitos:** `text/plain`, `text/markdown`, `text/csv` e `application/json`. Todos em UTF-8 estrito, sem NUL. JSON sem chaves duplicadas nem `NaN`; CSV analisado em modo estrito. O limite padrão é 25 MiB por arquivo textual. Uploads humanos também aceitam PNG/JPEG estáticos, até 512 KiB e 8 milhões de pixels, com formato e decodificação verificados. Outros tipos não entram por upload humano; os formatos binários produzidos pelos executores seguem o contrato próprio.
 - **Nome:** só para exibição, de 1 a 200 caracteres, sem separadores de caminho, controles, caracteres de formatação invisíveis ou espaços nas pontas. O caminho físico deriva apenas do UUID do artefato (`artifacts/blobs/<uuid>`). O banco guarda a chave `blob/v1/<uuid>`, e uma chave diferente da esperada é tratada como violação de integridade, nunca como caminho.
 - **Estados:**
   - `draft`: publicação ainda não confirmada; nunca é servido. O hash, o tamanho e o tipo declarados ficam imutáveis desde o rascunho.
@@ -97,7 +97,11 @@ O contrato de chat recebe até quatro `attachments` com `artifact_id`, `revision
 turno é obrigatório. Mudança da configuração invalida a confirmação antes da rede.
 
 O backend confere contexto, estado, versão, hash e bytes de cada arquivo. O limite
-agregado é 64 KiB de conteúdo completo: excesso é recusado, sem cortar o arquivo.
+agregado é 64 KiB de texto e 512 KiB de imagens PNG/JPEG estáticas, até quatro
+arquivos: excesso é recusado, sem cortar o arquivo. Imagens têm formato e
+decodificação verificados e limite de 8 milhões de pixels. Com visão habilitada,
+os bytes são enviados como imagem; sem visão, apenas o OCR local é enviado,
+identificado como extração imperfeita em inglês. Consulte [modelos](providers.md#imagens-e-ocr-local--221).
 O conteúdo entra após o recorte do histórico como dado não confiável, sem conceder
 permissões ou editar políticas. A inclusão vale para esse turno; armazenar ou
 consultar arquivos não os inclui automaticamente em pedidos futuros.
@@ -251,4 +255,4 @@ controlado local. Não demonstra geração paga ou qualidade de um modelo real.
 
 ### Colar e arrastar no chat
 
-O chat aceita arquivos por botão, Ctrl+V (quando o navegador expõe um arquivo na área de transferência) e arrastar/soltar em qualquer ponto da conversa. Colar ou arrastar apenas texto preserva o comportamento nativo. Os três caminhos usam o mesmo upload autenticado, validação de formato/conteúdo/hash e consentimento ao enviar. Lotes concorrentes são enfileirados; arquivos concluídos permanecem selecionados mesmo se outro falhar. Enter e o botão Enviar aguardam o fim do upload. A indicação de soltar informa os formatos aceitos: TXT, Markdown, CSV e JSON, até quatro arquivos e 64 KB ao todo. Imagens/prints e OCR estão planejados na [#221](https://github.com/L0tus-Program/Bees/issues/221).
+O chat aceita arquivos por botão, Ctrl+V (quando o navegador expõe um arquivo na área de transferência) e arrastar/soltar em qualquer ponto da conversa. Colar ou arrastar apenas texto preserva o comportamento nativo. Os três caminhos usam o mesmo upload autenticado, validação de formato/conteúdo/hash e consentimento ao enviar. Lotes concorrentes são enfileirados; arquivos concluídos permanecem selecionados mesmo se outro falhar. Enter e o botão Enviar aguardam o fim do upload. A indicação de soltar informa os formatos aceitos: TXT, Markdown, CSV, JSON, PNG e JPEG, até quatro arquivos, com 64 KiB de texto e 512 KiB de imagens por turno. A [#221](https://github.com/L0tus-Program/Bees/issues/221) acrescenta envio visual ao modelo e OCR local conforme a capacidade configurada. Arquivos da tarefa podem permanecer no contexto das continuações dessa mesma tarefa; não são anexados a novas mensagens da conversa principal sem nova seleção.

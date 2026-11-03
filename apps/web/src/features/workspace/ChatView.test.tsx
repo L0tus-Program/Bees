@@ -197,6 +197,18 @@ describe('chat as an assistant conversation', () => {
     expect(publishArtifact).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['paste', 'drop'] as const)('accepts PNG screenshots through %s and explains local OCR', async (kind) => {
+    await show()
+    const bytes = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB2QAAAAASUVORK5CYII='), (char) => char.charCodeAt(0))
+    const event = transferEvent(kind, [new File([bytes], 'print.png', { type: 'image/png' })])
+    await act(async () => { container.querySelector('#chat-input')!.dispatchEvent(event) })
+    await flushUploads()
+    expect(container.textContent).toContain('print.png')
+    expect(container.textContent).toContain('OCR local')
+    expect(publishArtifact).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(publishArtifact).mock.calls[0][0]).toMatchObject({ media_type: 'image/png', size_bytes: bytes.length })
+  })
+
   it('keeps native text paste and text dragging', async () => {
     await show()
     const input = container.querySelector('#chat-input')!

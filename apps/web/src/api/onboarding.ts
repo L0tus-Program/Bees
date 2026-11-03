@@ -14,7 +14,7 @@ export interface ModelConfig {
   endpoint: string
   model: string
   secret_ref?: string | null
-  capabilities: { text: boolean; tool_calls: boolean }
+  capabilities: { text: boolean; tool_calls: boolean; vision?: boolean }
   timeout_seconds?: number
   deadline_seconds?: number
   max_response_bytes?: number
@@ -54,6 +54,7 @@ export function isModelConfig(value: unknown): value is ModelConfig {
     && typeof value.endpoint === 'string' && typeof value.model === 'string'
     && record(value.capabilities) && typeof value.capabilities.text === 'boolean'
     && typeof value.capabilities.tool_calls === 'boolean'
+    && (value.capabilities.vision === undefined || typeof value.capabilities.vision === 'boolean')
     && (value.max_catalog_bytes === undefined || (typeof value.max_catalog_bytes === 'number' && Number.isInteger(value.max_catalog_bytes) && value.max_catalog_bytes > 0))
 }
 
@@ -129,9 +130,10 @@ export function checkedMessageAttachments(value: unknown): value is MessageAttac
   return Array.isArray(value) && value.length <= 4 && value.every((item) => record(item) && Object.keys(item).length === 7
     && uuid(item.artifact_id) && Number.isSafeInteger(item.revision) && (item.revision as number) >= 1 && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.sha256)
     && typeof item.name === 'string' && !!item.name.trim() && item.name.trim() === item.name && Array.from(item.name).length <= 200 && !/[/\\\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(item.name)
-    && ['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(String(item.media_type)) && Number.isSafeInteger(item.size_bytes) && (item.size_bytes as number) >= 0 && (item.size_bytes as number) <= 65536
+    && ['text/plain', 'text/markdown', 'text/csv', 'application/json', 'image/png', 'image/jpeg'].includes(String(item.media_type)) && Number.isSafeInteger(item.size_bytes) && (item.size_bytes as number) >= 0 && (item.size_bytes as number) <= (String(item.media_type).startsWith('image/') ? 524288 : 65536)
     && ['legacy_unknown', 'system_generated', 'user_upload', 'user_revision'].includes(String(item.source)))
-    && new Set(value.map((item) => item.artifact_id)).size === value.length && value.reduce((sum, item) => sum + item.size_bytes, 0) <= 65536
+    && new Set(value.map((item) => item.artifact_id)).size === value.length && value.filter((item) => !item.media_type.startsWith('image/')).reduce((sum, item) => sum + item.size_bytes, 0) <= 65536
+    && value.filter((item) => item.media_type.startsWith('image/')).reduce((sum, item) => sum + item.size_bytes, 0) <= 524288
 }
 export async function sendChat(id: string, conversationId: string, content: string, signal?: AbortSignal, allowDelegation = false, clientRequestId: string = crypto.randomUUID(), attachmentUse?: AttachmentUse, allowRoutineProposal = false) {
   if (typeof allowRoutineProposal !== 'boolean') throw new ApiError('invalid_request')
