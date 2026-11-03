@@ -68,7 +68,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         if (controller.signal.aborted) return
         const failure = asApiError(error)
         // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
-        if (failure.code === 'pull_not_found') { setPull(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
+        if (failure.code === 'pull_not_found') { setFailure(null); setRetry(0); setPull(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
         setFailure(failure); setRetry((value) => value + 1)
       })
     }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
