@@ -103,6 +103,8 @@ def _publication_pending(run) -> bool:
 
 
 def _model_failure(run, calls) -> dict | None:
+    from bees_core.providers.errors import public_provider_message
+
     value = run.checkpoint.get("model_failure")
     if not isinstance(value, dict):
         # Journals anteriores já guardavam a causa; não exigir uma nova tentativa.
@@ -114,6 +116,7 @@ def _model_failure(run, calls) -> dict | None:
     field = value.get("parameter")
     return {
         "code": value["code"],
+        "provider_message": public_provider_message(value.get("provider_message")),
         "http_status": status if type(status) is int and 400 <= status <= 599 else None,
         "parameter": field
         if field

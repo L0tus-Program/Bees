@@ -11,6 +11,7 @@ export function TaskFailure({ task, warnUnknown = false }: { task: TaskRecord; w
   const message = translated ? i18n.t(`errors.${code}`, { ns: 'product' }) : t(code === 'outcome_unknown' ? 'failureUnknown' : 'failureOther')
   return <div className="my-1 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm" role="status">
     <p>{message}</p>
+    {run?.failure?.provider_message && <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere]"><span className="font-medium">{t('failureProviderMessage')}: </span>{run.failure.provider_message}</p>}
     {warnUnknown && task.unknown_requires_ack && <p className="mt-1 text-xs text-muted-foreground">{t(task.unknown_model_calls > 0 ? 'modelOutcomeUnknown' : 'toolOutcomeUnknown')}</p>}
     <details className="mt-2 text-xs text-muted-foreground"><summary className="cursor-pointer">{t('failureDetails')}</summary>
       <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 break-words">

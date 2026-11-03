@@ -1,6 +1,30 @@
 """Falhas públicas estáveis, sem URLs, chaves ou bodies de fornecedores."""
 
+import re
+import unicodedata
+from collections.abc import Iterable
 from typing import Literal
+
+
+def public_provider_message(value: object, private: Iterable[str] = ()) -> str | None:
+    """Trecho diagnóstico, sem credenciais, URLs ou conteúdo refletido do pedido."""
+    if not isinstance(value, str) or not value.strip() or len(value) > 8192:
+        return None
+    for secret in sorted(set(private), key=len, reverse=True):
+        if secret:
+            value = value.replace(secret, "[redacted]")
+    value = re.sub(r"(?i)\b(?:https?://|data:)[^\s<>\"']+", "[redacted]", value)
+    value = re.sub(r"(?i)\bbearer\s+[^\s,;\"']+", "Bearer [redacted]", value)
+    value = re.sub(r"\b(?:sk-|sk_|ghp_|github_pat_)[A-Za-z0-9_-]+", "[redacted]", value)
+    value = re.sub(
+        r"(?i)\b(api[_ -]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+",
+        r"\1=[redacted]",
+        value,
+    )
+    value = "".join(" " if unicodedata.category(char).startswith("C") else char for char in value)
+    value = " ".join(value.split())
+    return value[:1000] + ("…" if len(value) > 1000 else "")
+
 
 ErrorCode = Literal[
     "invalid_config",
@@ -112,6 +136,7 @@ class ProviderError(RuntimeError):
         upstream_status: int | None = None,
         undelivered: bool = False,
         parameter: str | None = None,
+        provider_message: str | None = None,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
@@ -137,4 +162,5 @@ class ProviderError(RuntimeError):
         if parameter is not None and parameter not in allowed:
             raise ValueError("Parâmetro público inválido.")
         self.parameter = parameter
+        self.provider_message = public_provider_message(provider_message)
         super().__init__(self.message)

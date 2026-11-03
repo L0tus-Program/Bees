@@ -273,7 +273,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse(
             {
-                "error": {"code": error.code, "message": str(error)}
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "diagnostic": {
+                        "provider_message": error.provider_message,
+                        "http_status": error.upstream_status,
+                        "parameter": error.parameter,
+                    },
+                }
                 | (
                     {"upstream_status": error.upstream_status}
                     if error.upstream_status is not None

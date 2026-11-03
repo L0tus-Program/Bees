@@ -7,7 +7,12 @@ export function ErrorNotice({ error }: { error: ApiError }) {
   const ref = useRef<HTMLParagraphElement>(null)
   useEffect(() => { ref.current?.focus() }, [error])
   const key = i18n.exists(`errors.${error.code}`, { ns: 'product' }) ? `errors.${error.code}` : 'errors.unknown_error'
-  return <p className="form-error" role="alert" tabIndex={-1} ref={ref}>{t(key)}</p>
+  return <div role="alert"><p className="form-error" tabIndex={-1} ref={ref}>{t(key)}</p>
+    {error.diagnostic && <div className="mt-2 text-sm [overflow-wrap:anywhere]">
+      {error.diagnostic.provider_message && <p>{error.diagnostic.provider_message}</p>}
+      {error.diagnostic.http_status && <p>HTTP {error.diagnostic.http_status} · {error.code}{error.diagnostic.parameter ? ` · ${error.diagnostic.parameter}` : ''}</p>}
+    </div>}
+  </div>
 }
 
 export function LoadingNotice() {

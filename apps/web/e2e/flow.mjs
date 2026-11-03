@@ -26,7 +26,7 @@ function freePort() {
 }
 
 // Modelo OpenAI-compatível: devolve um texto com marcador e conta as gerações.
-const model = { requests: 0, failNext: false }
+const model = { requests: 0, failNext: false, attached: false }
 const modelServer = createServer((request, response) => {
   let body = ''
   request.on('data', (chunk) => { body += chunk })
@@ -37,11 +37,12 @@ const modelServer = createServer((request, response) => {
     if (model.failNext) {
       model.failNext = false
       response.statusCode = 400
-      response.end(JSON.stringify({ error: { code: 'invalid_function_parameters', param: 'tools[0].function.parameters', message: 'Mensagem privada do provedor simulado' } }))
+      response.end(JSON.stringify({ error: { code: 'invalid_function_parameters', param: 'tools[0].function.parameters', message: 'Invalid schema: required must list every property. Bearer chave-e2e https://private.invalid/token' } }))
       return
     }
     const payload = JSON.parse(body || '{}')
     const messages = payload.messages ?? []
+    if (messages.some((item) => typeof item.content === 'string' && item.content.includes('DADO-COLADO-E2E') && item.content.includes('DADO-ARRASTADO-E2E'))) model.attached = true
     if (payload.tools?.length && !messages.some((item) => item.role === 'tool')) {
       const call = { id: 'call-1', type: 'function', function: { name: 'publish_file', arguments: JSON.stringify({ name: 'relatorio-e2e', kind: 'markdown', content: '# Relatório\n\nConteúdo de teste.' }) } }
       response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
@@ -209,11 +210,30 @@ try {
   await page.getByRole('button', { name: 'Criar abelha' }).click()
   await page.locator('#chat-input').waitFor({ timeout: 30_000 })
   await page.getByText('Pesquise as novidades', { exact: false }).first().waitFor({ timeout: 30_000 })
+  // Eventos reais de DOM com arquivos de DataTransfer: colagem e drop na lista, com upload pela API.
+  await page.locator('#chat-input').evaluate((input) => {
+    const clipboardData = new DataTransfer()
+    clipboardData.items.add(new File(['DADO-COLADO-E2E'], 'colado.txt', { type: 'text/plain' }))
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+  })
+  await page.getByRole('button', { name: 'Remover colado.txt', exact: true }).waitFor()
+  const dropped = await page.evaluateHandle(() => {
+    const dataTransfer = new DataTransfer()
+    dataTransfer.items.add(new File(['DADO-ARRASTADO-E2E'], 'arrastado.md', { type: 'text/markdown' }))
+    return dataTransfer
+  })
+  await page.getByRole('log').dispatchEvent('dragenter', { dataTransfer: dropped })
+  await page.getByText('Solte os arquivos para anexar', { exact: true }).waitFor()
+  await audit(page, '6a-arrastando-anexos')
+  await page.getByRole('log').dispatchEvent('drop', { dataTransfer: dropped })
+  await dropped.dispose()
+  await page.getByRole('button', { name: 'Remover arrastado.md', exact: true }).waitFor()
   await page.locator('#chat-input').fill('Gere um relatório de teste')
   await page.locator('#chat-input').press('Enter')
   await page.getByRole('link', { name: /relatorio-e2e/ }).waitFor({ timeout: 90_000 })
   await page.getByText(marker).last().waitFor({ timeout: 60_000 })
   await page.getByText('Usou 1 ferramenta').waitFor()
+  if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
   await auditWidths(page, '6-agente-arquivo')
   await page.setViewportSize({ width: 1280, height: 900 })
   // Conversa maior que a janela: nada fora da lista pode esticar a página (rolando a lista para cima e para baixo).
@@ -339,8 +359,13 @@ try {
   await page.locator('#chat-input').fill('Teste de diagnóstico do modelo')
   await page.locator('#chat-input').press('Enter')
   await page.getByText('O provedor recusou o formato de uma ferramenta.', { exact: false }).waitFor({ timeout: 60_000 })
+  await page.getByText('Invalid schema: required must list every property.', { exact: false }).waitFor()
+  if ((await page.getByRole('log').textContent()).includes('chave-e2e') || (await page.getByRole('log').textContent()).includes('private.invalid')) throw new Error('O diagnóstico expôs dados privados do provedor.')
   await page.getByText('Detalhes do erro', { exact: true }).click()
   await page.getByText('tools.function.parameters', { exact: true }).waitFor()
+  // O computador lateral vira uma folha que cobre o chat no celular.
+  const closePanel = page.getByRole('button', { name: 'Fechar painel', exact: true })
+  if (await closePanel.isVisible()) await closePanel.click()
   await auditWidths(page, '14-erro-modelo-explicado')
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))

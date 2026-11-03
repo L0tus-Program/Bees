@@ -1,4 +1,5 @@
-import { ApiError, record, request } from './client'
+import { ApiError, providerDiagnostic, record, request } from './client'
+import type { ProviderDiagnostic } from './client'
 
 export const taskStatuses = ['queued', 'running', 'waiting_approval', 'waiting_resource', 'paused', 'completed', 'failed', 'cancelled'] as const
 export const taskControls = ['pause', 'cancel', 'resume', 'redirect'] as const
@@ -13,7 +14,7 @@ export interface DeliverableItem {
   sha256: string | null; size_bytes: number | null; version: number | null; rows: number | null; columns: number | null; formula_like_cells: number | null
 }
 export interface DeliverableResults { items: DeliverableItem[]; partial: boolean; missing_data: string[] }
-export interface ModelFailure { code: string; http_status: number | null; parameter: string | null }
+export interface ModelFailure extends ProviderDiagnostic { code: string }
 export interface TaskRun { failure?: ModelFailure | null; id: string; status: TaskStatus; provider: string; model: string; started_at: string | null; finished_at: string | null; error_code: string | null; result: TaskResult | null }
 export interface TaskRecord {
   routine_execution?: { routine_id: string; revision: number; occurrence_id: string; scheduled_at: string; name: string; trigger?: 'manual' }
@@ -54,8 +55,7 @@ function isRun(value: unknown) {
     && nullableString(value.error_code) && isResult(value.result)
     && (value.failure === undefined || value.failure === null || (record(value.failure)
       && typeof value.failure.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value.failure.code)
-      && (value.failure.http_status === null || Number.isSafeInteger(value.failure.http_status) && Number(value.failure.http_status) >= 400 && Number(value.failure.http_status) <= 599)
-      && (value.failure.parameter === null || ['tools', 'tools.function.parameters', 'tools.function.strict', 'messages', 'model', 'store', 'stream'].includes(String(value.failure.parameter))))))
+      && providerDiagnostic(value.failure) !== null)))
 }
 const nullableCount = (value: unknown) => value === null || count(value)
 const errorCode = (value: unknown) => value === null || (typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value))

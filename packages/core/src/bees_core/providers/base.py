@@ -16,7 +16,7 @@ from bees_core.providers.contracts import (
     ProviderKind,
     SecretResolver,
 )
-from bees_core.providers.errors import ProviderError
+from bees_core.providers.errors import ProviderError, public_provider_message
 
 
 def validate_bearer_secret(value: SecretStr) -> str:
@@ -70,9 +70,18 @@ def decode_json(raw: bytes) -> dict[str, Any]:
 
 
 async def rejection(response: httpx.Response) -> ProviderError:
-    """Classifica recusa HTTP limitada; textos externos não entram no diagnóstico."""
-    code = "provider_rejected"
+    """Classifica uma recusa limitada e remove dados privados do diagnóstico."""
+    code = {
+        401: "authentication_failed",
+        403: "access_denied",
+        404: "model_unavailable",
+        429: "rate_limited",
+    }.get(
+        response.status_code,
+        "provider_unavailable" if response.status_code >= 500 else "provider_rejected",
+    )
     parameter = None
+    provider_message = None
     if response.headers.get("content-encoding", "identity").lower() == "identity":
         try:
             raw = bytearray()
@@ -87,7 +96,35 @@ async def rejection(response: httpx.Response) -> ProviderError:
                     raw.extend(chunk)
             if raw:
                 error = decode_json(bytes(raw)).get("error")
+                if isinstance(error, str):
+                    error = {"message": error}
                 if isinstance(error, dict):
+                    private = []
+                    authorization = response.request.headers.get("authorization", "")
+                    if authorization:
+                        private.extend([authorization, authorization.removeprefix("Bearer ")])
+
+                    # Nomes de modelo e campos de schema ajudam no diagnóstico.
+                    def collect(value, sensitive=False):
+                        if isinstance(value, dict):
+                            for key, child in value.items():
+                                collect(
+                                    child,
+                                    sensitive
+                                    or key
+                                    in {"content", "text", "arguments", "images", "image_url"},
+                                )
+                        elif isinstance(value, list):
+                            for child in value:
+                                collect(child, sensitive)
+                        elif sensitive and isinstance(value, str):
+                            private.append(value)
+
+                    try:
+                        collect(decode_json(response.request.content))
+                    except ProviderError:
+                        pass
+                    provider_message = public_provider_message(error.get("message"), private)
                     field = error.get("param")
                     if isinstance(field, str):
                         field = re.sub(r"\[\d{1,3}\]", "", field)
@@ -102,7 +139,9 @@ async def rejection(response: httpx.Response) -> ProviderError:
                         }:
                             parameter = field
                     reason = error.get("code")
-                    if reason == "context_length_exceeded":
+                    if response.status_code not in (400, 422):
+                        pass
+                    elif reason == "context_length_exceeded":
                         code = "context_window_exceeded"
                     elif (
                         reason in ("invalid_function_parameters", "invalid_tool_schema")
@@ -117,7 +156,13 @@ async def rejection(response: httpx.Response) -> ProviderError:
                         )
         except ProviderError, httpx.RequestError:
             pass
-    return ProviderError(code, upstream_status=response.status_code, parameter=parameter)
+    return ProviderError(
+        code,
+        upstream_status=response.status_code,
+        parameter=parameter,
+        provider_message=provider_message,
+        retryable=response.status_code == 429 or response.status_code >= 500,
+    )
 
 
 class HTTPAdapter:
@@ -190,17 +235,7 @@ class HTTPAdapter:
                 raise ProviderError("invalid_response")
             if 300 <= status < 400:
                 raise ProviderError("redirect_refused")
-            if status == 401:
-                raise ProviderError("authentication_failed", upstream_status=401)
-            if status == 403:
-                raise ProviderError("access_denied", upstream_status=403)
-            if status == 429:
-                raise ProviderError("rate_limited", retryable=True, upstream_status=status)
-            if status == 404:
-                raise ProviderError("model_unavailable", upstream_status=status)
-            if status >= 500:
-                raise ProviderError("provider_unavailable", retryable=True, upstream_status=status)
-            if status in (400, 422):
+            if status >= 400:
                 raise await rejection(response)
             if status < 200 or status >= 300:
                 raise ProviderError("provider_rejected", upstream_status=status)

@@ -281,7 +281,7 @@ def test_model_failure_reaches_chat_and_details_with_safe_legacy_fallback(state)
                     "error": {
                         "code": "unsupported_parameter",
                         "param": "store",
-                        "message": "PRIVATE SECRET body",
+                        "message": "Unsupported parameter: store",
                     }
                 },
             )
@@ -294,6 +294,7 @@ def test_model_failure_reaches_chat_and_details_with_safe_legacy_fallback(state)
         "code": "unsupported_model_parameter",
         "http_status": 400,
         "parameter": "store",
+        "provider_message": "Unsupported parameter: store",
     }
     assert task["latest_run"]["model"] == "test-model"
     assert "PRIVATE" not in str(task) and "SECRET" not in str(task)
@@ -306,7 +307,12 @@ def test_model_failure_reaches_chat_and_details_with_safe_legacy_fallback(state)
         checkpoint = {key: value for key, value in run.checkpoint.items() if key != "model_failure"}
         unit.runs.update(run.model_copy(update={"checkpoint": checkpoint}), run.revision)
     legacy = client.get(path + "/" + created["id"]).json()["task"]["latest_run"]["failure"]
-    assert legacy == {"code": "unsupported_model_parameter", "http_status": None, "parameter": None}
+    assert legacy == {
+        "code": "unsupported_model_parameter",
+        "http_status": None,
+        "parameter": None,
+        "provider_message": None,
+    }
 
     # Checkpoint restaurado malformado não vira texto público nem quebra o polling.
     with client.app.state.store.transaction() as unit:

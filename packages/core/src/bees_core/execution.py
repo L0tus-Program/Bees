@@ -418,6 +418,7 @@ class TaskWorker:
                     "call_id": str(call.id),
                     "http_status": (failure or {}).get("http_status"),
                     "parameter": (failure or {}).get("parameter"),
+                    "provider_message": (failure or {}).get("provider_message"),
                 }
             status = "completed"
             desired = task.desired_state
@@ -821,7 +822,11 @@ class TaskWorker:
         except ProviderError as error:
             response = None
             error_code = error.code
-            failure = {"http_status": error.upstream_status, "parameter": error.parameter}
+            failure = {
+                "http_status": error.upstream_status,
+                "parameter": error.parameter,
+                "provider_message": error.provider_message,
+            }
             released = usage is None and releases(error)
         except RevisionConflict:
             # Outro dono/recuperação ganhou a lease; nenhum commit pelo dono antigo.

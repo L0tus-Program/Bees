@@ -495,7 +495,7 @@ def test_rejection_classifies_safe_fields_without_exposing_provider_text(upstrea
 
 
 @pytest.mark.parametrize(
-    "payload", [b"not-json", b'{"error":' + b" " * 9000, b'{"error":"PRIVATE"}']
+    "payload", [b"not-json", b'{"error":' + b" " * 9000, b'{"error":{"message":[]}}']
 )
 def test_unreadable_or_large_rejection_keeps_original_status(payload):
     adapter = create_adapter(
@@ -506,3 +506,57 @@ def test_unreadable_or_large_rejection_keeps_original_status(payload):
         asyncio.run(adapter.complete(config("openai_compatible"), request()))
     assert caught.value.code == "provider_rejected" and caught.value.upstream_status == 422
     assert caught.value.parameter is None
+    assert caught.value.provider_message is None
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 429, 500])
+def test_provider_message_retains_cause_but_redacts_request_secrets_and_text(status):
+    from bees_core.providers.base import rejection
+
+    secret = "credential-for-this-installation"
+    prompt = "private words from the user"
+    req = httpx.Request(
+        "POST",
+        "https://fixture.invalid/chat/completions",
+        headers={"authorization": f"Bearer {secret}"},
+        json={"messages": [{"role": "user", "content": prompt}]},
+    )
+    response = httpx.Response(
+        status,
+        request=req,
+        json={
+            "error": {
+                "code": "unsupported_parameter",
+                "param": "store",
+                "message": f"Unsupported parameter: store. {prompt} {secret} sk-abcdefghi https://private.invalid/key?token=abc",
+            }
+        },
+    )
+    error = asyncio.run(rejection(response))
+    assert error.upstream_status == status
+    assert error.provider_message.startswith("Unsupported parameter: store.")
+    for private in (secret, prompt, "sk-abcdefghi", "private.invalid", "token=abc"):
+        assert private not in error.provider_message
+    assert "Unsupported parameter" not in str(error)
+
+
+def test_provider_diagnostic_limits_and_literal_markup():
+    from bees_core.providers.errors import public_provider_message
+
+    assert public_provider_message("x" * 8193) is None
+    assert len(public_provider_message("x" * 2000)) == 1001
+    assert public_provider_message({"message": "bad"}) is None
+    assert (
+        public_provider_message("<script>alert(1)</script>\nparameter rejected")
+        == "<script>alert(1)</script> parameter rejected"
+    )
+
+
+def test_ollama_style_error_string_is_available_as_diagnostic():
+    from bees_core.providers.base import rejection
+
+    req = httpx.Request("POST", "http://127.0.0.1:11434/api/chat", json={})
+    error = asyncio.run(
+        rejection(httpx.Response(400, request=req, json={"error": "model does not support tools"}))
+    )
+    assert error.provider_message == "model does not support tools"

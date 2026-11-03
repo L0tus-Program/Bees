@@ -487,7 +487,7 @@ def test_model_tool_rejection_keeps_safe_cause_and_never_retries(tmp_path, model
                     "error": {
                         "code": "invalid_function_parameters",
                         "param": "tools[0].function.parameters",
-                        "message": "PRIVATE response with SECRET https://private.invalid/token",
+                        "message": "Invalid schema: missing required property. https://private.invalid/token",
                     }
                 },
             )
@@ -502,10 +502,8 @@ def test_model_tool_rejection_keeps_safe_cause_and_never_retries(tmp_path, model
     assert failure["http_status"] == 400
     assert failure["parameter"] == "tools.function.parameters"
     assert detail.calls[-1].error_code == "tool_schema_rejected"
-    assert (
-        "SECRET" not in detail.model_dump_json()
-        and "PRIVATE response" not in detail.model_dump_json()
-    )
+    assert failure["provider_message"] == "Invalid schema: missing required property. [redacted]"
+    assert "private.invalid" not in detail.model_dump_json()
     assert case.requests[0]["model"] == model
     assert all(tool["function"]["strict"] is False for tool in case.requests[0]["tools"])
     assert not case.work() and len(case.requests) == 1
