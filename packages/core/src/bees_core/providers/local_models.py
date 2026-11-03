@@ -8,7 +8,7 @@ o acompanhamento, não os blobs: o Ollama retoma o download parcial ao repetir.
 import asyncio
 import json
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -179,6 +179,32 @@ def _classify(message: str) -> LocalModelCode:
     return "pull_failed"
 
 
+async def _error_prefix(response: httpx.Response) -> str:
+    data = bytearray()
+    async for chunk in response.aiter_bytes():
+        data.extend(chunk[: 4096 - len(data)])
+        if len(data) == 4096:
+            break
+    return data.decode("utf-8", "replace")
+
+
+async def _pull_lines(response: httpx.Response) -> AsyncIterator[str]:
+    buffer = bytearray()
+    async for chunk in response.aiter_bytes():
+        # Processar logo os chunks pequenos preserva progresso sem aguardar 8 KB.
+        for offset in range(0, len(chunk), 8192):
+            buffer.extend(chunk[offset : offset + 8192])
+            while (end := buffer.find(b"\n")) >= 0:
+                if end > 65536:
+                    raise LocalModelError("pull_failed")
+                yield bytes(buffer[:end]).decode("utf-8")
+                del buffer[: end + 1]
+            if len(buffer) > 65536:
+                raise LocalModelError("pull_failed")
+    if buffer:
+        yield bytes(buffer).decode("utf-8")
+
+
 class LocalModelManager:
     """Acompanha downloads no processo da API; um download ativo por modelo/endpoint."""
 
@@ -324,7 +350,7 @@ class LocalModelManager:
             self._deleting.remove(target)
         if response.status_code == 404:
             raise LocalModelError("model_not_found")
-        if response.status_code >= 400:
+        if not response.is_success:
             raise LocalModelError("pull_failed")
 
     async def close(self) -> None:
@@ -340,16 +366,16 @@ class LocalModelManager:
                     "POST", "/api/pull", json={"model": pull.model, "stream": True}
                 ) as response,
             ):
-                if response.status_code >= 400:
-                    body = (await response.aread())[:4096].decode("utf-8", "replace")
+                if not response.is_success:
+                    if response.is_redirect:
+                        raise LocalModelError("pull_failed")
+                    body = await _error_prefix(response)
                     raise LocalModelError(
                         "model_not_found" if response.status_code == 404 else _classify(body)
                     )
-                async for line in response.aiter_lines():
+                async for line in _pull_lines(response):
                     if not line.strip():
                         continue
-                    if len(line) > 65536:
-                        raise LocalModelError("pull_failed")
                     event = json.loads(line)
                     if not isinstance(event, dict):
                         raise LocalModelError("pull_failed")
@@ -358,6 +384,9 @@ class LocalModelManager:
                     status = str(event.get("status") or "")[:200]
                     digest = event.get("digest")
                     total, done = event.get("total"), event.get("completed")
+                    for key in ("total", "completed"):
+                        if key in event and (type(event[key]) is not int or event[key] < 0):
+                            raise LocalModelError("pull_failed")
                     if isinstance(digest, str) and isinstance(total, int) and total > 0:
                         pull.layers[digest[:200]] = (total, done if isinstance(done, int) else 0)
                         if len(pull.layers) > 256:

@@ -58,6 +58,17 @@ parcial disponível. Uma lista vazia válida continua disponível. Sugestões e
 acompanhamento dos downloads são preservados na falha; consultar novamente não
 inicia download, remoção ou geração.
 
+Download e remoção só aceitam respostas HTTP 2xx como sucesso; redirecionamentos
+não são seguidos nem confirmam efeito. Contadores de progresso presentes precisam
+ser inteiros não booleanos e não negativos. Ausência de `completed` equivale a
+zero; a projeção limita o concluído ao total da camada. Contador inválido encerra
+o acompanhamento com `pull_failed`, preservando replay sem novo despacho.
+
+O stream é lido incrementalmente: cada linha NDJSON tem limite de 65.536 bytes,
+e o diagnóstico de uma recusa HTTP lê no máximo 4.096 bytes. Ao exceder o limite
+de linha, o acompanhamento falha e fecha a resposta sem esperar o corpo inteiro.
+Isso limita a leitura local; não promete cancelar o efeito aceito pelo Ollama.
+
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer
 um desses UUIDs conserva o ID e o resultado original, inclusive após conclusão,

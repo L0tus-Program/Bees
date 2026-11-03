@@ -323,3 +323,51 @@ def test_delete_in_flight_refuses_concurrent_pull_and_delete(state):
     assert started.status_code == 202
     assert wait(client, started.json()["id"])["status"] == "completed"
     assert [call.method for call in calls] == ["DELETE", "POST"]
+
+
+@pytest.mark.parametrize("kind", ["redirect", "negative", "large"])
+def test_invalid_pull_response_fails_and_replays_without_new_dispatch(state, kind):
+    client, backend = state
+    backend.pull_response = lambda _: (
+        httpx.Response(
+            307,
+            headers={"Location": "http://127.0.0.1:11435/other"},
+            content=lines({"status": "success"}),
+        )
+        if kind == "redirect"
+        else httpx.Response(
+            200,
+            content=b"x" * 65537
+            if kind == "large"
+            else lines(
+                {"status": "pulling x", "digest": "sha256:x", "total": 10, "completed": -1},
+                {"status": "success"},
+            ),
+        )
+    )
+    value = {"client_request_id": str(uuid4()), "model": "qwen3", "confirm_download": True}
+    started = client.post("/api/v1/local-models/pulls", json=value, headers=headers(client))
+    assert started.status_code == 202
+    terminal = wait(client, started.json()["id"])
+    assert terminal["status"] == "failed" and terminal["error"] == "pull_failed"
+    assert terminal["completed_bytes"] >= 0
+    replay = client.post("/api/v1/local-models/pulls", json=value, headers=headers(client))
+    assert replay.json() == terminal and backend.pulls == ["qwen3:latest"]
+
+
+def test_delete_redirect_is_not_confirmed_as_removed(state):
+    client, _ = state
+    calls = []
+
+    def backend(value):
+        calls.append(value)
+        return httpx.Response(307, headers={"Location": "http://127.0.0.1:11435/other"})
+
+    client.app.state.local_models = LocalModelManager(transport=httpx.MockTransport(backend))
+    result = client.post(
+        "/api/v1/local-models/delete",
+        json={"model": "qwen3", "confirm_delete": True},
+        headers=headers(client),
+    )
+    assert result.status_code == 409 and result.json()["error"]["code"] == "pull_failed"
+    assert len(calls) == 1 and calls[0].url.port == 11434
