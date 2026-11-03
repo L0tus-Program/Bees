@@ -58,6 +58,17 @@ parcial disponível. Uma lista vazia válida continua disponível. Sugestões e
 acompanhamento dos downloads são preservados na falha; consultar novamente não
 inicia download, remoção ou geração.
 
+O painel também valida os campos recebidos e confere o vínculo da resposta com
+o endpoint, modelo ou ID solicitado antes de mostrar progresso ou sucesso.
+Respostas incompatíveis não iniciam consultas ou cancelamentos de outro download.
+Após resposta inválida de uma operação, confira o estado antes de confirmar outra:
+o servidor pode já ter recebido o pedido. Não há repetição automática de mutações.
+
+Cancelar informa o resultado canônico: se o download já terminou, o painel mostra
+que está pronto e atualiza o inventário; falha permanece falha. Somente uma
+resposta `cancelled` confirma cancelamento. Erros das operações locais possuem
+orientação em pt-BR, inglês e espanhol, sem exibir a mensagem bruta do servidor.
+
 Download e remoção só aceitam respostas HTTP 2xx como sucesso; redirecionamentos
 não são seguidos nem confirmam efeito. Contadores de progresso presentes precisam
 ser inteiros não booleanos e não negativos. Ausência de `completed` equivale a

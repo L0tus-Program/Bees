@@ -220,3 +220,23 @@ it('rediscovers a server-side download when returning to its endpoint without ca
   await act(async () => receipt.resolve(Response.json(pull)))
   expect(writes).toEqual(['/api/v1/local-models/pulls'])
 })
+
+it.each(['completed', 'failed'] as const)('does not announce cancellation if the download already %s', async (outcome) => {
+  let reads = 0
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      writes.push(url)
+      return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
+    }
+    reads += 1
+    return Response.json({ ...status, pulls: [pull] })
+  }))
+  await render()
+  await act(async () => button('Cancelar download')!.click())
+  expect(container.textContent).not.toContain('Download cancelado')
+  expect(container.querySelector('progress')).toBeNull()
+  expect(container.textContent).toContain(outcome === 'completed' ? 'qwen3:8b está pronto' : 'O download de qwen3:8b falhou')
+  expect(reads).toBe(outcome === 'completed' ? 2 : 1)
+  expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+})

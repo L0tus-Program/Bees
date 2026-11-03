@@ -79,6 +79,15 @@ const pt = {
   limitedHistory: 'Esta prévia mostra até 200 mensagens recentes. Seu histórico completo continua preservado no serviço.',
   limitedAgents: 'Esta lista atingiu o limite da prévia. Os demais registros permanecem preservados.',
   errors: {
+    backend_unavailable: 'O Ollama não está acessível. Confira se ele está em execução e se o endereço está correto.',
+    model_not_found: 'O modelo não foi encontrado. Confira o nome e atualize a lista do Ollama.',
+    insufficient_storage: 'Falta espaço no armazenamento do Ollama. Confira o espaço disponível antes de confirmar outro download.',
+    pull_failed: 'Não foi possível concluir a operação no Ollama. Consulte o estado antes de repetir.',
+    pull_not_found: 'O acompanhamento do download não está disponível. Confira os modelos instalados antes de iniciar outro download.',
+    pull_conflict: 'Este pedido já pertence a outro modelo ou endereço. Atualize o estado antes de confirmar uma nova operação.',
+    invalid_model: 'Informe um identificador de modelo local válido. Modelos de nuvem não são aceitos neste preparo.',
+    model_in_use: 'Há um download ou uma remoção em andamento para este modelo. Aguarde e atualize o estado.',
+    registry_unreachable: 'O Ollama não conseguiu acessar a biblioteca de modelos. Confira a rede, o DNS ou o proxy do servidor.',
     artifact_invalid_format: 'Escolha TXT, Markdown, CSV, JSON, PNG ou JPEG.', artifact_invalid_content: 'Use texto UTF-8 válido ou uma imagem PNG/JPEG estática válida, de até 8 milhões de pixels.', artifact_content_invalid: 'Use texto UTF-8 válido ou uma imagem PNG/JPEG estática válida, de até 8 milhões de pixels.', artifact_too_large: 'O arquivo excede o limite permitido para este formato.',
 
     image_vision_required: 'O modelo não oferece visão. Revise a configuração ou use OCR local.',
@@ -225,6 +234,15 @@ const en: ProductStrings = {
   noTextContent: 'No text content. No tool was executed by this interface.', waitingModel: 'Waiting for the model to respond. This call can take up to a minute.', messageLabel: 'Message to the bee', messagePlaceholder: 'Tell your bee what you need help with…',
   chatCost: 'This message uses the configured model and may consume provider credits.', send: 'Send', sending: 'Sending…', limitedHistory: 'This preview displays up to 200 recent messages. Your full history remains preserved in the service.', limitedAgents: 'This list reached the preview limit. Other records remain preserved.',
   errors: {
+    backend_unavailable: 'Ollama is not reachable. Check that it is running and that its address is correct.',
+    model_not_found: 'The model was not found. Check its name and refresh the Ollama list.',
+    insufficient_storage: 'Ollama storage is out of space. Check available space before confirming another download.',
+    pull_failed: 'The Ollama operation could not be completed. Check its state before repeating it.',
+    pull_not_found: 'Download tracking is unavailable. Check installed models before starting another download.',
+    pull_conflict: 'This request already belongs to another model or endpoint. Refresh the state before confirming a new operation.',
+    invalid_model: 'Enter a valid local model identifier. Cloud models are not accepted in this preparation.',
+    model_in_use: 'A download or removal is in progress for this model. Wait and refresh the state.',
+    registry_unreachable: 'Ollama could not reach the model library. Check the server network, DNS or proxy.',
     artifact_invalid_format: 'Choose TXT, Markdown, CSV, JSON, PNG or JPEG.', artifact_invalid_content: 'Use valid UTF-8 text or a valid static PNG/JPEG image with up to 8 million pixels.', artifact_content_invalid: 'Use valid UTF-8 text or a valid static PNG/JPEG image with up to 8 million pixels.', artifact_too_large: 'The file exceeds this format’s allowed size.',
 
     image_vision_required: 'The model does not offer vision. Review its configuration or use local OCR.',
@@ -337,6 +355,15 @@ const es: ProductStrings = {
   nextStepTitle: 'Conversa y delega una tarea.', nextStepDescription: ' Activa el modo agente para buscar en la web, usar el ordenador de la abeja o tu máquina. Las acciones sensibles piden tu aprobación; los resultados quedan en Entregas.', conversation: 'Conversación', conversationHistory: 'Historial de conversación', refreshHistory: 'Actualizar historial', chatScope: 'Conversa y, si quieres, permite que la abeja cree una tarea de texto en segundo plano. Su resultado aparece aquí, incluso después de volver a abrir la página.', chatEmptyTitle: '¿Qué vamos a pensar juntos?', chatEmptyDescription: 'Pide una explicación, organiza una idea o compara alternativas con el contexto que envíes.',
   you: 'Tú', systemMessage: 'Sistema', noTextContent: 'El modelo no devolvió texto en este mensaje. Revisa las tareas registradas en esta conversación.', waitingModel: 'Esperando la respuesta del modelo. Puede tardar hasta un minuto.', messageLabel: 'Mensaje para la abeja', messagePlaceholder: 'Cuéntale a tu abeja en qué necesitas ayuda…', chatCost: 'El mensaje usa el modelo configurado y puede consumir créditos del proveedor.', send: 'Enviar', sending: 'Enviando…', limitedHistory: 'Esta versión muestra hasta 200 mensajes recientes. Tu historial completo permanece en el servicio.', limitedAgents: 'Esta lista alcanzó el límite de la versión previa. Los demás registros se conservan.',
   errors: {
+    backend_unavailable: 'Ollama no está accesible. Comprueba que esté en ejecución y que la dirección sea correcta.',
+    model_not_found: 'No se encontró el modelo. Comprueba el nombre y actualiza la lista de Ollama.',
+    insufficient_storage: 'Falta espacio en el almacenamiento de Ollama. Comprueba el espacio disponible antes de confirmar otra descarga.',
+    pull_failed: 'No se pudo completar la operación en Ollama. Consulta el estado antes de repetirla.',
+    pull_not_found: 'El seguimiento de la descarga no está disponible. Comprueba los modelos instalados antes de iniciar otra descarga.',
+    pull_conflict: 'Esta solicitud ya pertenece a otro modelo o dirección. Actualiza el estado antes de confirmar una nueva operación.',
+    invalid_model: 'Indica un identificador de modelo local válido. No se aceptan modelos de nube en esta preparación.',
+    model_in_use: 'Hay una descarga o eliminación en curso para este modelo. Espera y actualiza el estado.',
+    registry_unreachable: 'Ollama no pudo acceder a la biblioteca de modelos. Comprueba la red, el DNS o el proxy del servidor.',
     artifact_invalid_format: 'Elige TXT, Markdown, CSV, JSON, PNG o JPEG.', artifact_invalid_content: 'Usa texto UTF-8 válido o una imagen PNG/JPEG estática válida, de hasta 8 millones de píxeles.', artifact_content_invalid: 'Usa texto UTF-8 válido o una imagen PNG/JPEG estática válida, de hasta 8 millones de píxeles.', artifact_too_large: 'El archivo supera el límite permitido para este formato.',
 
     image_vision_required: 'El modelo no admite visión. Revisa la configuración o usa OCR local.',
