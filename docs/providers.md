@@ -69,6 +69,12 @@ que está pronto e atualiza o inventário; falha permanece falha. Somente uma
 resposta `cancelled` confirma cancelamento. Erros das operações locais possuem
 orientação em pt-BR, inglês e espanhol, sem exibir a mensagem bruta do servidor.
 
+Indisponibilidade do Ollama não esconde o acompanhamento já conhecido pelo Bees.
+Progresso e resultado continuam visíveis; cancelar permanece disponível após uma
+consulta válida à API Bees, mesmo com catálogo indisponível. Durante a atualização
+da consulta, ou se ela falhar, cancelar fica desabilitado até atualizar o estado.
+Novos downloads e remoções continuam indisponíveis enquanto o Ollama não responde.
+
 Download e remoção só aceitam respostas HTTP 2xx como sucesso; redirecionamentos
 não são seguidos nem confirmam efeito. Contadores de progresso presentes precisam
 ser inteiros não booleanos e não negativos. Ausência de `completed` equivale a
