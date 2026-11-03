@@ -96,42 +96,62 @@ class OpenAICompatibleAdapter(HTTPAdapter):
         async with self._session(config) as client:
             self._authorize_generation()
             data = await self._json(client, config, "POST", "chat/completions", body=body)
+        issue = "choices"
         try:
             choices = data["choices"]
             if not isinstance(choices, list) or len(choices) != 1:
                 raise ValueError()
             choice = choices[0]
+            issue = "message"
             raw = choice["message"]
             if raw.get("role") != "assistant":
                 raise ValueError()
             calls = []
+            issue = "tool_calls"
             raw_calls = raw.get("tool_calls")
             if raw_calls is not None and (not isinstance(raw_calls, list) or len(raw_calls) > 64):
                 raise ValueError()
             for value in raw_calls or []:
+                issue = "tool_call"
                 if value.get("type") != "function" or not isinstance(
                     value["function"]["arguments"], str
                 ):
                     raise ValueError()
+                issue = "tool_arguments_json"
+                arguments = decode_json(value["function"]["arguments"].encode("utf-8"))
+                issue = "tool_call"
                 calls.append(
                     ToolCall(
                         id=value["id"],
                         name=value["function"]["name"],
-                        arguments=decode_json(value["function"]["arguments"].encode("utf-8")),
+                        arguments=arguments,
                     )
                 )
             validate_calls(calls, request.tools, proposals=self._tool_proposals)
             old_ids = {call.id for item in request.messages for call in item.tool_calls}
-            if any(call.id in old_ids for call in calls):
+            issue = "duplicate_tool_call"
+            if any(call.id in old_ids for call in calls) or len({call.id for call in calls}) != len(
+                calls
+            ):
                 raise ValueError()
+            issue = "content"
             message = ChatMessage(role="assistant", content=raw.get("content"), tool_calls=calls)
+            issue = "usage"
+            usage = reported_usage(data.get("usage"))
+            issue = "finish_reason"
             return ChatResponse(
                 message=message,
                 finish_reason=choice["finish_reason"],
-                usage=reported_usage(data.get("usage")),
+                usage=usage,
             )
+        except ProviderError as error:
+            if error.code == "invalid_response" and (
+                error.response_issue is None or issue == "tool_arguments_json"
+            ):
+                raise ProviderError("invalid_response", response_issue=issue) from None
+            raise
         except KeyError, TypeError, ValueError, AttributeError, ValidationError:
-            raise ProviderError("invalid_response") from None
+            raise ProviderError("invalid_response", response_issue=issue) from None
 
     async def diagnose(self, config: ProviderConfig) -> Diagnostic:
         config, _ = snapshots(config)

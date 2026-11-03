@@ -67,13 +67,19 @@ function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
 /** Conversa no estilo assistente: uma rolagem, campo fixo embaixo, a abelha decide o que fazer. */
 export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
   const { t, i18n } = useTranslation('workspace')
-  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null)
   const [capabilityVersion, setCapabilityVersion] = useState(0)
+  const capabilityKey = `${agent.id}:${agent.revision}:${capabilityVersion}`
+  const [capabilityResult, setCapabilityResult] = useState<{ key: string; data: AgentCapabilities | null; error: ApiError | null } | null>(null)
+  const currentCapability = capabilityResult?.key === capabilityKey ? capabilityResult : null
+  const capabilities = currentCapability?.data ?? null
   useEffect(() => {
     const controller = new AbortController()
-    getAgentCapabilities(agent.id, controller.signal).then(setCapabilities, () => { if (!controller.signal.aborted) setCapabilities(null) })
+    getAgentCapabilities(agent.id, controller.signal).then(
+      (data) => { if (!controller.signal.aborted) setCapabilityResult({ key: capabilityKey, data, error: null }) },
+      (error) => { if (!controller.signal.aborted) setCapabilityResult({ key: capabilityKey, data: null, error: asApiError(error) }) },
+    )
     return () => controller.abort()
-  }, [agent.id, agent.revision, capabilityVersion])
+  }, [agent.id, capabilityKey])
   // Plug and play: com modelo compatível, ativa (ou atualiza, quando o pacote ganha ferramentas
   // novas) as ferramentas recomendadas uma vez; o que a pessoa desligou continua desligado.
   const autoEnabled = useRef<string | null>(null)
@@ -196,7 +202,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   async function submit(event?: FormEvent) {
     event?.preventDefault()
     const content = draft.trim()
-    if (busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    if (!capabilities || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
     setBusy(true); setError(null); follow.current = true
     try {
       if (useAgent) {
@@ -279,6 +285,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">
       <form className="mx-auto w-full max-w-3xl" onSubmit={(event) => { void submit(event) }}>
         {error && (error.code === 'attachment_limit' ? <p className="mb-2 text-xs text-destructive" role="alert">{t('attachLimit')}</p> : <div className="legacy-scope mb-2"><ErrorNotice error={error} /></div>)}
+        {!currentCapability && <p className="mb-2 text-xs text-muted-foreground" role="status">{t('preparingChat')}</p>}
+        {currentCapability?.error && <div className="legacy-scope mb-2"><ErrorNotice error={currentCapability.error} /><button type="button" className="text-button" onClick={() => setCapabilityVersion((value) => value + 1)}>{t('retry')}</button></div>}
         {capabilities && !capabilities.tool_calls_supported && <p className="mb-2 text-xs text-muted-foreground">{t('noTools')}</p>}
         {useAgent && capabilities?.worker && !capabilities.worker.available && <p className="mb-2 text-xs text-muted-foreground" role="status">{t('workerOffline')}</p>}
         <div className={cn('flex flex-col rounded-2xl border bg-card shadow-sm focus-within:ring-3 focus-within:ring-ring/40', busy && 'opacity-80')}>
@@ -303,7 +311,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={clearing || busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={!capabilities || clearing || busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>

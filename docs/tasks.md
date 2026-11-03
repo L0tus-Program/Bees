@@ -92,6 +92,14 @@ Os endpoints autenticados `/api/v1/agents/{id}/tasks` e `/{task_id}` observam a 
 
 SQLite é a fonte de estado: tarefas, comandos, execuções, chamadas e leases são persistidos na migração 0003. Transações terminam antes da rede. O despacho de geração só é registrado depois de validar contexto, controles e políticas atuais, inclusive após o preflight local do Ollama. Falhas desse preflight não representam geração iniciada. Confirmação do journal, mensagem e resultado ocorrem na mesma unidade de trabalho, após validar geração da lease e snapshot do contexto. Consultas públicas não expõem request/configuração privada, referências de credencial ou erros brutos do provedor.
 
+### Causa nas listas, no detalhe e no histórico — #223
+
+Tarefas e Atividade mostram a causa disponível junto ao estado, sem precisar abrir os detalhes. Falhas do modelo incluem a classificação estrutural e a mensagem sanitizada do provedor quando registradas; detalhes preservam código, modelo, HTTP e campo recusado. O aviso de resultado desconhecido é independente da causa e não autoriza repetição.
+
+O chat aguarda a consulta de capacidades da revisão atual da abelha antes de permitir envio. Enquanto carrega, preserva o rascunho; se a consulta falha, mostra o erro e permite repetir a consulta. Ausência de resposta dessa consulta não seleciona silenciosamente o fluxo de conversa direta. Essa consulta não gera nem enfileira uma mensagem automaticamente.
+
+O histórico de ações mostra códigos públicos de falha de ferramentas, com explicações para códigos conhecidos. A lista permitida em `tool_diagnostics.py` inclui códigos de transporte, navegador, arquivos, web e MCP; texto livre de metadata, parâmetros, resultados e exceções não entra no diagnóstico. Falhas de ferramenta da execução atual podem fornecer `failure.source: tool` e `tool_name`; uma chamada de modelo ainda incerta impede que um erro antigo de ferramenta seja apresentado como sua causa. O último passo rejeitado também permanece visível no detalhe de uma tarefa interrompida por limite, mesmo quando a validação ocorreu antes de criar uma ação. Uma tarefa concluída pode conservar falhas recuperadas no histórico sem ser marcada como falha atual.
+
 Conversas de tarefas não aceitam geração pelo endpoint de chat comum ou pela CLI de chat: somente o worker pode consumir essa fila, mantendo controles, orçamento e journal.
 
 Os cenários de cancelamento, concorrência e replay usam a curadoria OD-01 como referência; a implementação não incorpora o executor em memória do Open Dots. Validações usam provedores e contas descartáveis, sem consumir créditos reais. Aceite com modelos reais remoto/local continua separado em BEES-005.

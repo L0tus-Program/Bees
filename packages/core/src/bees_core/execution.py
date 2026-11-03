@@ -186,7 +186,7 @@ class TaskWorker:
         self.approvals.request(uow, task, run, prepared, decision)
         self._settle_local(uow, claim, code="policy_approval_required")
 
-    def _settle_local(self, uow, claim, *, code: str | None) -> None:
+    def _settle_local(self, uow, claim, *, code: str | None, failure: dict | None = None) -> None:
         """Parada antes de despacho; não há chamada a repetir/reconciliar."""
         task = uow.tasks.get(claim.task.id)
         run = uow.runs.get(claim.run.id)
@@ -209,6 +209,8 @@ class TaskWorker:
             expected_revision=task.revision,
         )
         checkpoint = run.checkpoint | {"progress": status, "attention_required": code is not None}
+        if failure is not None and code is not None:
+            checkpoint["model_failure"] = {"code": code} | failure
         uow.runs.update(
             run.model_copy(
                 update={
@@ -419,7 +421,11 @@ class TaskWorker:
                     "http_status": (failure or {}).get("http_status"),
                     "parameter": (failure or {}).get("parameter"),
                     "provider_message": (failure or {}).get("provider_message"),
-                }
+                } | (
+                    {"response_issue": failure["response_issue"]}
+                    if failure and failure.get("response_issue")
+                    else {}
+                )
             status = "completed"
             desired = task.desired_state
             error = None
@@ -826,7 +832,7 @@ class TaskWorker:
                 "http_status": error.upstream_status,
                 "parameter": error.parameter,
                 "provider_message": error.provider_message,
-            }
+            } | ({"response_issue": error.response_issue} if error.response_issue else {})
             released = usage is None and releases(error)
         except RevisionConflict:
             # Outro dono/recuperação ganhou a lease; nenhum commit pelo dono antigo.
@@ -880,7 +886,9 @@ class TaskWorker:
                                 # Uma mudança depois da guarda não dispara retry.
                                 self._settle_local(uow, claim, code="policy_denied")
                 else:
-                    self._settle_local(uow, claim, code=error_code or "internal_error")
+                    self._settle_local(
+                        uow, claim, code=error_code or "internal_error", failure=failure
+                    )
             return True
         if self._finish(
             claim,

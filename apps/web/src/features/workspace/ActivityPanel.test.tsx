@@ -49,4 +49,15 @@ describe('activity panel', () => {
     await show([])
     expect(container.textContent).toContain('Nenhuma tarefa ainda')
   })
+
+  it('shows the reason on the paused task row and still opens its details', async () => {
+    const failed: TaskRecord = { ...make('failure', 'Arquivo inválido', 'paused'), latest_run: { ...baseTask.latest_run!, error_code: 'outcome_unknown', failure: { code: 'invalid_response', response_issue: 'tool_arguments_json', http_status: null, parameter: null } } }
+    const onOpen = await show([failed])
+    const row = container.querySelector('li button') as HTMLButtonElement
+    expect(row.textContent).toContain('Os argumentos da ferramenta não formam um objeto JSON válido.')
+    expect(row.textContent).toContain('invalid_response')
+    expect(row.querySelector('details, button')).toBeNull()
+    await act(async () => row.click())
+    expect(onOpen).toHaveBeenCalledWith('failure')
+  })
 })

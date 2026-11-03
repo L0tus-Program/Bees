@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Check, ChevronRight, Clock, Loader2, Pause, X } from 'lucide-react'
 import type { TaskRecord, TaskStatus } from '../../api/tasks'
 import { ErrorNotice } from '../../components/Feedback'
+import { TaskFailure } from '../tasks/TaskFailure'
 import { cn } from '@/lib/utils'
 import { ACTIVE, needsYou } from './useActivity'
 import type { useActivity } from './useActivity'
@@ -37,6 +38,7 @@ function TaskRow({ task, onOpen }: { task: TaskRecord; onOpen: (id: string) => v
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{task.title}</span>
         <span className="block truncate text-xs text-muted-foreground">{t(`status.${task.status}`)} · {ago(task.updated_at, i18n.resolvedLanguage ?? 'pt-BR')}</span>
+        <TaskFailure task={task} compact />
       </span>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" aria-hidden="true" />
     </button>

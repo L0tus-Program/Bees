@@ -5,6 +5,26 @@ import unicodedata
 from collections.abc import Iterable
 from typing import Literal
 
+RESPONSE_ISSUES = frozenset(
+    {
+        "invalid_json",
+        "content_type",
+        "content_encoding",
+        "choices",
+        "message",
+        "tool_calls",
+        "tool_call",
+        "tool_arguments_json",
+        "tool_arguments_schema",
+        "tool_not_offered",
+        "duplicate_tool_call",
+        "finish_reason",
+        "content",
+        "usage",
+        "error_envelope",
+    }
+)
+
 
 def public_provider_message(value: object, private: Iterable[str] = ()) -> str | None:
     """Trecho diagnóstico, sem credenciais, URLs ou conteúdo refletido do pedido."""
@@ -156,6 +176,7 @@ class ProviderError(RuntimeError):
         undelivered: bool = False,
         parameter: str | None = None,
         provider_message: str | None = None,
+        response_issue: str | None = None,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
@@ -182,4 +203,9 @@ class ProviderError(RuntimeError):
             raise ValueError("Parâmetro público inválido.")
         self.parameter = parameter
         self.provider_message = public_provider_message(provider_message)
+        if response_issue is not None and (
+            not isinstance(response_issue, str) or response_issue not in RESPONSE_ISSUES
+        ):
+            raise ValueError("Motivo de resposta inválido.")
+        self.response_issue = response_issue
         super().__init__(self.message)
