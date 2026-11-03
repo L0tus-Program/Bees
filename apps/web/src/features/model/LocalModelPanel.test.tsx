@@ -413,3 +413,60 @@ it('starts polling a rediscovered download without inheriting the lost download 
     expect(newPolls).toBe(1)
   } finally { vi.useRealTimers() }
 })
+
+it.each(['running', 'cancelled', 'completed', 'failed'] as const)('resets polling backoff after a valid %s cancellation receipt', async (outcome) => {
+  vi.useFakeTimers()
+  try {
+    let recovered = false
+    let resumedPolls = 0
+    const next = { ...pull, id: 'p2', model: 'qwen3:4b' }
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') {
+        writes.push(url); recovered = true
+        return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null })
+      }
+      if (url.includes('/pulls/')) {
+        if (recovered) { resumedPolls += 1; return Response.json(outcome === 'running' ? pull : next) }
+        return Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 })
+      }
+      return Response.json({ ...status, pulls: recovered && outcome !== 'running' ? [next] : [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => button('Cancelar download')!.click())
+    if (outcome !== 'running' && outcome !== 'completed') await act(async () => button('Verificar de novo')!.click())
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(resumedPolls).toBe(0)
+    await act(async () => vi.advanceTimersByTimeAsync(999))
+    expect(resumedPolls).toBe(0)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(resumedPolls).toBe(1)
+    expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  } finally { vi.useRealTimers() }
+})
+
+it('keeps polling backoff when cancellation fails and never retries the mutation', async () => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') writes.push(url)
+      else if (!url.includes('/pulls/')) return Response.json({ ...status, pulls: [pull] })
+      else polls += 1
+      return Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(polls).toBe(1)
+    await act(async () => button('Cancelar download')!.click())
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(1999))
+    expect(polls).toBe(1)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(polls).toBe(2)
+    expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  } finally { vi.useRealTimers() }
+})
