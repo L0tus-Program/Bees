@@ -19,6 +19,8 @@ const out = resolve(process.argv[2] ?? join(web, 'e2e-results'))
 const axeSource = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8')
 const password = 'senha descartável do e2e 12345'
 const marker = 'MARCADOR-E2E-7Q'
+const responsesMode = process.argv.includes('--responses')
+const fixtureModel = responsesMode ? 'gpt-5.6-terra' : 'modelo-e2e'
 mkdirSync(out, { recursive: true })
 
 function freePort() {
@@ -26,14 +28,25 @@ function freePort() {
 }
 
 // Modelo OpenAI-compatível: devolve um texto com marcador e conta as gerações.
-const model = { requests: 0, failNext: false, invalidArguments: false, failedTool: false, attached: false, expectedImages: [], imagesReceived: false }
+const model = { requests: 0, failNext: false, invalidArguments: false, failedTool: false, attached: false, expectedImages: [], imagesReceived: false, responsesRequests: 0, responsesContinuations: 0 }
 const modelServer = createServer((request, response) => {
   let body = ''
   request.on('data', (chunk) => { body += chunk })
   request.on('end', () => {
     response.setHeader('content-type', 'application/json')
-    if (request.method === 'GET' && request.url.endsWith('/models')) { response.end(JSON.stringify({ data: [{ id: 'modelo-e2e' }] })); return }
+    if (request.method === 'GET' && request.url.endsWith('/models')) { response.end(JSON.stringify({ data: [{ id: fixtureModel }] })); return }
     model.requests += 1
+    const responsesRoute = request.url.endsWith('/responses')
+    if (responsesRoute) model.responsesRequests += 1
+    const complete = (value) => {
+      if (!responsesRoute) { response.end(JSON.stringify(value)); return }
+      const choice = value.choices[0]
+      const output = [{ type: 'reasoning', id: `rs_${model.requests}`, encrypted_content: `OPAQUE_E2E_${model.requests}`, summary: [] }]
+      if (choice.message.content) output.push({ type: 'message', role: 'assistant', phase: 'final_answer', status: 'completed', content: [{ type: 'output_text', text: choice.message.content, annotations: [] }] })
+      for (const call of choice.message.tool_calls ?? []) output.push({ type: 'function_call', call_id: call.id, name: call.function.name, arguments: call.function.arguments, status: 'completed' })
+      const usage = value.usage ? { input_tokens: value.usage.prompt_tokens, output_tokens: value.usage.completion_tokens, total_tokens: value.usage.prompt_tokens + value.usage.completion_tokens } : null
+      response.end(JSON.stringify({ status: 'completed', output, usage }))
+    }
     if (model.failNext) {
       model.failNext = false
       response.statusCode = 400
@@ -42,27 +55,32 @@ const modelServer = createServer((request, response) => {
     }
     if (model.invalidArguments) {
       model.invalidArguments = false
-      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'bad-json', type: 'function', function: { name: 'publish_file', arguments: '{INVALID-PRIVATE-ARGUMENTS' } }] }, finish_reason: 'tool_calls' }] }))
+      complete({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'bad-json', type: 'function', function: { name: 'publish_file', arguments: '{INVALID-PRIVATE-ARGUMENTS' } }] }, finish_reason: 'tool_calls' }] })
       return
     }
     if (model.failedTool) {
       model.failedTool = false
-      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'blocked-web', type: 'function', function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'http://127.0.0.1/' }) } }] }, finish_reason: 'tool_calls' }] }))
+      complete({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'blocked-web', type: 'function', function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'http://127.0.0.1/' }) } }] }, finish_reason: 'tool_calls' }] })
       return
     }
     const payload = JSON.parse(body || '{}')
-    const messages = payload.messages ?? []
+    if (responsesMode && payload.model === fixtureModel && !responsesRoute) throw new Error('GPT-5.6 enviado para Chat Completions.')
+    const messages = responsesRoute ? (payload.input ?? []).map((item) => ({ role: item.type === 'function_call_output' ? 'tool' : item.role ?? 'assistant', content: item.output ?? (item.content ?? []).map((part) => part.type === 'input_image' ? { type: 'image_url', image_url: { url: part.image_url } } : { type: 'text', text: part.text }) })) : payload.messages ?? []
+    if (responsesRoute && payload.input.some((item) => item.type === 'function_call_output')) {
+      if (!payload.input.some((item) => item.type === 'reasoning' && item.encrypted_content.startsWith('OPAQUE_E2E_'))) throw new Error('Resultado de ferramenta sem raciocínio cifrado preservado.')
+      model.responsesContinuations += 1
+    }
     const textOf = (item) => typeof item.content === 'string' ? item.content : (item.content ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('\n')
     if (messages.some((item) => textOf(item).includes('DADO-COLADO-E2E') && textOf(item).includes('DADO-ARRASTADO-E2E'))) model.attached = true
     const receivedImages = messages.flatMap((item) => Array.isArray(item.content) ? item.content.filter((part) => part.type === 'image_url').map((part) => part.image_url.url) : [])
     if (model.expectedImages.length === 2 && model.expectedImages.every((data) => receivedImages.includes(data))) model.imagesReceived = true
     if (payload.tools?.length && !messages.some((item) => item.role === 'tool')) {
       const call = { id: 'call-1', type: 'function', function: { name: 'publish_file', arguments: JSON.stringify({ name: 'relatorio-e2e', kind: 'markdown', content: '# Relatório\n\nConteúdo de teste.' }) } }
-      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
+      complete({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
       return
     }
     const last = messages.filter((item) => item.role === 'user').at(-1)?.content ?? ''
-    response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${String(last).slice(0, 40)}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } }))
+    complete({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${String(last).slice(0, 40)}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
   })
 })
 
@@ -187,7 +205,7 @@ try {
   await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${modelPort}/v1`)
   await page.getByLabel('Chave da API').fill('E2E-CHAVE-SINTETICA-SEM-ACESSO-REAL')
   await page.getByLabel(/^Digitar outro modelo/).check()
-  await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-e2e')
+  await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill(fixtureModel)
   await page.getByLabel('Nome da abelha').fill('Abelha E2E')
   await page.getByRole('textbox', { name: 'Propósito' }).fill('Responder perguntas de teste.')
   await page.getByRole('button', { name: 'Criar abelha' }).click()
@@ -216,7 +234,7 @@ try {
   await page.getByLabel('Credencial da sua conta Bees').selectOption({ label: 'Chave salva 1' })
   if (await page.locator('#api-key').count()) throw new Error('Reuso da conta exigiu redigitar a chave.')
   await page.getByLabel(/^Digitar outro modelo/).check()
-  await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('modelo-agente')
+  await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill(responsesMode ? fixtureModel : 'modelo-agente')
   await page.getByLabel(/declara suporte a chamadas de ferramentas/).evaluate((element) => { if (!element.checked) element.click() })
   await page.getByLabel(/^Este modelo aceita imagens/).evaluate((element) => { if (!element.checked) element.click() })
   await page.getByLabel('Nome da abelha').fill('Abelha Agente')
@@ -298,7 +316,7 @@ try {
   await page.keyboard.press('Tab')
   if (await page.locator('#provider-kind').evaluate((element) => element !== document.activeElement)) throw new Error('Teclado não alcançou o primeiro campo do modelo.')
   await page.getByLabel(/^Digitar outro modelo/).check()
-  await page.getByRole('textbox', { name: 'Modelo', exact: true }).fill('modelo-e2e')
+  await page.getByRole('textbox', { name: 'Modelo', exact: true }).fill(fixtureModel)
   await page.getByRole('button', { name: /^Testar conexão/ }).click()
   await page.getByRole('status').filter({ hasText: 'Modelo encontrado' }).waitFor()
   await page.getByRole('button', { name: 'Salvar e usar este modelo', exact: true }).click()
@@ -438,8 +456,32 @@ try {
   await page.locator('.task-detail').getByText('web_private_address_blocked', { exact: true }).waitFor()
   await page.locator('.task-detail').getByText('endereço privado bloqueado', { exact: false }).waitFor()
   await auditWidths(page, '17-falha-da-ferramenta')
+  if (responsesMode) {
+    // A configuração de visão é explícita; o aviso deve indicar onde alterá-la.
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.getByRole('button', { name: 'Nova abelha' }).click()
+    await page.getByLabel('Provedor').selectOption('custom')
+    await page.getByLabel(/^Endereço da API/).fill(`http://127.0.0.1:${modelPort}/v1`)
+    await page.getByLabel('Credencial da sua conta Bees').selectOption({ label: 'Chave salva 1' })
+    await page.getByLabel(/^Digitar outro modelo/).check()
+    await page.getByLabel(/^Identificador do modelo|^Modelo/).last().fill('gpt-5.5')
+    await page.getByLabel(/declara suporte a chamadas de ferramentas/).evaluate((element) => { if (!element.checked) element.click() })
+    await page.getByLabel('Nome da abelha').fill('Visão desativada')
+    await page.getByRole('textbox', { name: 'Propósito' }).fill('Conferir orientação de imagens.')
+    await page.getByRole('button', { name: 'Criar abelha' }).click()
+    await waitFor(() => page.getByRole('button', { name: /^Anexar arquivo/ }).isEnabled(), 'anexos prontos')
+    await page.locator('#chat-input').evaluate((input, data) => {
+      const transfer = new DataTransfer()
+      transfer.items.add(new File([Uint8Array.from(atob(data.split(',')[1]), (char) => char.charCodeAt(0))], 'aviso.png', { type: 'image/png' }))
+      input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }))
+    }, model.expectedImages[0])
+    await page.getByText('A visão está desativada na configuração desta abelha.', { exact: false }).waitFor()
+    await page.getByText('Configurações da abelha → Modelo → Opções avançadas', { exact: false }).waitFor()
+    await auditWidths(page, '18-orientacao-de-visao')
+  }
+  if (responsesMode && (model.responsesRequests !== 7 || model.responsesContinuations !== 2)) throw new Error(`Responses: ${model.responsesRequests} chamadas, ${model.responsesContinuations} continuações.`)
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
-  writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))
+  writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, responses_requests: model.responsesRequests, responses_continuations: model.responsesContinuations, violations }, null, 2))
   console.log(JSON.stringify({ model_requests: model.requests, violations: violations.length, serious: serious.length }))
   if (model.requests !== 7) throw new Error(`Esperava 7 chamadas (1 conversa + 2 do agente + 2 falhas de modelo + 2 da ferramenta), houve ${model.requests}.`)
   if (serious.length) { console.error(JSON.stringify(serious, null, 2)); process.exitCode = 1 }

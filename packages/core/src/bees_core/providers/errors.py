@@ -22,6 +22,8 @@ RESPONSE_ISSUES = frozenset(
         "content",
         "usage",
         "error_envelope",
+        "response_output",
+        "reasoning_state",
     }
 )
 
@@ -194,6 +196,10 @@ class ProviderError(RuntimeError):
             "tools",
             "tools.function.parameters",
             "tools.function.strict",
+            "tools.parameters",
+            "tools.strict",
+            "input",
+            "include",
             "messages",
             "model",
             "store",

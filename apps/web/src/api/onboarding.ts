@@ -13,6 +13,7 @@ export interface ModelConfig {
   kind: 'openai_compatible' | 'ollama'
   endpoint: string
   model: string
+  api?: 'auto' | 'chat_completions' | 'responses'
   secret_ref?: string | null
   capabilities: { text: boolean; tool_calls: boolean; vision?: boolean }
   timeout_seconds?: number
@@ -52,6 +53,8 @@ export interface Conversation { revision?: number; conversation_id: string; mess
 export function isModelConfig(value: unknown): value is ModelConfig {
   return record(value) && ['openai_compatible', 'ollama'].includes(String(value.kind))
     && typeof value.endpoint === 'string' && typeof value.model === 'string'
+    && (value.api === undefined || ['auto', 'chat_completions', 'responses'].includes(String(value.api)))
+    && (value.kind !== 'ollama' || value.api === undefined || value.api === 'auto')
     && record(value.capabilities) && typeof value.capabilities.text === 'boolean'
     && typeof value.capabilities.tool_calls === 'boolean'
     && (value.capabilities.vision === undefined || typeof value.capabilities.vision === 'boolean')

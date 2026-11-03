@@ -261,8 +261,11 @@ class ProviderService:
         chosen: list[list[ChatMessage]] = []
         count = chars = 0
         for block in reversed(blocks):
-            # Bytes de imagem têm limite próprio no transporte; não são texto de contexto.
-            block_chars = sum(len(message.model_dump_json(exclude={"images"})) for message in block)
+            # Imagens e estado cifrado têm limite de bytes no transporte; não são texto.
+            block_chars = sum(
+                len(message.model_dump_json(exclude={"images", "responses_state"}))
+                for message in block
+            )
             newest_atomic = (
                 not chosen
                 and bool(block[0].tool_calls)

@@ -1,4 +1,5 @@
 const pt = {
+  modelApi: 'API do modelo', modelApiAuto: 'Automática (recomendado)', modelApiHelp: 'Automática usa Responses para GPT-5.6 e Chat Completions para os demais modelos. Escolha outra opção somente se o provedor exigir.',
   vision: 'Este modelo aceita imagens', visionHelp: 'Habilite somente se o modelo oferecer visão. Sem visão, imagens usam OCR local (inglês), que pode errar e não descreve objetos ou layout.',
   appearance: 'Aparência', appearanceSystem: 'Sistema', appearanceLight: 'Clara', appearanceDark: 'Escura', appearanceScope: 'Preferência somente neste navegador para esta instalação. Não altera os dados das abelhas.', appearanceUnsaved: 'Aparência aplicada nesta aba; não foi possível salvar a preferência no navegador.',
   chatDelegationRejected: 'A tentativa de criar uma tarefa foi recusada. Confira as tarefas registradas antes de fazer um novo pedido.',
@@ -157,6 +158,7 @@ const pt = {
 type ProductStrings = { [K in keyof typeof pt]: K extends 'errors' ? Record<keyof typeof pt.errors, string> : string }
 
 const en: ProductStrings = {
+  modelApi: 'Model API', modelApiAuto: 'Automatic (recommended)', modelApiHelp: 'Automatic uses Responses for GPT-5.6 and Chat Completions for other models. Choose another option only if required by your provider.',
   vision: 'This model accepts images', visionHelp: 'Enable only for a model with vision. Otherwise images use local OCR (English), which may be inaccurate and cannot describe objects or layout.',
   appearance: 'Appearance', appearanceSystem: 'System', appearanceLight: 'Light', appearanceDark: 'Dark', appearanceScope: 'Preference only in this browser for this installation. Bee data stays unchanged.', appearanceUnsaved: 'Appearance applied in this tab; the browser could not save the preference.',
   chatDelegationRejected: 'The attempt to create a task was rejected. Check recorded tasks before making a new request.',
@@ -283,6 +285,7 @@ const en: ProductStrings = {
 }
 
 const es: ProductStrings = {
+  modelApi: 'API del modelo', modelApiAuto: 'Automática (recomendado)', modelApiHelp: 'Automática usa Responses para GPT-5.6 y Chat Completions para los demás modelos. Elige otra opción solo si el proveedor lo exige.',
   vision: 'Este modelo acepta imágenes', visionHelp: 'Activa solo si el modelo admite visión. Sin visión, las imágenes usan OCR local (inglés), que puede fallar y no describe objetos ni diseño.',
   appearance: 'Apariencia', appearanceSystem: 'Sistema', appearanceLight: 'Claro', appearanceDark: 'Oscuro', appearanceScope: 'Preferencia solo en este navegador para esta instalación. No cambia los datos de las abejas.', appearanceUnsaved: 'Apariencia aplicada en esta pestaña; no se pudo guardar la preferencia en el navegador.',
   chatDelegationRejected: 'Se rechazó el intento de crear una tarea. Revisa las tareas registradas antes de hacer otro pedido.',

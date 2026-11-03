@@ -20,6 +20,7 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
   const [kind, setKind] = useState<ModelConfig['kind']>(initial?.kind ?? 'openai_compatible')
   const [endpoint, setEndpoint] = useState(initial?.endpoint ?? '')
   const [model, setModel] = useState(initial?.model ?? '')
+  const [api, setApi] = useState<NonNullable<ModelConfig['api']>>(initial?.api ?? 'auto')
   const [manual, setManual] = useState(false)
   const [tools, setTools] = useState(initial?.capabilities.tool_calls ?? false)
   const [vision, setVision] = useState(initial?.capabilities.vision ?? false)
@@ -40,7 +41,7 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
   }, [receipt])
   const providers = catalog.resource.state === 'ready' ? catalog.resource.data : []
   const provider = providerId === null ? inferProvider(providers, initial) : providers.find((item) => item.id === providerId)
-  const config = connectionConfig(initial, { kind, endpoint, model, tools, reuse, vision })
+  const config = connectionConfig(initial, { kind, endpoint, model, tools, reuse, vision, api })
   const savedCredentials = credentials.resource.state === 'ready' ? credentials.resource.data.filter((item) => item.kind === config.kind && normalizeEndpoint(item.endpoint) === config.endpoint) : []
   const selectedCredentialId = savedCredentials.some((item) => item.id === credentialId) ? credentialId : ''
   const signature = configurationSignature(config, apiKey) + selectedCredentialId
@@ -80,7 +81,7 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
   }
 
   return {
-    kind, endpoint, model, tools, vision, apiKey, reuse, config, credentials, savedCredentials, credentialId: selectedCredentialId, error, testing, check, provider, catalog, discovery, discovering, discover, manual,
+    kind, endpoint, model, tools, vision, api, apiKey, reuse, config, credentials, savedCredentials, credentialId: selectedCredentialId, error, testing, check, provider, catalog, discovery, discovering, discover, manual,
     options: modelOptions(mergeModels(provider?.models ?? [], discoveredModels), model),
     canDiscover: !!provider && !!config.endpoint && credentialReady,
     canTest: !!provider && !!config.model && !!config.endpoint && credentialReady && !discovering,
@@ -92,9 +93,10 @@ export function useModelConnection(initial?: ModelConfig | null, agentId?: strin
     changeProvider: (id: string) => {
       const next = providers.find((item) => item.id === id)
       if (!next) return
-      changeDiscoveryContext(true); setProviderId(id); setKind(next.kind); setEndpoint(next.endpoint); setApiKey(''); setReuse(false); setCredentialId(''); setTools(false); setVision(false); setManual(false)
+      changeDiscoveryContext(true); setProviderId(id); setKind(next.kind); setEndpoint(next.endpoint); setApi('auto'); setApiKey(''); setReuse(false); setCredentialId(''); setTools(false); setVision(false); setManual(false)
     },
-    changeEndpoint: (value: string) => { changeDiscoveryContext(true); setEndpoint(value); setApiKey(''); setReuse(false); setCredentialId('') },
+    changeEndpoint: (value: string) => { changeDiscoveryContext(true); setEndpoint(value); setApi('auto'); setApiKey(''); setReuse(false); setCredentialId('') },
+    changeApi: (value: NonNullable<ModelConfig['api']>) => { cancelRequests(); invalidate(); setApi(value) },
     changeModel: (value: string) => { cancelRequests(); invalidate(); setModel(value) },
     changeVision: (value: boolean) => { cancelRequests(); invalidate(); setVision(value) },
     changeTools: (value: boolean) => { cancelRequests(); invalidate(); setTools(value) },
