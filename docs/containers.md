@@ -10,7 +10,7 @@ A preparação pode levar alguns minutos na primeira vez. Se falhar, o launcher 
 
 O launcher gera internamente um código de uso único, válido por 15 minutos, e abre um fragmento privado da URL. O frontend remove esse fragmento antes de renderizar e mantém o código apenas em memória. Nenhuma rota anônima fornece esse código. Se atualizar/fechar a página antes de criar a identidade, execute o launcher novamente; isso invalida a autorização anterior. Instalações já configuradas abrem o login.
 
-O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; não há instalador assinado ou launcher gráfico Linux/macOS neste checkpoint. O setup gráfico completo para as distribuições suportadas continua em BEES-028.
+O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; os caminhos Linux/macOS estão descritos abaixo. Não há instalador assinado universal. Os launchers implementados não substituem o aceite de instalação limpa e de abertura gráfica real por plataforma, ainda acompanhado em BEES-028 (#95) e no aceite de instalação limpa (#92).
 
 ## Uso no Linux e macOS
 
@@ -24,7 +24,7 @@ Quem administra a instalação também pode usar um comando único:
 docker compose up --build --detach --wait
 ```
 
-Esse comando entrega API, interface e worker juntos em `localhost:8080`; não exige Vite separado. O primeiro acesso autorizado é aberto pelo launcher. O bootstrap CLI permanece uma opção do operador, sem se tornar requisito do usuário final.
+Esse comando entrega API, interface e worker juntos em `localhost:8080`; não exige Vite separado. Pelos launchers, o primeiro acesso autorizado é aberto automaticamente. Ao subir diretamente por Compose, o operador precisa gerar o código com `docker compose exec bees bees-auth bootstrap` e colá-lo na interface. Esse comando deve usar o mesmo projeto Compose da instalação.
 
 ```sh
 docker compose ps
@@ -71,7 +71,7 @@ Ollama é opcional:
 docker compose --profile local-model up --detach --wait
 ```
 
-Esse serviço compartilha a rede interna da aplicação, escuta apenas `127.0.0.1:11434` nesse namespace e não publica a porta do modelo. Não baixa um modelo automaticamente. O operador pode instalar um modelo escolhido com `docker compose exec ollama ollama pull IDENTIFICADOR`; na interface, escolha Ollama, `http://127.0.0.1:11434` e esse identificador. A imagem opcional está fixada por digest; modelos e uso real ainda exigem validação própria.
+Esse serviço compartilha a rede interna da aplicação, escuta apenas `127.0.0.1:11434` nesse namespace e não publica a porta do modelo. Não baixa um modelo automaticamente. Com o serviço disponível, o usuário pode confirmar o download no painel **Modelo local** e, ao concluir, usar **Usar este modelo**. A alternativa do operador é `docker compose exec ollama ollama pull IDENTIFICADOR`. Na interface, escolha Ollama (endpoint do perfil: `http://127.0.0.1:11434`) e o identificador instalado; o teste de conexão é opcional, mas o preflight antes de gerar permanece obrigatório. A imagem opcional está fixada por digest; modelos e uso real ainda exigem validação própria.
 
 Loopback dentro do container não é o host Windows/Linux. Um Ollama já instalado no host não é acessível por esse endereço. O adaptador atual recusa Ollama fora de loopback e HTTP remoto: não trocar silenciosamente para `host.docker.internal`, abrir o modelo à rede ou desabilitar TLS para contornar isso. Use o serviço opcional ou a distribuição nativa; integração gráfica com um backend já existente no host continua pendente.
 

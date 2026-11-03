@@ -1,73 +1,136 @@
 # Primeiros passos — primeira versão
 
-Este guia leva da instalação ao uso diário em cerca de 15 minutos, sem terminal (exceto onde indicado). Para detalhes, siga os links de cada passo.
+Este guia descreve os caminhos implementados para abrir o Bees, criar sua abelha
+e começar uma conversa. A primeira compilação, o preparo do modelo e a resposta
+dependem da máquina e da rede; não há prazo fixo. Os aceites de instalação limpa
+e de cada plataforma continuam registrados em [aceite da v1](v1-acceptance.md).
 
-## 1. Instalar e abrir
+## 1. Abrir a instalação
 
-- **Windows:** instale o Docker Desktop (containers Linux), abra-o e dê dois cliques em **Iniciar Bees.vbs** na pasta do projeto.
-- **Linux/macOS/servidor:** com Docker Engine 28+ e Compose 2.20+, rode `docker compose up --build --detach --wait` e abra [localhost:8080](http://localhost:8080). Para o primeiro acesso, gere o código com `docker compose exec bees bees-auth bootstrap`.
+Tenha a pasta do projeto e o Docker instalado e em execução, com containers Linux.
+A distribuição usa Engine 28+ e Compose 2.20+; não exige Python ou Node no host.
 
-Na primeira vez, informe seu nome e uma senha (12+ caracteres). Esqueceu a senha depois? Veja [redefinição](onboarding.md#esqueci-a-senha).
-
-## 2. Escolher o modelo
-
-Ao criar a primeira abelha, escolha o provedor:
-
-| Opção | Quando usar | O que informar |
+| Ambiente | Como iniciar | Participação do usuário/operador |
 | --- | --- | --- |
-| OpenAI, Anthropic, Gemini, xAI (Grok), Groq, OpenRouter | Melhor qualidade, pago por uso | Chave de API (guardada cifrada no cofre local) |
-| Ollama (local) | Privacidade total, sem custo por uso | Nada: o painel **Modelo local** mostra modelos instalados e baixa sugeridos com sua confirmação |
-| OpenAI compatível | Outros serviços/servidores próprios | Endereço e, se houver, chave |
+| Windows | Dois cliques em **Iniciar Bees.vbs** na raiz do projeto | Docker Desktop aberto; o launcher prepara os serviços e abre o navegador. |
+| macOS | Dois cliques em **Iniciar Bees.command** | O invólucro abre o Terminal e executa o launcher, sem precisar digitar comandos. Docker e Compose precisam estar disponíveis. |
+| Linux com desktop | Executar `./scripts/start.sh` na raiz do projeto | Este caminho usa terminal. O operador pode instalar o atalho **Bees** com `./scripts/start.sh --install-shortcut`. |
+| Servidor/VPS ou início manual | Operação por Compose e acesso configurado pelo responsável | CLI, TLS/proxy e autorização inicial são tarefas do operador; não fazem parte de um instalador gráfico universal. |
 
-Para o modo agente, marque **Chamadas de ferramenta** nas opções avançadas (modelos atuais da OpenAI, Anthropic, Gemini, xAI e Qwen 3/Llama 3.2 no Ollama suportam). Clique **Testar** antes de salvar. Detalhes em [provedores](providers.md).
+O launcher abre [localhost:8080](http://localhost:8080) por padrão. Na primeira
+instalação, o navegador recebe autorização temporária para criar o acesso. Informe
+nome e uma senha de 12 a 256 caracteres. Não compartilhe a URL de primeiro acesso.
+Se a autorização expirar ou a página for fechada antes de configurar, execute o
+launcher novamente. Uma instalação já configurada abre o login; não deve criar
+outra identidade.
 
-Para o Ollama na instalação Docker: `docker compose --profile local-model up -d`, depois use o painel **Modelo local** para baixar, por exemplo, *Qwen 3 4B* (~2,6 GB, 8 GB de RAM).
+No Linux sem `xdg-open`, ou ao iniciar sem navegador, a abertura automática pode
+não ocorrer. O operador usa o [bootstrap manual](containers.md#operação-por-compose)
+no mesmo projeto Compose. Na execução manual com `docker compose up --build --detach --wait`, gerar o código exige `docker compose exec bees bees-auth bootstrap`.
+Não exponha a porta HTTP interna nem libere acesso anônimo para contornar o setup.
 
-## 3. Conversar e delegar
+Veja [distribuição Docker](containers.md) para requisitos, portas, logs e volumes.
+Instalação nativa/desenvolvimento usa outro estado e segue o [README](../README.md#desenvolvimento-local).
 
-Dica: ao criar a abelha, **Começar de um modelo** preenche propósito e instruções (assistente, pesquisa, notícias, redação, documentos, organização). Em **Perfil**, **Exportar como modelo** gera um arquivo `.bee.json` para compartilhar — sem credenciais, memórias ou permissões.
+## 2. Configurar modelo e abelha
 
+Na criação da abelha, escolha uma conexão do catálogo ou um endpoint personalizado.
 
-- **Conversa:** escreva e pressione **Enter** (Shift+Enter quebra linha). Não há modos para escolher: com um modelo que suporta chamadas de ferramenta, as ferramentas recomendadas são ativadas sozinhas e a abelha decide se só responde, pesquisa na web com fontes, salva memórias, usa o computador ou gera arquivos.
-- **Enquanto trabalha:** a resposta mostra **Trabalhando…** com os passos em tempo real (pesquisa, leitura, computador…). Ao terminar, os passos ficam recolhidos em **Usou N ferramentas** e os arquivos gerados aparecem logo abaixo da resposta, prontos para baixar.
-- **Decisões:** ações sensíveis aparecem dentro da própria conversa como cartões de decisão: **Permitir uma vez**, **Sempre permitir esta ferramenta** ou **Recusar**. Veja [agente](agent.md).
-- **Tudo o mais:** o ícone de engrenagem abre as **Configurações da abelha** (perfil, modelo, entregas, atividade, memórias, skills, rotinas, autonomia, ferramentas, computador, canais, atenção e consumo). O ícone de pasta mostra os arquivos da conversa.
-
-## 4. Dar um computador à abelha
-
-O ícone de monitor no topo da conversa abre o **computador da abelha ao lado do chat**; ele também se abre sozinho quando a abelha começa a usá-lo. Com o runtime pareado, **Ligar computador** prepara em segundos um desktop Linux exclusivo com Chromium, terminal e LibreOffice. Use **Assumir controle** para fazer logins e **Devolver à abelha** para ela continuar; a abelha não age no navegador enquanto você estiver no controle. O pareamento fica em **Configurações → Computador**. Veja [computador da abelha](computer.md).
-
-## 5. Conectar sua máquina (opcional)
-
-Em **Computador → Máquina pessoal**, gere um convite e rode o conector na sua máquina com as pastas que quer compartilhar. Você escolhe por abelha: leitura/escrita, terminal e navegador; revogue a qualquer momento. Veja [conector pessoal](connector.md).
-
-## 5b. Celular, voz e canais
-
-- **Instalar como app:** no celular ou no Chrome/Edge, use **Instalar app** / **Adicionar à tela inicial** (requer HTTPS ou `localhost`; veja [servidor com HTTPS](onboarding.md#celular-e-servidor-com-https)). A interface abre em tela cheia; dados continuam no servidor.
-- **Voz:** no chat, **Ditar** transcreve sua fala (reconhecimento do navegador) e **Ler respostas em voz alta** lê novas respostas; cada resposta tem **Ouvir**.
-- **Telegram/Discord:** aba **Canais** conecta um bot para conversar com a abelha fora do navegador ([canais](channels.md)).
-
-## 6. Automatizar
-
-- **Skills:** salve um procedimento que funcionou (na aba **Skills**, a partir de uma entrega ou do zero) e execute de novo com outras entradas. Skills que declaram ferramentas do agente rodam no modo agente.
-- **Rotinas:** na aba **Rotinas**, agende uma skill (diária, semanal, por intervalo) com destino em uma conversa. Exemplo: "Resumo diário das notícias de IA às 8h". Rotinas em modo agente usam as mesmas permissões e aprovações.
-- **Avisos:** a aba **Atenção** define quando você é avisado (decisões pendentes, falhas, conclusões).
-
-## 7. Segurança e controle
-
-- **Parar tudo:** o botão de parada global no topo interrompe novos despachos de todas as abelhas.
-- **Autonomia:** a aba **Autonomia** define regras por ferramenta/escopo; a aba **Ferramentas** revoga acessos.
-- **Consumo:** a aba **Consumo e atividade** mostra tokens e limites por abelha e tarefa.
-- **Exportar dados:** o menu **Dados** exporta e restaura tudo sem segredos. Faça backup também do volume `bees-secrets` (chave do cofre).
-
-## Comparação rápida com assistentes hospedados
-
-| Necessidade | No Bees |
+| Escolha | O que preparar |
 | --- | --- |
-| Assistente com memória e várias "personas" | Várias abelhas, cada uma com perfil, memória, modelo e permissões próprios |
-| Pesquisa na web com citações | Modo **Pesquisa**, fontes verificadas por leitura |
-| Agente que usa um computador | Computador próprio da abelha, com tela ao vivo e controle humano |
-| Tarefas recorrentes | Skills + rotinas agendadas com entrega na conversa |
-| Privacidade/escolha de modelo | Modelos remotos ou locais, troca a qualquer momento; dados ficam na sua máquina |
+| Provedor remoto do catálogo | Credencial de API quando exigida e um modelo disponível para a conta. Sugestões não comprovam acesso nem capacidades. |
+| OpenAI compatível personalizado | URL base explícita, modelo e credencial quando necessária; confira o protocolo aceito pelo endpoint. |
+| Ollama | Backend em execução no servidor Bees e modelo efetivamente local instalado ou preparado com sua confirmação. |
 
-Limites desta versão estão em [matriz de regressão](regression-matrix.md) e em cada guia.
+Credenciais vão no campo próprio, nunca no chat ou nas instruções. Histórico e
+memórias ficam no Bees; o contexto selecionado é enviado ao endpoint escolhido
+para gerar. Trocar de destino é uma decisão sua, não uma recuperação automática
+após falha. Custos e capacidades dependem do modelo/provedor; não há garantia de
+fatura pelo painel de consumo.
+
+**Buscar modelos** e **Testar conexão · opcional** não são pré-requisitos para
+salvar. São consultas de catálogo/disponibilidade, não geração de resposta nem
+prova de visão ou ferramentas. É possível **Digitar outro modelo**. Ao salvar,
+o Bees verifica a configuração e a disponibilidade da credencial/cofre; não
+confirma geração remota. Veja [modelos e credenciais](providers.md#seleção-pela-interface).
+
+Para o modo agente, escolha um modelo que aceite chamadas de ferramentas e revise
+**Opções avançadas → Chamadas de ferramenta**. Não presuma suporte apenas pela
+família ou pelo nome sugerido. Quando o endpoint exigir Responses, a seleção de
+API fica nas opções avançadas; veja [protocolos e seleção de API](providers.md#seleção-de-api-e-gpt-56).
+Defina nome, propósito e instruções e confirme a criação da abelha. A opção
+**Começar de um modelo** pode preencher propósito e instruções; revise o conteúdo
+antes de criar. Depois, **Perfil → Exportar como modelo** permite compartilhar
+um `.bee.json` sem credenciais, memórias ou permissões.
+
+### Preparar Ollama
+
+O Bees não instala o serviço Ollama no host. Na distribuição Docker, o operador
+pode iniciar o serviço opcional com `docker compose --profile local-model up -d`.
+Os modelos desse serviço ficam no volume `ollama-models`. Fora desse perfil, o
+responsável precisa instalar/iniciar o backend e escolher o endpoint apropriado.
+
+No painel **Modelo local**, confira modelo, origem, tamanho aproximado, memória
+e destino antes de confirmar o download. O preparo usa rede e disco do Ollama;
+sugestões não garantem compatibilidade com a máquina. Acompanhe o progresso e,
+quando terminar, use **Usar este modelo**. Antes de cada geração local, o Bees
+ainda verifica o modelo e suas capacidades. Modelo local não é promessa de
+privacidade total: o daemon precisa ser confiável e ferramentas podem usar rede.
+
+Se o acompanhamento ficar incerto, use **Verificar de novo** e consulte o estado
+antes de confirmar outro pedido. Cancelar informa o resultado recebido do Bees;
+não garante desfazer um efeito remoto. Detalhes em [preparo local](providers.md#preparar-modelo-local-pela-interface).
+
+## 3. Fazer a primeira conversa
+
+Escreva uma pergunta curta e pressione **Enter**; **Shift+Enter** quebra linha.
+Esse envio faz geração real e pode consumir recursos ou créditos do provedor.
+Confirme que a resposta aparece na conversa. Se falhar, confira a causa mostrada
+no chat/atividade e a configuração do modelo; não há troca automática de provedor.
+Uma resposta perdida não deve ser tratada como autorização para repetir o pedido.
+
+Não existe seletor obrigatório de modo Pesquisa/Conversa: a abelha decide como
+atender ao pedido com as ferramentas habilitadas. Quando houver uma ação que
+exija decisão, revise o cartão na conversa antes de permitir. Os passos ficam em
+**Usou N ferramentas** e as entregas aparecem para download. A qualidade das
+fontes e do conteúdo exige revisão; veja [agente](agent.md) e [pesquisa](research-corpus.md).
+
+O ícone de engrenagem abre **Configurações da abelha**, onde ficam Perfil, Modelo,
+Memórias, Skills, Rotinas e os demais recursos. O ícone de pasta abre os arquivos
+da conversa; o de monitor abre o computador ao lado do chat quando disponível.
+
+## 4. Voltar depois e preservar seus dados
+
+Fechar o navegador não para os serviços. Abra novamente a instalação e faça login
+quando solicitado. Para reiniciar ou atualizar os serviços, siga a
+[operação por Compose](containers.md#operação-por-compose), preservando volumes
+e interrompendo os escritores antes de manutenção. Uma tarefa em voo pode exigir
+revisão de estado; veja [recuperação](recovery.md).
+
+O menu **Meus dados** oferece exportação e restauração com consentimento próprio.
+A cópia lógica contém dados privados e não leva a chave do cofre. Ela não substitui
+o backup correspondente de dados e segredos. Consulte [portabilidade](portability.md)
+e [dados/cofre no Docker](containers.md#dados-cofre-e-recuperação); não apague
+volumes ou gere uma chave substituta para tentar reparar uma instalação.
+
+| Situação | Próximo passo |
+| --- | --- |
+| Esqueceu a senha | O operador emite um código de recuperação no mesmo estado; na entrada, use **Esqueci a senha**. Veja [recuperação de senha](onboarding.md#esqueci-a-senha). Não há reset anônimo. |
+| Cofre indisponível | Confira a chave/volume ou perfil original. Redefinir senha não recupera chaves perdidas; preserve dados e backups. |
+| API ou modelo não responde | Confira serviço e endereço. Após envio sem confirmação, consulte o estado antes de repetir uma operação. |
+| Precisa interromper novas ações | Use **Parar tudo** e consulte as operações já enviadas. Isso não confirma término remoto nem estorno; veja [parada global](safety.md). |
+
+## 5. Próximos recursos
+
+- [Computador da abelha](computer.md): desktop em container, pareamento, tela e controle humano. Hyper-V e provas físicas permanecem separados do caminho da v1.
+- [Máquina pessoal](connector.md): conector opcional, pastas/recursos concedidos explicitamente e revogação.
+- [Skills](skills.md) e [rotinas](routines-ui.md): procedimentos versionados, agendas e histórico; confirme permissões, destino e fuso.
+- [Consumo](budgets.md) e [atenção](attention.md): uso informado/estimado/desconhecido, limites e preferências de aviso.
+- [Canais](channels.md) e [acesso HTTPS](onboarding.md#celular-e-servidor-com-https): configuração própria do operador; acesso por celular não publica automaticamente a instalação.
+
+## O que este guia comprova
+
+O texto foi conferido com os caminhos e contratos implementados. Ele não substitui
+uma execução de instalação limpa, o invólucro gráfico real em cada sistema,
+proxy/certificado real ou geração com modelo/credencial reais. Esses aceites
+continuam nas [issues e milestones](github-project.md) e na [matriz de regressão](regression-matrix.md).
