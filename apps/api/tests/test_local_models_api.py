@@ -93,6 +93,19 @@ def test_status_lists_installed_and_suggestions_and_requires_session(state):
     assert client.get("/api/v1/local-models").status_code == 401
 
 
+def test_invalid_catalog_is_not_reported_as_empty_available_backend(state):
+    client, backend = state
+    backend.models = [{"name": "qwen3:1.7b"}, {"size": 100}]
+    failed = client.get("/api/v1/local-models")
+    assert failed.status_code == 200
+    assert failed.json()["reachable"] is False and failed.json()["models"] == []
+    assert failed.json()["suggested"]
+    backend.models = []
+    recovered = client.get("/api/v1/local-models").json()
+    assert recovered["reachable"] is True and recovered["models"] == []
+    assert backend.pulls == backend.deleted == []
+
+
 def test_pull_requires_confirmation_and_reports_progress(state):
     client, backend = state
     backend.pull_response = lambda body: httpx.Response(

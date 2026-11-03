@@ -218,8 +218,27 @@ class LocalModelManager:
                 tags = await client.get("/api/tags")
             version.raise_for_status()
             tags.raise_for_status()
-            models = tags.json().get("models")
             version_body = version.json()
+            tags_body = tags.json()
+            if not isinstance(version_body, dict) or not isinstance(tags_body, dict):
+                raise ValueError("invalid_catalog")
+            value = version_body.get("version")
+            models = tags_body.get("models")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("invalid_catalog")
+            if not isinstance(models, list) or len(models) > 4096:
+                raise ValueError("invalid_catalog")
+            # Não esconder itens inválidos como se o inventário estivesse completo.
+            for item in models:
+                if (
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("name"), str)
+                    or not item["name"].strip()
+                ):
+                    raise ValueError("invalid_catalog")
+                size = item.get("size")
+                if size is not None and (type(size) is not int or size < 0):
+                    raise ValueError("invalid_catalog")
         except httpx.HTTPError, ValueError, AttributeError:
             return base | {"reachable": False, "version": None, "models": []}
         installed = [
@@ -230,13 +249,11 @@ class LocalModelManager:
                 if isinstance(item.get("modified_at"), str)
                 else None,
             }
-            for item in (models if isinstance(models, list) else [])[:4096]
-            if isinstance(item, dict) and isinstance(item.get("name"), str)
+            for item in models
         ]
-        value = version_body.get("version") if isinstance(version_body, dict) else None
         return base | {
             "reachable": True,
-            "version": value if isinstance(value, str) else None,
+            "version": value,
             "models": installed,
         }
 
