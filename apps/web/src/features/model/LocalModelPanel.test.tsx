@@ -350,3 +350,66 @@ it('preserves removal confirmation when its inventory refresh discovers another 
   expect(container.textContent).toContain('Modelo removido.')
   expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel', '/api/v1/local-models/delete'])
 })
+
+it.each([false, true])('clears a transient poll error after losing tracking (another download: %s)', async (another) => {
+  vi.useFakeTimers()
+  try {
+    let lost = false
+    let polls = 0
+    const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') writes.push(url)
+      if (url.includes('/pulls/p1')) {
+        polls += 1
+        lost = polls > 1
+        return Response.json({ error: { code: lost ? 'pull_not_found' : 'backend_unavailable', message: 'x' } }, { status: lost ? 404 : 503 })
+      }
+      return Response.json({ ...status, pulls: lost ? (another ? [next] : []) : [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    if (another) {
+      expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:4b')
+      expect(container.querySelector('progress')?.value).toBe(70)
+      expect(container.textContent).not.toContain('acompanhamento do download de qwen3:8b foi perdido')
+    } else {
+      expect(container.textContent).toContain('acompanhamento do download de qwen3:8b foi perdido')
+      expect(container.querySelector('progress')).toBeNull()
+    }
+    expect(writes).toEqual([])
+  } finally { vi.useRealTimers() }
+})
+
+it('starts polling a rediscovered download without inheriting the lost download backoff', async () => {
+  vi.useFakeTimers()
+  try {
+    let lost = false
+    let oldPolls = 0
+    let newPolls = 0
+    const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
+    const fetcher = vi.fn(async (url: string, options: RequestInit) => {
+      expect(options.method).not.toBe('POST')
+      if (url.includes('/pulls/p2')) { newPolls += 1; return Response.json(next) }
+      if (url.includes('/pulls/p1')) {
+        oldPolls += 1
+        lost = oldPolls > 1
+        return Response.json({ error: { code: lost ? 'pull_not_found' : 'backend_unavailable', message: 'x' } }, { status: lost ? 404 : 503 })
+      }
+      return Response.json({ ...status, pulls: lost ? [next] : [pull] })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    await act(async () => vi.advanceTimersByTimeAsync(2000))
+    expect(oldPolls).toBe(2)
+    expect(newPolls).toBe(0)
+    await act(async () => vi.advanceTimersByTimeAsync(999))
+    expect(newPolls).toBe(0)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(newPolls).toBe(1)
+  } finally { vi.useRealTimers() }
+})
