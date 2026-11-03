@@ -151,15 +151,17 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
             </li>
           })}
         </ul>
-        {pull && <div className="local-model-pull" role="status">
-          <p><strong>{pull.model}</strong> — {pull.status === 'running' ? t(`phase_${pull.phase}`, { defaultValue: pull.phase }) : pull.status === 'failed' ? `${t('failed', { model: pull.model })} ${t(`error_${pull.error ?? 'pull_failed'}`, { defaultValue: '' })}` : pull.status === 'cancelled' ? t('cancelled') : t('phase_success')}</p>
-          {running && <>
-            <progress max={100} value={percent ?? undefined} aria-label={t('phase_downloading')} />
-            {pull.total_bytes > 0 && <small>{t('progress', { done: size(pull.completed_bytes), total: size(pull.total_bytes) })}</small>}
-            <button type="button" className="button secondary" disabled={pending} onClick={() => { void cancel() }}>{t('cancel')}</button>
-            <p className="quiet-note">{t('restartNote')}</p>
-          </>}
-        </div>}
+      </>}
+      {pull && <div className="local-model-pull" role="status">
+        <p><strong>{pull.model}</strong> — {pull.status === 'running' ? t(`phase_${pull.phase}`, { defaultValue: pull.phase }) : pull.status === 'failed' ? `${t('failed', { model: pull.model })} ${t(`error_${pull.error ?? 'pull_failed'}`, { defaultValue: '' })}` : pull.status === 'cancelled' ? t('cancelled') : t('phase_success')}</p>
+        {running && <>
+          <progress max={100} value={percent ?? undefined} aria-label={t('phase_downloading')} />
+          {pull.total_bytes > 0 && <small>{t('progress', { done: size(pull.completed_bytes), total: size(pull.total_bytes) })}</small>}
+          <button type="button" className="button secondary" disabled={pending || status.state !== 'ready'} onClick={() => { void cancel() }}>{t('cancel')}</button>
+          <p className="quiet-note">{t('restartNote')}</p>
+        </>}
+      </div>}
+      {data?.reachable && <>
         <h4>{t('suggested')}</h4>
         <p className="quiet-note">{t('suggestedHelp')}</p>
         <ul className="local-model-list">

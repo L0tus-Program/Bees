@@ -240,3 +240,51 @@ it.each(['completed', 'failed'] as const)('does not announce cancellation if the
   expect(reads).toBe(outcome === 'completed' ? 2 : 1)
   expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
 })
+
+const unreachableWithPull = { ...status, reachable: false, version: null, models: [], pulls: [pull] }
+
+it('shows and cancels a tracked download even when Ollama is unreachable', async () => {
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled' }) }
+    return Response.json(unreachableWithPull)
+  }))
+  await render()
+  expect(container.textContent).toContain('O Ollama não respondeu')
+  expect(container.querySelector('progress')?.value).toBe(40)
+  expect(button('Baixar')).toBeUndefined()
+  expect(button('Remover')).toBeUndefined()
+  await act(async () => { button('Cancelar download')!.click(); button('Cancelar download')!.click() })
+  expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  expect(container.textContent).toContain('Download cancelado')
+  expect(container.querySelector('progress')).toBeNull()
+})
+
+it('keeps progress while refreshing and enables cancellation after a valid unavailable snapshot', async () => {
+  const refreshed = deferred<Response>()
+  let reads = 0
+  vi.stubGlobal('fetch', vi.fn(async () => {
+    reads += 1
+    return reads === 1 ? Response.json({ ...status, pulls: [pull] }) : refreshed.promise
+  }))
+  await render()
+  await act(async () => button('Verificar de novo')!.click())
+  expect(container.querySelector('progress')?.value).toBe(40)
+  expect(button('Cancelar download')?.disabled).toBe(true)
+  await act(async () => refreshed.resolve(Response.json(unreachableWithPull)))
+  expect(container.querySelector('progress')?.value).toBe(40)
+  expect(button('Cancelar download')?.disabled).toBe(false)
+  expect(button('Baixar')).toBeUndefined()
+})
+
+it.each(['completed', 'failed'] as const)('keeps the %s outcome visible after losing Ollama availability', async (outcome) => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/pulls/p1')
+    ? Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
+    : Response.json(unreachableWithPull)))
+  await render()
+  await vi.waitFor(() => expect(container.textContent).toContain(outcome === 'completed' ? 'qwen3:8b está pronto' : 'O download de qwen3:8b falhou'), { timeout: 2500 })
+  expect(container.querySelector('.local-model-pull')).not.toBeNull()
+  expect(container.querySelector('progress')).toBeNull()
+  expect(button('Baixar')).toBeUndefined()
+  expect(button('Remover')).toBeUndefined()
+})
