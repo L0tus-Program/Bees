@@ -274,6 +274,10 @@ class LocalModelManager:
                 await pull.task
             except asyncio.CancelledError:
                 pass
+            # Cancelar antes do primeiro passo impede o finally de _run de executar.
+            if pull.status == "running":
+                pull.status = "cancelled"
+                pull.finished_at = self._clock()
         return pull
 
     async def delete(self, endpoint: str | None, model: str) -> None:
