@@ -4,7 +4,7 @@ Assistentes pessoais com estado próprio, modelos substituíveis e dois ambiente
 
 O desenvolvimento é acompanhado nas [issues](https://github.com/L0tus-Program/Bees/issues) e no [Project](https://github.com/users/L0tus-Program/projects/3). Consulte o [mapa de histórias](docs/github-project.md) e o [guia de contribuição](CONTRIBUTING.md).
 
-**Estágio atual: primeira versão utilizável.** Comece pelo guia [primeiros passos](docs/getting-started.md).
+**Estágio atual: primeira versão em validação.** Comece pelo guia [primeiros passos](docs/getting-started.md) e consulte os [aceites ainda em verificação](docs/v1-acceptance.md).
 
 - **Abelhas** com perfil, memória, modelo e permissões próprios; modelos remotos (OpenAI, Anthropic, Gemini, xAI/Grok, Groq, OpenRouter, compatíveis) ou locais via Ollama, com [preparo do modelo local pela interface](docs/providers.md#preparar-modelo-local-pela-interface).
 - **Agente com ferramentas** no chat: pesquisa na web, leitura de páginas/PDFs, memória, publicação de arquivos e uso de computadores, com decisões humanas para ações sensíveis ([agente](docs/agent.md), [ADR 0003](docs/adr/0003-agent-tools.md)).
@@ -79,7 +79,7 @@ Abrir [http://127.0.0.1:8000](http://127.0.0.1:8000). Inicie também `uv run --l
 
 ## Primeiro acesso no desenvolvimento
 
-Na distribuição Docker Windows, use o launcher descrito acima. O fluxo abaixo é opcional para desenvolvimento/operação.
+Na distribuição Docker, use o launcher da sua plataforma descrito acima. O fluxo abaixo é a alternativa nativa para desenvolvimento/operação; usa outro estado.
 
 Com a API iniciada, gere o código de configuração em outro terminal:
 
@@ -87,9 +87,9 @@ Com a API iniciada, gere o código de configuração em outro terminal:
 uv run --locked bees-auth bootstrap
 ```
 
-Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois selecione o provedor, escolha um modelo na lista pronta ou digite outro e informe sua chave quando necessária. Crie a abelha; **Buscar modelos** e **Testar conexão** são opcionais. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; conexões personalizadas permitem outros servidores. Sugestões não comprovam acesso da conta nem instalação; Ollama precisa de um modelo local instalado. Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
+Cole o código na interface, informe seu nome e crie uma senha de 12 a 256 caracteres. O código dura 15 minutos e só funciona uma vez; gerar outro invalida o anterior. Guarde a senha. Depois selecione o provedor, escolha um modelo na lista pronta ou digite outro e informe sua chave quando necessária. Crie a abelha; **Buscar modelos** e **Testar conexão** são opcionais. OpenAI, OpenRouter, Gemini e Ollama têm endereços preconfigurados; conexões personalizadas permitem outros servidores. Sugestões não comprovam acesso da conta nem instalação; Ollama precisa do backend em execução e de um modelo local instalado ou [preparado pela interface com confirmação](docs/providers.md#preparar-modelo-local-pela-interface). Depois, use Perfil, Modelo e Memórias para ajustar a abelha. [Perfis e memória](docs/memory.md) descreve escopos, seleção de contexto e exclusão.
 
-[Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. Computadores das abelhas e máquina pessoal aparecem como recursos em preparação.
+[Primeiro acesso e segurança](docs/onboarding.md) explica sessões, cofre, acesso remoto e diagnóstico. O [computador da abelha](docs/computer.md) e o [conector pessoal](docs/connector.md) seguem seus próprios passos de preparação e concessão de acesso.
 
 ## Configuração
 
