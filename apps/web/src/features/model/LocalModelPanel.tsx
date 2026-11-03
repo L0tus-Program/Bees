@@ -8,6 +8,7 @@ import { ErrorNotice } from '../../components/Feedback'
 import { confirmAction } from '../../components/confirmAction'
 
 type State = { state: 'loading' } | { state: 'ready'; data: LocalModelStatus } | { state: 'error'; error: ApiError }
+type Notice = { kind: 'download' | 'model'; text: string }
 const MODEL = /^[a-z0-9][a-z0-9._-]{0,99}(\/[a-z0-9][a-z0-9._-]{0,99})?(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$/
 const canonical = (value: string) => value.split('/').pop()?.includes(':') ? value : `${value}:latest`
 
@@ -23,7 +24,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const [status, setStatus] = useState<State>({ state: 'loading' })
   const [pull, setPull] = useState<LocalModelPull | null>(null)
   const [other, setOther] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
   const [retry, setRetry] = useState(0)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [pending, setPending] = useState(false)
@@ -52,7 +53,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   useEffect(() => () => operation.current?.abort(), [])
 
   useEffect(() => {
-    if (pull?.status === 'running') setNotice(null)
+    if (pull?.status === 'running') setNotice((current) => current?.kind === 'download' ? null : current)
   }, [pull?.id, pull?.status])
 
   useEffect(() => {
@@ -62,12 +63,12 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       getLocalPull(pull.id, controller.signal).then((next) => {
         if (controller.signal.aborted) return
         setFailure(null); setRetry(0); setPull(next)
-        if (next.status === 'completed') { setNotice(t('completed', { model: next.model })); void load() }
+        if (next.status === 'completed') { setNotice({ kind: 'download', text: t('completed', { model: next.model }) }); void load() }
       }).catch((error) => {
         if (controller.signal.aborted) return
         const failure = asApiError(error)
         // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
-        if (failure.code === 'pull_not_found') { setPull(null); setNotice(t('interrupted', { model: pull.model })); void load(); return }
+        if (failure.code === 'pull_not_found') { setPull(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
         setFailure(failure); setRetry((value) => value + 1)
       })
     }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
@@ -107,7 +108,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       const next = await cancelLocalPull(pull.id, controller.signal)
       if (!controller.signal.aborted) {
         setPull(next)
-        setNotice(next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null)
+        const message = next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null
+        setNotice(message ? { kind: 'download', text: message } : null)
         if (next.status === 'completed') await load()
       }
     } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
@@ -120,7 +122,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       if (!await confirmAction(t('removeConfirm', { model: name })) || controller.signal.aborted) return
       setNotice(null)
       await deleteLocalModel(target, name, controller.signal)
-      if (!controller.signal.aborted) { setNotice(t('removed')); await load() }
+      if (!controller.signal.aborted) { setNotice({ kind: 'model', text: t('removed') }); await load() }
     } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
     finally { finishOperation(controller) }
   }
@@ -137,7 +139,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         {status.state === 'loading' && <p>{t('checking')}</p>}
         {status.state === 'error' && <ErrorNotice error={status.error} />}
         {data && <p className={data.reachable ? 'status-ok' : 'transfer-notice'}>{data.reachable ? t('reachable', { version: data.version ?? '?' }) : t('unreachable', { endpoint: data.endpoint })}</p>}
-        {notice && <p className="status-ok">{notice}</p>}
+        {notice && <p className="status-ok">{notice.text}</p>}
         {failure && <ErrorNotice error={failure} />}
       </div>
       <button type="button" className="text-button" onClick={() => { void load() }} disabled={pending || status.state === 'loading'}>{t('refresh')}</button>

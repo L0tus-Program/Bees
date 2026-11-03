@@ -327,3 +327,26 @@ it('keeps tracking its current running download when another one appears first i
   expect(container.querySelector('progress')?.value).toBe(40)
   expect(writes).toEqual([])
 })
+
+it('preserves removal confirmation when its inventory refresh discovers another download', async () => {
+  const terminal = { ...pull, status: 'cancelled' }
+  const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
+  let removed = false
+  const writes: string[] = []
+  vi.stubGlobal('confirm', () => true)
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      writes.push(url)
+      if (url.endsWith('/delete')) { removed = true; return Response.json({ deleted: 'qwen3:1.7b' }) }
+      return Response.json(terminal)
+    }
+    if (url.includes('/pulls/p2')) return Response.json(next)
+    return Response.json({ ...status, models: removed ? [] : status.models, pulls: removed ? [terminal, next] : [pull] })
+  }))
+  await render()
+  await act(async () => button('Cancelar download')!.click())
+  await act(async () => button('Remover')!.click())
+  expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:4b')
+  expect(container.textContent).toContain('Modelo removido.')
+  expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel', '/api/v1/local-models/delete'])
+})

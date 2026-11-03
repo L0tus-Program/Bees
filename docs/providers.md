@@ -77,7 +77,8 @@ Novos downloads e remoções continuam indisponíveis enquanto o Ollama não res
 
 Depois de um resultado terminal, uma nova consulta pode passar a acompanhar outro
 download ativo no mesmo endpoint, inclusive iniciado em outra janela. O aviso do
-pedido anterior é removido. Um download ainda em andamento mantém sua seleção;
+download anterior é removido, preservando confirmações de remoção de modelos.
+Um download ainda em andamento mantém sua seleção;
 um snapshot atrasado do mesmo ID não transforma resultado terminal em execução.
 Essa atualização apenas consulta o estado, sem repetir download ou cancelamento.
 
