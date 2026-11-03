@@ -78,6 +78,8 @@ const pt = {
   limitedHistory: 'Esta prévia mostra até 200 mensagens recentes. Seu histórico completo continua preservado no serviço.',
   limitedAgents: 'Esta lista atingiu o limite da prévia. Os demais registros permanecem preservados.',
   errors: {
+    artifact_invalid_format: 'Escolha TXT, Markdown, CSV, JSON, PNG ou JPEG.', artifact_invalid_content: 'Use texto UTF-8 válido ou uma imagem PNG/JPEG estática válida, de até 8 milhões de pixels.', artifact_content_invalid: 'Use texto UTF-8 válido ou uma imagem PNG/JPEG estática válida, de até 8 milhões de pixels.', artifact_too_large: 'O arquivo excede o limite permitido para este formato.',
+
     image_vision_required: 'O modelo não oferece visão. Revise a configuração ou use OCR local.',
     image_ocr_unavailable: 'O OCR local não está disponível. Instale Tesseract com inglês no servidor Bees ou escolha um modelo com visão.',
     image_ocr_empty: 'O OCR não encontrou texto. Use um modelo com visão para analisar a imagem.',
@@ -221,6 +223,8 @@ const en: ProductStrings = {
   noTextContent: 'No text content. No tool was executed by this interface.', waitingModel: 'Waiting for the model to respond. This call can take up to a minute.', messageLabel: 'Message to the bee', messagePlaceholder: 'Tell your bee what you need help with…',
   chatCost: 'This message uses the configured model and may consume provider credits.', send: 'Send', sending: 'Sending…', limitedHistory: 'This preview displays up to 200 recent messages. Your full history remains preserved in the service.', limitedAgents: 'This list reached the preview limit. Other records remain preserved.',
   errors: {
+    artifact_invalid_format: 'Choose TXT, Markdown, CSV, JSON, PNG or JPEG.', artifact_invalid_content: 'Use valid UTF-8 text or a valid static PNG/JPEG image with up to 8 million pixels.', artifact_content_invalid: 'Use valid UTF-8 text or a valid static PNG/JPEG image with up to 8 million pixels.', artifact_too_large: 'The file exceeds this format’s allowed size.',
+
     image_vision_required: 'The model does not offer vision. Review its configuration or use local OCR.',
     image_ocr_unavailable: 'Local OCR is unavailable. Install Tesseract with English on the Bees server or choose a vision model.',
     image_ocr_empty: 'OCR found no text. Use a vision model to analyze the image.',
@@ -330,6 +334,8 @@ const es: ProductStrings = {
   nextStepTitle: 'Conversa y delega una tarea.', nextStepDescription: ' Activa el modo agente para buscar en la web, usar el ordenador de la abeja o tu máquina. Las acciones sensibles piden tu aprobación; los resultados quedan en Entregas.', conversation: 'Conversación', conversationHistory: 'Historial de conversación', refreshHistory: 'Actualizar historial', chatScope: 'Conversa y, si quieres, permite que la abeja cree una tarea de texto en segundo plano. Su resultado aparece aquí, incluso después de volver a abrir la página.', chatEmptyTitle: '¿Qué vamos a pensar juntos?', chatEmptyDescription: 'Pide una explicación, organiza una idea o compara alternativas con el contexto que envíes.',
   you: 'Tú', systemMessage: 'Sistema', noTextContent: 'El modelo no devolvió texto en este mensaje. Revisa las tareas registradas en esta conversación.', waitingModel: 'Esperando la respuesta del modelo. Puede tardar hasta un minuto.', messageLabel: 'Mensaje para la abeja', messagePlaceholder: 'Cuéntale a tu abeja en qué necesitas ayuda…', chatCost: 'El mensaje usa el modelo configurado y puede consumir créditos del proveedor.', send: 'Enviar', sending: 'Enviando…', limitedHistory: 'Esta versión muestra hasta 200 mensajes recientes. Tu historial completo permanece en el servicio.', limitedAgents: 'Esta lista alcanzó el límite de la versión previa. Los demás registros se conservan.',
   errors: {
+    artifact_invalid_format: 'Elige TXT, Markdown, CSV, JSON, PNG o JPEG.', artifact_invalid_content: 'Usa texto UTF-8 válido o una imagen PNG/JPEG estática válida, de hasta 8 millones de píxeles.', artifact_content_invalid: 'Usa texto UTF-8 válido o una imagen PNG/JPEG estática válida, de hasta 8 millones de píxeles.', artifact_too_large: 'El archivo supera el límite permitido para este formato.',
+
     image_vision_required: 'El modelo no admite visión. Revisa la configuración o usa OCR local.',
     image_ocr_unavailable: 'El OCR local no está disponible. Instala Tesseract con inglés en el servidor Bees o elige un modelo con visión.',
     image_ocr_empty: 'El OCR no encontró texto. Usa un modelo con visión para analizar la imagen.',
