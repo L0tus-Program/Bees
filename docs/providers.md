@@ -51,6 +51,13 @@ Na instalação Docker, ative o Ollama com `docker compose --profile local-model
 
 API: `GET /api/v1/local-models`, `POST /api/v1/local-models/pulls` (`confirm_download: true`), `GET /api/v1/local-models/pulls/{id}`, `POST /api/v1/local-models/pulls/{id}/cancel`, `POST /api/v1/local-models/delete` (`confirm_delete: true`). Somente endpoints loopback.
 
+A consulta só apresenta o backend como disponível quando a versão e o catálogo
+têm formato válido. Catálogo ausente, inválido, acima de 4.096 itens ou com item
+inválido torna a consulta indisponível; não aparece como inventário vazio ou
+parcial disponível. Uma lista vazia válida continua disponível. Sugestões e
+acompanhamento dos downloads são preservados na falha; consultar novamente não
+inicia download, remoção ou geração.
+
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer
 um desses UUIDs conserva o ID e o resultado original, inclusive após conclusão,
