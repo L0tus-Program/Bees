@@ -4,6 +4,7 @@ import { AlertTriangle, Brain, Check, ChevronDown, Clock, FileText, Globe, Lapto
 import type { TaskRecord } from '../../api/tasks'
 import { getArtifacts } from '../artifacts/api'
 import type { ArtifactRecord } from '../artifacts/api'
+import { TaskFailure } from '../tasks/TaskFailure'
 import { AgentApprovals } from '../agent/AgentApprovals'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -81,6 +82,7 @@ export function AgentTurn({ task, hasReply, showFiles = true, onChanged, onDetai
     </div>}
     {status && <div className="flex flex-wrap items-center gap-2"><Badge variant={status.variant}><status.Icon aria-hidden="true" />{status.text}</Badge>
       {task.status !== 'waiting_approval' && <Button variant="link" size="sm" className="h-auto px-0" onClick={onDetails}>{t('details')}</Button>}</div>}
+    <TaskFailure task={task} warnUnknown />
     {task.status === 'waiting_approval' && <div className="legacy-scope"><AgentApprovals agentId={task.agent_id} taskId={task.id} onChanged={onChanged} refreshKey={task.revision} /></div>}
     {showFiles && (hasReply || !live) && <TurnFiles task={task} />}
   </div>

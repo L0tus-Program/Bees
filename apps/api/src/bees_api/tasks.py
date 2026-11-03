@@ -10,6 +10,7 @@ from bees_api.auth import require_session
 from bees_api.onboarding import Input
 from bees_api.worker_status import HEARTBEAT_KEY, worker_status
 from bees_core.executor_transport.contracts import TransportError
+from bees_core.providers.errors import MESSAGES as PROVIDER_MESSAGES
 from bees_core.providers.errors import ProviderError
 from bees_core.recovery import RecoveryActionPage, RecoveryInventory, RecoveryInventoryService
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
@@ -99,6 +100,37 @@ def _deliverables(run) -> dict | None:
 def _publication_pending(run) -> bool:
     publication = run.checkpoint.get("publication") if run is not None else None
     return isinstance(publication, dict) and publication.get("status") in ("pending", "started")
+
+
+def _model_failure(run, calls) -> dict | None:
+    from bees_core.providers.errors import public_provider_message
+
+    value = run.checkpoint.get("model_failure")
+    if not isinstance(value, dict):
+        # Journals anteriores já guardavam a causa; não exigir uma nova tentativa.
+        last = next((call for call in reversed(calls) if call.run_id == run.id), None)
+        value = {"code": last.error_code} if last else {}
+    if not isinstance(value.get("code"), str) or value["code"] not in PROVIDER_MESSAGES:
+        return None
+    status = value.get("http_status")
+    field = value.get("parameter")
+    return {
+        "code": value["code"],
+        "provider_message": public_provider_message(value.get("provider_message")),
+        "http_status": status if type(status) is int and 400 <= status <= 599 else None,
+        "parameter": field
+        if field
+        in (
+            "tools",
+            "tools.function.parameters",
+            "tools.function.strict",
+            "messages",
+            "model",
+            "store",
+            "stream",
+        )
+        else None,
+    }
 
 
 def _view(detail) -> dict:
@@ -195,6 +227,7 @@ def _view(detail) -> dict:
                     "started_at": run.started_at.isoformat() if run.started_at else None,
                     "finished_at": run.finished_at.isoformat() if run.finished_at else None,
                     "error_code": run.error,
+                    "failure": _model_failure(run, detail.calls),
                     "result": result,
                 }
                 if run

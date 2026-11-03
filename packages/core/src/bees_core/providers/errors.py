@@ -1,6 +1,30 @@
 """Falhas públicas estáveis, sem URLs, chaves ou bodies de fornecedores."""
 
+import re
+import unicodedata
+from collections.abc import Iterable
 from typing import Literal
+
+
+def public_provider_message(value: object, private: Iterable[str] = ()) -> str | None:
+    """Trecho diagnóstico, sem credenciais, URLs ou conteúdo refletido do pedido."""
+    if not isinstance(value, str) or not value.strip() or len(value) > 8192:
+        return None
+    for secret in sorted(set(private), key=len, reverse=True):
+        if secret:
+            value = value.replace(secret, "[redacted]")
+    value = re.sub(r"(?i)\b(?:https?://|data:)[^\s<>\"']+", "[redacted]", value)
+    value = re.sub(r"(?i)\bbearer\s+[^\s,;\"']+", "Bearer [redacted]", value)
+    value = re.sub(r"\b(?:sk-|sk_|ghp_|github_pat_)[A-Za-z0-9_-]+", "[redacted]", value)
+    value = re.sub(
+        r"(?i)\b(api[_ -]?key|authorization|password|secret|token)\s*[:=]\s*[^\s,;]+",
+        r"\1=[redacted]",
+        value,
+    )
+    value = "".join(" " if unicodedata.category(char).startswith("C") else char for char in value)
+    value = " ".join(value.split())
+    return value[:1000] + ("…" if len(value) > 1000 else "")
+
 
 ErrorCode = Literal[
     "invalid_config",
@@ -20,6 +44,10 @@ ErrorCode = Literal[
     "provider_unavailable",
     "redirect_refused",
     "provider_rejected",
+    "tool_schema_rejected",
+    "model_tools_unsupported",
+    "unsupported_model_parameter",
+    "context_window_exceeded",
     "invalid_secret_reference",
     "invalid_secret",
     "invalid_history",
@@ -64,6 +92,14 @@ MESSAGES: dict[str, str] = {
     "provider_unavailable": "O provedor está indisponível.",
     "redirect_refused": "Redirecionamento recusado; revise o endpoint explícito.",
     "provider_rejected": "O provedor recusou a requisição.",
+    "tool_schema_rejected": (
+        "O provedor recusou o formato de uma ferramenta. Revise a compatibilidade do modelo."
+    ),
+    "model_tools_unsupported": "Este modelo ou endpoint recusou o uso de ferramentas.",
+    "unsupported_model_parameter": "O modelo não aceita uma das opções enviadas pelo Bees.",
+    "context_window_exceeded": (
+        "O histórico e as ferramentas excedem a janela de contexto do modelo."
+    ),
     "invalid_secret_reference": "Referência de credencial inválida ou não suportada.",
     "invalid_secret": "Credencial inválida para o transporte configurado.",
     "invalid_history": "Histórico incompatível com o contrato de conversa.",
@@ -99,6 +135,8 @@ class ProviderError(RuntimeError):
         retryable: bool = False,
         upstream_status: int | None = None,
         undelivered: bool = False,
+        parameter: str | None = None,
+        provider_message: str | None = None,
     ):
         # Não aceitar mensagem externa como texto público, mesmo quando fornecida por engano.
         self.code = code
@@ -111,4 +149,18 @@ class ProviderError(RuntimeError):
         ):
             raise ValueError("Status do provedor inválido.")
         self.upstream_status = upstream_status
+        # Apenas nomes de campos conhecidos; nunca valores ou mensagens do fornecedor.
+        allowed = {
+            "tools",
+            "tools.function.parameters",
+            "tools.function.strict",
+            "messages",
+            "model",
+            "store",
+            "stream",
+        }
+        if parameter is not None and parameter not in allowed:
+            raise ValueError("Parâmetro público inválido.")
+        self.parameter = parameter
+        self.provider_message = public_provider_message(provider_message)
         super().__init__(self.message)

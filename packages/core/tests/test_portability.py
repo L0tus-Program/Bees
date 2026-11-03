@@ -239,7 +239,7 @@ def test_private_operational_state_and_external_vault_files_never_enter_package(
     # Values are synthetic and deliberately recognizable even if accidentally copied.
     with db.transaction() as connection:
         connection.execute(
-            "INSERT INTO identity_users VALUES(1,?,?,0)",
+            "INSERT INTO identity_users(id,name,password_hash,created_at) VALUES(1,?,?,0)",
             ("private-human-name", "private-password-hash"),
         )
         connection.execute("INSERT INTO identity_bootstrap VALUES(1,?,0,100,NULL)", ("a" * 64,))
@@ -486,3 +486,30 @@ def test_export_flush_uses_writable_file_handle_for_native_windows_contract(stat
     exported = service.create()
     assert exported.status == "ready" and service.download(exported.id)
     assert regular_flushes and all(regular_flushes)
+
+
+def test_account_credential_catalog_never_leaves_with_export(state):
+    db, _, _, _, _, service = state
+    reference = "vault:account-only-private-reference"
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO identity_users(id,name,password_hash,created_at,llm_credentials_json) "
+            "VALUES(1,?,?,0,?)",
+            (
+                "Pessoa",
+                "hash",
+                json.dumps(
+                    [
+                        {
+                            "id": reference,
+                            "kind": "openai_compatible",
+                            "endpoint": "https://provider.example/v1",
+                        }
+                    ]
+                ),
+            ),
+        )
+    exported = service.create()
+    content = members(service.download(exported.id))
+    assert all(reference.encode() not in body for body in content.values())
+    assert "identity_users" in json.loads(content["manifest.json"])["excluded_tables"]

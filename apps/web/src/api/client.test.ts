@@ -48,6 +48,16 @@ describe('authenticated client', () => {
     await expect(request('/sample')).rejects.toMatchObject({ code: 'http_500' })
   })
 
+  it('preserva o diagnóstico público separado do texto arbitrário do servidor', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 'provider_rejected', message: 'PRIVATE', diagnostic: { http_status: 400, parameter: 'tools', provider_message: 'This model does not support tools.' } } }, { status: 502 })))
+    await expect(request('/sample')).rejects.toMatchObject({ code: 'provider_rejected', diagnostic: { http_status: 400, parameter: 'tools', provider_message: 'This model does not support tools.' } })
+  })
+
+  it('ignora diagnóstico malformado preservando o erro', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 'provider_rejected', diagnostic: { http_status: 400, parameter: 'PRIVATE', provider_message: 'x'.repeat(9000) } } }, { status: 502 })))
+    await expect(request('/sample')).rejects.toMatchObject({ code: 'provider_rejected', diagnostic: null })
+  })
+
   it('trata perda de conexão após POST como resultado desconhecido sem retry', async () => {
     const fetcher = vi.fn().mockRejectedValue(new TypeError('Network failed'))
     vi.stubGlobal('fetch', fetcher)

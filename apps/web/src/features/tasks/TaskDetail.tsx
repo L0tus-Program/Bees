@@ -8,6 +8,7 @@ import type { TaskControl, TaskDetail as Detail, TaskRecord } from '../../api/ta
 import type { AgentSummary } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { commandIdentity, taskAcknowledgmentKey, taskControlBlocked, taskOutcomeUnknown, taskUnknownKind } from './state'
+import { TaskFailure } from './TaskFailure'
 import { TaskRecovery } from './TaskRecovery'
 import { TaskTime } from './TaskTime'
 import { useTaskPolling } from './useTaskPolling'
@@ -72,6 +73,7 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
     {task && <>
       <p className="task-state" role="status">{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</p>
       {task.routine_execution && <p className="routine-task-origin">{routines('taskOrigin', { name: task.routine_execution.name, revision: task.routine_execution.revision })}{task.routine_execution.trigger === 'manual' && <> · {routines('manualOrigin')}</>} · <TaskTime value={task.routine_execution.scheduled_at} /></p>}
+      <TaskFailure task={task} />
       {unknown && <p className="transfer-notice">{t(unknownKind === 'tool' ? 'toolUnknownWarning' : unknownKind === 'mixed' ? 'mixedUnknownWarning' : 'unknownWarning')}</p>}
       {task.partial && !unknown && <p className="transfer-notice">{tools('partial')}</p>}
       {task.action_in_flight && <p className="transfer-notice">{t('actionInFlightHelp')}</p>}
@@ -85,7 +87,6 @@ export function TaskDetail({ agent, taskId, onRefresh, onClose }: { agent: Agent
       <dl className="task-definition"><div><dt>{t('objective')}</dt><dd>{task.objective}</dd></div><div><dt>{t('expectedResult')}</dt><dd>{task.expected_result}</dd></div></dl>
       {task.status === 'waiting_resource' && task.waiting_for?.tool?.includes('.browser.') && <p className="transfer-notice" role="status">{t('waitingBrowser')}</p>}
       {task.progress && <p className="quiet-note">{i18n.exists(`progress.${task.progress.code}`, { ns: 'tasks' }) ? t(`progress.${task.progress.code}`) : t('eventFallback')} · <TaskTime value={task.progress.created_at} /></p>}
-      {!unknown && task.latest_run?.error_code && <p className="transfer-notice">{i18n.exists(`errors.${task.latest_run.error_code}`, { ns: 'product' }) ? i18n.t(`errors.${task.latest_run.error_code}`, { ns: 'product' }) : t('runFailed')}</p>}
       {['policy_denied', 'policy_approval_required', 'invalid_policy'].includes(task.latest_run?.error_code ?? '') && <p className="quiet-note">{t('policyHelp')}</p>}
       {task.model_approvals_available !== false && <ApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} />}
       {task.tool_approvals_available && <Suspense fallback={<LoadingNotice />}><ResourceApprovalPanel key={taskId} agentId={agentId} taskId={taskId} onChanged={refresh} /></Suspense>}

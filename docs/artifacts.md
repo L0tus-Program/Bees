@@ -248,3 +248,7 @@ dependência somente de desenvolvimento; não representa uma fronteira de isolam
 
 A GUI de QA usa identidade/dados descartáveis, API e arquivos reais e provedor HTTP
 controlado local. Não demonstra geração paga ou qualidade de um modelo real.
+
+### Colar e arrastar no chat
+
+O chat aceita arquivos por botão, Ctrl+V (quando o navegador expõe um arquivo na área de transferência) e arrastar/soltar em qualquer ponto da conversa. Colar ou arrastar apenas texto preserva o comportamento nativo. Os três caminhos usam o mesmo upload autenticado, validação de formato/conteúdo/hash e consentimento ao enviar. Lotes concorrentes são enfileirados; arquivos concluídos permanecem selecionados mesmo se outro falhar. Enter e o botão Enviar aguardam o fim do upload. A indicação de soltar informa os formatos aceitos: TXT, Markdown, CSV e JSON, até quatro arquivos e 64 KB ao todo. Imagens/prints e OCR estão planejados na [#221](https://github.com/L0tus-Program/Bees/issues/221).

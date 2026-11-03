@@ -266,3 +266,66 @@ def test_deliverables_choice_projection_and_download(state):
     assert download.status_code == 200
     assert download.content == b"passo,prazo\r\nRevisar,=1+1\r\n"
     assert "attachment" in download.headers["content-disposition"]
+
+
+def test_model_failure_reaches_chat_and_details_with_safe_legacy_fallback(state):
+    client, first, _, _, _ = state
+    path = f"/api/v1/agents/{first.id}/tasks"
+    created = client.post(path, json=body(), headers=headers(client)).json()
+    worker = TaskWorker(
+        client.app.state.database,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "code": "unsupported_parameter",
+                        "param": "store",
+                        "message": "Unsupported parameter: store",
+                    }
+                },
+            )
+        ),
+    )
+    assert asyncio.run(worker.run_once())
+    task = client.get(path + "/" + created["id"]).json()["task"]
+    assert task["status"] == "paused" and task["unknown_requires_ack"]
+    assert task["latest_run"]["failure"] == {
+        "code": "unsupported_model_parameter",
+        "http_status": 400,
+        "parameter": "store",
+        "provider_message": "Unsupported parameter: store",
+    }
+    assert task["latest_run"]["model"] == "test-model"
+    assert "PRIVATE" not in str(task) and "SECRET" not in str(task)
+    assert (
+        client.get(path).json()["tasks"][0]["latest_run"]["failure"]
+        == task["latest_run"]["failure"]
+    )
+    with client.app.state.store.transaction() as unit:
+        run = unit.runs.get(created["latest_run"]["id"])
+        checkpoint = {key: value for key, value in run.checkpoint.items() if key != "model_failure"}
+        unit.runs.update(run.model_copy(update={"checkpoint": checkpoint}), run.revision)
+    legacy = client.get(path + "/" + created["id"]).json()["task"]["latest_run"]["failure"]
+    assert legacy == {
+        "code": "unsupported_model_parameter",
+        "http_status": None,
+        "parameter": None,
+        "provider_message": None,
+    }
+
+    # Checkpoint restaurado malformado não vira texto público nem quebra o polling.
+    with client.app.state.store.transaction() as unit:
+        run = unit.runs.get(created["latest_run"]["id"])
+        unit.runs.update(
+            run.model_copy(
+                update={
+                    "checkpoint": run.checkpoint
+                    | {"model_failure": {"code": {"PRIVATE": "SECRET"}}}
+                }
+            ),
+            run.revision,
+        )
+    invalid = client.get(path + "/" + created["id"])
+    assert invalid.status_code == 200 and invalid.json()["task"]["latest_run"]["failure"] is None
+    assert "PRIVATE" not in invalid.text and "SECRET" not in invalid.text

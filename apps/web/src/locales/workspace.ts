@@ -1,4 +1,6 @@
 const pt = {
+  failureUnknown: 'O provedor não devolveu uma resposta confirmada. A causa específica não foi registrada nesta execução.', failureOther: 'A execução parou. Consulte o código abaixo para identificar a causa.', modelOutcomeUnknown: 'Pode ter havido consumo de créditos. Nenhuma chamada de modelo será repetida automaticamente; revise os detalhes antes de retomar.', toolOutcomeUnknown: 'O efeito de uma ferramenta ainda não foi confirmado. Confira o que aconteceu antes de retomar.', failureDetails: 'Detalhes do erro', failureCode: 'Código', failureModel: 'Modelo usado', failureProvider: 'Provedor', failureParameter: 'Campo recusado', failureProviderMessage: 'Mensagem do provedor', dropAttachments: 'Solte os arquivos para anexar',
+  clearConversation: 'Limpar conversa', clearing: 'Limpando…', clearConfirm: 'Limpar esta conversa? As mensagens sairão da tela e não serão usadas nas próximas respostas. O histórico anterior será arquivado. Memórias, configurações, tarefas e entregas serão preservadas. Encerre trabalhos pendentes antes. Resultados incertos continuam disponíveis em Atividade.',
   bees: 'Suas abelhas', newBee: 'Nova abelha', menu: 'Abrir menu', settings: 'Configurações da abelha', backToChat: 'Voltar à conversa',
   settingsSection: 'Seção das configurações', settingsBee: 'Sua abelha', settingsWork: 'Trabalho e entregas', settingsAccess: 'Acesso e execução',
   computer: 'Computador', activity: 'Atividade', files: 'Arquivos da conversa', closePanel: 'Fechar painel', data: 'Meus dados', signOut: 'Sair',
@@ -16,13 +18,15 @@ const pt = {
   computerNoRuntime: 'Nenhum runtime de computador está pareado. Abra Configurações → Computador para parear.', computerFailed: 'O computador falhou. Veja os detalhes em Configurações → Computador.',
   restart: 'Reiniciar', restarting: 'Reiniciando…', restartConfirm: 'Reiniciar o computador? Navegador e programas abertos serão fechados; arquivos e logins continuam.', restartConfirmAction: 'Reiniciar agora', cancel: 'Cancelar',
   takeControl: 'Assumir controle', returnControl: 'Devolver à abelha', inUse: 'Em uso agora', retry: 'Tentar de novo', loadError: 'Não foi possível carregar a conversa.',
-  attachHint: 'Texto, Markdown, CSV ou JSON · até 4 arquivos, 64 KB no total', uploading: 'Enviando arquivo…', removeAttachment: 'Remover {{name}}', attachLimit: 'Os anexos passam de 4 arquivos ou 64 KB no total.',
+  attachHint: 'Texto, Markdown, CSV ou JSON · até 4 arquivos, 64 KB no total · cole com Ctrl+V ou arraste aqui', uploading: 'Enviando arquivo…', removeAttachment: 'Remover {{name}}', attachLimit: 'Os anexos passam de 4 arquivos ou 64 KB no total.',
   activityEmpty: 'Nenhuma tarefa ainda. O que a abelha fizer aparece aqui.', needsYou: 'Precisam de você', inProgress: 'Em andamento', recent: 'Recentes',
   activityCount_one: '{{count}} tarefa ativa', activityCount_other: '{{count}} tarefas ativas', panel: 'Painel lateral', showAll: 'Mostrar todas ({{count}})',
   status: { queued: 'Na fila', running: 'Em andamento', waiting_approval: 'Precisa de você', waiting_resource: 'Aguardando navegador', paused: 'Pausada', completed: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada' },
 }
 type Translations = typeof pt
 const en: Translations = {
+  failureUnknown: 'The provider did not return a confirmed response. This run did not record a specific cause.', failureOther: 'Execution stopped. Check the code below to identify the cause.', modelOutcomeUnknown: 'Credits may have been consumed. Model calls will not be repeated automatically; review the details before resuming.', toolOutcomeUnknown: 'A tool’s effect has not been confirmed. Check what happened before resuming.', failureDetails: 'Error details', failureCode: 'Code', failureModel: 'Model used', failureProvider: 'Provider', failureParameter: 'Rejected field', failureProviderMessage: 'Provider message', dropAttachments: 'Drop files to attach',
+  clearConversation: 'Clear conversation', clearing: 'Clearing…', clearConfirm: 'Clear this conversation? Messages will leave this view and will not be used in future replies. The previous history will be archived. Memories, settings, tasks and deliveries will be preserved. Finish pending work first. Uncertain outcomes remain available in Activity.',
   bees: 'Your bees', newBee: 'New bee', menu: 'Open menu', settings: 'Bee settings', backToChat: 'Back to chat',
   settingsSection: 'Settings section', settingsBee: 'Your bee', settingsWork: 'Work and deliveries', settingsAccess: 'Access and execution',
   computer: 'Computer', activity: 'Activity', files: 'Conversation files', closePanel: 'Close panel', data: 'My data', signOut: 'Sign out',
@@ -40,12 +44,14 @@ const en: Translations = {
   computerNoRuntime: 'No computer runtime is paired. Open Settings → Computer to pair one.', computerFailed: 'The computer failed. See details in Settings → Computer.',
   restart: 'Restart', restarting: 'Restarting…', restartConfirm: 'Restart the computer? The browser and open programs will close; files and logins are kept.', restartConfirmAction: 'Restart now', cancel: 'Cancel',
   takeControl: 'Take control', returnControl: 'Return to the bee', inUse: 'In use now', retry: 'Try again', loadError: 'Could not load the conversation.',
-  attachHint: 'Text, Markdown, CSV or JSON · up to 4 files, 64 KB total', uploading: 'Uploading file…', removeAttachment: 'Remove {{name}}', attachLimit: 'Attachments exceed 4 files or 64 KB in total.',
+  attachHint: 'Text, Markdown, CSV or JSON · up to 4 files, 64 KB total · paste with Ctrl+V or drag here', uploading: 'Uploading file…', removeAttachment: 'Remove {{name}}', attachLimit: 'Attachments exceed 4 files or 64 KB in total.',
   activityEmpty: 'No tasks yet. What the bee does shows up here.', needsYou: 'Need you', inProgress: 'In progress', recent: 'Recent',
   activityCount_one: '{{count}} active task', activityCount_other: '{{count}} active tasks', panel: 'Side panel', showAll: 'Show all ({{count}})',
   status: { queued: 'Queued', running: 'Running', waiting_approval: 'Needs you', waiting_resource: 'Waiting for browser', paused: 'Paused', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' },
 }
 const es: Translations = {
+  failureUnknown: 'El proveedor no devolvió una respuesta confirmada. Esta ejecución no registró una causa específica.', failureOther: 'La ejecución se detuvo. Consulta el código para identificar la causa.', modelOutcomeUnknown: 'Puede haber consumo de créditos. No se repetirán llamadas al modelo automáticamente; revisa los detalles antes de reanudar.', toolOutcomeUnknown: 'El efecto de una herramienta aún no se confirmó. Revisa lo ocurrido antes de reanudar.', failureDetails: 'Detalles del error', failureCode: 'Código', failureModel: 'Modelo utilizado', failureProvider: 'Proveedor', failureParameter: 'Campo rechazado', failureProviderMessage: 'Mensaje del proveedor', dropAttachments: 'Suelta los archivos para adjuntar',
+  clearConversation: 'Limpiar conversación', clearing: 'Limpiando…', clearConfirm: '¿Limpiar esta conversación? Los mensajes saldrán de esta vista y no se usarán en las próximas respuestas. El historial anterior se archivará. Se conservarán memorias, ajustes, tareas y entregas. Termina el trabajo pendiente primero. Los resultados inciertos siguen en Actividad.',
   bees: 'Tus abejas', newBee: 'Nueva abeja', menu: 'Abrir menú', settings: 'Configuración de la abeja', backToChat: 'Volver a la conversación',
   settingsSection: 'Sección de configuración', settingsBee: 'Tu abeja', settingsWork: 'Trabajo y entregas', settingsAccess: 'Acceso y ejecución',
   computer: 'Ordenador', activity: 'Actividad', files: 'Archivos de la conversación', closePanel: 'Cerrar panel', data: 'Mis datos', signOut: 'Salir',
@@ -63,7 +69,7 @@ const es: Translations = {
   computerNoRuntime: 'No hay un runtime de ordenador emparejado. Abre Configuración → Ordenador para emparejarlo.', computerFailed: 'El ordenador falló. Mira los detalles en Configuración → Ordenador.',
   restart: 'Reiniciar', restarting: 'Reiniciando…', restartConfirm: '¿Reiniciar el ordenador? El navegador y los programas abiertos se cerrarán; los archivos y las sesiones se conservan.', restartConfirmAction: 'Reiniciar ahora', cancel: 'Cancelar',
   takeControl: 'Tomar el control', returnControl: 'Devolver a la abeja', inUse: 'En uso ahora', retry: 'Intentar de nuevo', loadError: 'No se pudo cargar la conversación.',
-  attachHint: 'Texto, Markdown, CSV o JSON · hasta 4 archivos, 64 KB en total', uploading: 'Subiendo archivo…', removeAttachment: 'Quitar {{name}}', attachLimit: 'Los adjuntos superan 4 archivos o 64 KB en total.',
+  attachHint: 'Texto, Markdown, CSV o JSON · hasta 4 archivos, 64 KB en total · pega con Ctrl+V o arrastra aquí', uploading: 'Subiendo archivo…', removeAttachment: 'Quitar {{name}}', attachLimit: 'Los adjuntos superan 4 archivos o 64 KB en total.',
   activityEmpty: 'Aún no hay tareas. Lo que haga la abeja aparece aquí.', needsYou: 'Te necesitan', inProgress: 'En curso', recent: 'Recientes',
   activityCount_one: '{{count}} tarea activa', activityCount_other: '{{count}} tareas activas', panel: 'Panel lateral', showAll: 'Mostrar todas ({{count}})',
   status: { queued: 'En cola', running: 'En curso', waiting_approval: 'Te necesita', waiting_resource: 'Esperando navegador', paused: 'En pausa', completed: 'Completada', failed: 'Falló', cancelled: 'Cancelada' },

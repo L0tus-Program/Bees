@@ -361,6 +361,7 @@ class TaskWorker:
         error_code=None,
         usage=None,
         released=False,
+        failure=None,
     ):
         with self.store.transaction(actor="worker", source="task_result") as uow:
             now = utc_now()
@@ -410,6 +411,15 @@ class TaskWorker:
                     "confirmed" if response is not None else "outcome_unknown",
                 )
             checkpoint = run.checkpoint | {"attention_required": False}
+            checkpoint.pop("model_failure", None)
+            if response is None and error_code is not None:
+                checkpoint["model_failure"] = {
+                    "code": error_code,
+                    "call_id": str(call.id),
+                    "http_status": (failure or {}).get("http_status"),
+                    "parameter": (failure or {}).get("parameter"),
+                    "provider_message": (failure or {}).get("provider_message"),
+                }
             status = "completed"
             desired = task.desired_state
             error = None
@@ -798,6 +808,7 @@ class TaskWorker:
         usage = None
         released = False
         dispatched = [call]
+        failure = None
         try:
             response, claim = await self._dispatch(
                 claim, prepared, remaining, dispatched, start, generation
@@ -811,6 +822,11 @@ class TaskWorker:
         except ProviderError as error:
             response = None
             error_code = error.code
+            failure = {
+                "http_status": error.upstream_status,
+                "parameter": error.parameter,
+                "provider_message": error.provider_message,
+            }
             released = usage is None and releases(error)
         except RevisionConflict:
             # Outro dono/recuperação ganhou a lease; nenhum commit pelo dono antigo.
@@ -875,6 +891,7 @@ class TaskWorker:
             error_code=error_code,
             usage=usage,
             released=released,
+            failure=failure,
         ):
             self._publish(claim, generation)
         return True

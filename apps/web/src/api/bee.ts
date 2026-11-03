@@ -36,9 +36,9 @@ export async function saveProfile(id: string, revision: number, profile: BeeProf
   return value
 }
 
-export async function saveConfiguration(id: string, revision: number, config: ModelConfig, validationToken: string, apiKey: string, signal?: AbortSignal): Promise<AgentSummary> {
+export async function saveConfiguration(id: string, revision: number, config: ModelConfig, validationToken: string, apiKey: string, signal?: AbortSignal, credentialId?: string): Promise<AgentSummary> {
   const value = await request(`${pathFor(id)}/configuration`, {
-    body: { expected_revision: revision, config, validation_token: validationToken, ...(apiKey ? { api_key: apiKey } : {}) }, authenticated: true, signal, timeoutMs: 15000,
+    body: { expected_revision: revision, config, validation_token: validationToken, ...(apiKey ? { api_key: apiKey } : {}), ...(credentialId ? { credential_id: credentialId } : {}) }, authenticated: true, signal, timeoutMs: 15000,
   })
   if (!isAgent(value) || value.id !== id) throw new ApiError('invalid_response')
   return value

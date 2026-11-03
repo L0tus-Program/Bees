@@ -19,13 +19,13 @@ export function mergeModels(suggested: AvailableModel[], discovered: AvailableMo
   return [...models.values()]
 }
 
-export function canSaveModel(provider: Provider | undefined, config: ModelConfig, apiKey: string, vaultAvailable: boolean) {
+export function canSaveModel(provider: Provider | undefined, config: ModelConfig, apiKey: string, vaultAvailable: boolean, credentialId?: string) {
   if (!provider || !config.model.trim() || config.model.trim().length > 200 || !config.endpoint.trim()) return false
   try {
     const endpoint = new URL(config.endpoint)
     if (!['https:', 'http:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) return false
   } catch { return false }
-  return (!provider.requires_api_key || !!apiKey || !!config.secret_ref) && (!apiKey || vaultAvailable)
+  return (!provider.requires_api_key || !!apiKey || !!config.secret_ref || !!credentialId) && (!apiKey || vaultAvailable)
 }
 
 export function canReuseSecret(initial: ModelConfig | null | undefined, config: Pick<ModelConfig, 'kind' | 'endpoint'>) {

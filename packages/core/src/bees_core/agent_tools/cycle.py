@@ -631,6 +631,7 @@ class AgentTaskWorker(TaskWorker):
                         | {
                             "progress": status,
                             "result_ready": False,
+                            "model_failure": None,
                             "tool_cycle": {
                                 "status": "complete" if superseded else "pending",
                                 "call_id": str(call.id),

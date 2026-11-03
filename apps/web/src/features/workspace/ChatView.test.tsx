@@ -16,6 +16,7 @@ import { useResource } from '../../hooks/useResource'
 import { useTaskPolling } from '../tasks/useTaskPolling'
 import { agent as baseAgent, task as baseTask } from '../chat/testFixtures'
 import { agentId, artifact, conversationId, page, taskId } from '../artifacts/fixtures'
+import { publishArtifact } from '../artifacts/api'
 import { ChatView } from './ChatView'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -50,7 +51,7 @@ beforeEach(() => {
   delegations = { delegations: [], has_more: false, next_offset: null }; messages = []
   capabilities = { available: true, tool_calls_supported: true, recommended_installed: true, tools: [], worker: { available: true, last_seen: null }, defaults: { max_calls: 30, max_active_seconds: 1200 } }
   reload = vi.fn()
-  vi.mocked(useResource).mockImplementation(() => ({ resource: { state: 'ready', data: { conversation_id: conversationId, messages } }, reload }) as never)
+  vi.mocked(useResource).mockImplementation(() => ({ resource: { state: 'ready', data: { conversation_id: conversationId, revision: 3, messages } }, reload }) as never)
   vi.mocked(useTaskPolling).mockImplementation(() => ({ data: delegations, loading: false, error: null, refresh: vi.fn() }) as never)
   fetcher = vi.fn(async (url: string) => {
     if (url.includes('/agent/capabilities')) return Response.json(capabilities)
@@ -61,13 +62,24 @@ beforeEach(() => {
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
 
-async function show() {
+async function show(onCleared?: () => void) {
   const i18n = createInstance()
   await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { workspace: workspaceResources['pt-BR'], agent: agentResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
-  await act(async () => root.render(<I18nextProvider i18n={i18n}><TooltipProvider><ChatView agent={agent} onTaskDetails={vi.fn()} /></TooltipProvider></I18nextProvider>))
+  await act(async () => root.render(<I18nextProvider i18n={i18n}><TooltipProvider><ChatView agent={agent} onTaskDetails={vi.fn()} onCleared={onCleared} /></TooltipProvider></I18nextProvider>))
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
 }
 const calls = (fragment: string) => fetcher.mock.calls.filter(([url]) => String(url).includes(fragment))
+
+function transferEvent(type: 'paste' | 'drop' | 'dragenter' | 'dragleave', files: File[] = [], itemsOnly = false) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, type === 'paste' ? 'clipboardData' : 'dataTransfer', { value: {
+    types: files.length ? ['Files'] : ['text/plain'], files: itemsOnly ? [] : files,
+    items: files.map((file) => ({ kind: 'file', getAsFile: () => file })),
+  } })
+  return event
+}
+
+async function flushUploads() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)) }) }
 
 describe('chat as an assistant conversation', () => {
   it('sends with Enter to the agent and keeps Shift+Enter for a new line', async () => {
@@ -174,4 +186,140 @@ describe('chat as an assistant conversation', () => {
     expect(container.textContent).not.toContain('foto.png')
     expect(container.querySelector('[role="alert"], .notice, [class*="error"]')).not.toBeNull()
   })
+
+  it.each([false, true])('pastes files from clipboard, including items-only browsers (%s)', async (itemsOnly) => {
+    await show()
+    const event = transferEvent('paste', [new File(['# Dados'], 'colado.md')], itemsOnly)
+    await act(async () => { container.querySelector('#chat-input')!.dispatchEvent(event) })
+    await flushUploads()
+    expect(event.defaultPrevented).toBe(true)
+    expect(container.textContent).toContain('colado.md')
+    expect(publishArtifact).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps native text paste and text dragging', async () => {
+    await show()
+    const input = container.querySelector('#chat-input')!
+    const paste = transferEvent('paste'); const drop = transferEvent('drop')
+    await act(async () => { input.dispatchEvent(paste); input.dispatchEvent(drop) })
+    expect(paste.defaultPrevented).toBe(false)
+    expect(drop.defaultPrevented).toBe(false)
+    expect(publishArtifact).not.toHaveBeenCalled()
+  })
+
+  it('accepts drops anywhere in the conversation and keeps the hint across nested drag events', async () => {
+    await show()
+    const log = container.querySelector('[role="log"]')!
+    const file = new File(['a,b\n1,2'], 'arrastado.csv')
+    await act(async () => { log.dispatchEvent(transferEvent('dragenter', [file])); log.dispatchEvent(transferEvent('dragenter', [file])) })
+    expect(container.textContent).toContain('Solte os arquivos')
+    await act(async () => { log.dispatchEvent(transferEvent('dragleave', [file])) })
+    expect(container.textContent).toContain('Solte os arquivos')
+    const drop = transferEvent('drop', [file])
+    await act(async () => { log.dispatchEvent(drop) })
+    await flushUploads()
+    expect(drop.defaultPrevented).toBe(true)
+    expect(container.textContent).not.toContain('Solte os arquivos')
+    expect(container.textContent).toContain('arrastado.csv')
+  })
+
+  it('serializes rapid paste/drop batches and enforces the total count', async () => {
+    await show()
+    const log = container.querySelector('[role="log"]')!
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) log.dispatchEvent(transferEvent(index % 2 ? 'paste' : 'drop', [new File(['abc'], `arquivo${index}.txt`)]))
+    })
+    await flushUploads()
+    expect(publishArtifact).toHaveBeenCalledTimes(4)
+    expect(container.querySelectorAll('[aria-label^="Remover"]')).toHaveLength(4)
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('4 arquivos ou 64 KB')
+  })
+
+  it('keeps successful uploads if another file in the batch fails and enforces byte limits', async () => {
+    await show()
+    const event = transferEvent('drop', [new File(['ok'], 'primeiro.txt'), new File(['x'], 'foto.png'), new File(['x'.repeat(65536)], 'grande.txt')])
+    await act(async () => { container.querySelector('[role="log"]')!.dispatchEvent(event) })
+    await flushUploads()
+    expect(container.querySelectorAll('[aria-label^="Remover"]')).toHaveLength(1)
+    expect(container.textContent).toContain('primeiro.txt')
+    expect(publishArtifact).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks Enter while an upload is pending and sends all versions once it finishes', async () => {
+    await show()
+    let finish!: () => void
+    const original = vi.mocked(publishArtifact).getMockImplementation()!
+    vi.mocked(publishArtifact).mockImplementationOnce(async (...args) => {
+      await new Promise<void>((resolve) => { finish = resolve })
+      return original(...args)
+    })
+    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Analise os arquivos')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(transferEvent('paste', [new File(['a'], 'um.txt')]))
+    })
+    await flushUploads()
+    await act(async () => {
+      input.dispatchEvent(transferEvent('paste', [new File(['b'], 'dois.txt')]))
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    })
+    expect(calls('/agent-messages')).toHaveLength(0)
+    await act(async () => { finish() }); await flushUploads()
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    const body = JSON.parse((calls('/agent-messages')[0] as [string, RequestInit])[1].body as string)
+    expect(body.attachments).toHaveLength(2)
+    expect(new Set(body.attachments.map((file: { artifact_id: string }) => file.artifact_id)).size).toBe(2)
+  })
+
+  it('prevents file navigation without uploading when attachments are unavailable', async () => {
+    capabilities = { ...capabilities, available: false }
+    await show()
+    const drop = transferEvent('drop', [new File(['abc'], 'arquivo.txt')])
+    await act(async () => { container.querySelector('[role="log"]')!.dispatchEvent(drop) })
+    expect(drop.defaultPrevented).toBe(true)
+    expect(publishArtifact).not.toHaveBeenCalled()
+  })
+
+  it('shows the provider diagnostic for an immediate send error', async () => {
+    await show()
+    fetcher.mockImplementation(async () => Response.json({ error: { code: 'provider_rejected', message: 'PRIVATE', diagnostic: { http_status: 400, parameter: 'store', provider_message: 'Unsupported parameter: store' } } }, { status: 502 }))
+    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Oi'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })) })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Unsupported parameter: store')
+    expect(container.textContent).toContain('HTTP 400')
+    expect(container.textContent).not.toContain('PRIVATE')
+  })
+})
+
+
+it('clears only after confirmation, bound to the displayed conversation and revision', async () => {
+  messages = [user, reply]
+  const cleared = vi.fn(); const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal('confirm', confirm)
+  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ conversation_id: '99999999-9999-4999-8999-999999999999' }) : Response.json(capabilities))
+  await show(cleared)
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
+  await act(async () => button.click())
+  expect(calls('/clear')).toHaveLength(0); expect(cleared).not.toHaveBeenCalled()
+  expect(confirm.mock.calls[0][0]).toContain('Memórias, configurações, tarefas e entregas serão preservadas')
+  confirm.mockReturnValue(true)
+  await act(async () => button.click())
+  expect(calls('/clear')).toHaveLength(1); expect(cleared).toHaveBeenCalledOnce()
+  const [path, options] = calls('/clear')[0] as [string, RequestInit]
+  expect(path).toBe(`/api/v1/agents/${agentId}/conversations/${conversationId}/clear`)
+  expect(JSON.parse(options.body as string)).toMatchObject({ consent: 'clear_conversation', expected_revision: agent.revision, expected_conversation_revision: 3 })
+  confirm.mockRestore()
+})
+
+it('keeps the conversation and explains why pending work prevents clearing', async () => {
+  messages = [user, reply]
+  const cleared = vi.fn(); const confirm = vi.fn().mockReturnValue(true); vi.stubGlobal('confirm', confirm)
+  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ error: { code: 'conversation_has_pending_work' } }, { status: 409 }) : Response.json(capabilities))
+  await show(cleared)
+  const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
+  await act(async () => button.click())
+  expect(cleared).not.toHaveBeenCalled(); expect(container.textContent).toContain(user.content)
+  expect(container.textContent).toContain('Abra Atividade')
+  confirm.mockRestore()
 })

@@ -1,6 +1,15 @@
+export interface ProviderDiagnostic { provider_message?: string | null; http_status: number | null; parameter: string | null }
+export function providerDiagnostic(value: unknown): ProviderDiagnostic | null {
+  if (!record(value)
+    || !(value.provider_message === undefined || value.provider_message === null || typeof value.provider_message === 'string' && value.provider_message.length <= 1001)
+    || !(value.http_status === null || Number.isInteger(value.http_status) && Number(value.http_status) >= 400 && Number(value.http_status) <= 599)
+    || !(value.parameter === null || typeof value.parameter === 'string' && ['tools', 'tools.function.parameters', 'tools.function.strict', 'messages', 'model', 'store', 'stream'].includes(value.parameter))) return null
+  return { provider_message: value.provider_message as string | null | undefined, http_status: value.http_status as number | null, parameter: value.parameter as string | null }
+}
+
 export class ApiError extends Error {
-  constructor(public readonly code: string, public readonly status = 0) {
-    // Never include response text, request payloads or provider credentials.
+  constructor(public readonly code: string, public readonly status = 0, public readonly diagnostic: ProviderDiagnostic | null = null) {
+    // Keep arbitrary response text out; diagnostics use the separate bounded contract.
     super(code)
     this.name = 'ApiError'
   }
@@ -58,7 +67,7 @@ export async function request(path: string, options: RequestOptions = {}): Promi
       }
       const code = record(body) && record(body.error) && typeof body.error.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(body.error.code)
         ? body.error.code : `http_${response.status}`
-      throw new ApiError(code, response.status)
+      throw new ApiError(code, response.status, record(body) && record(body.error) ? providerDiagnostic(body.error.diagnostic) : null)
     }
     return body
   } catch (error) {
