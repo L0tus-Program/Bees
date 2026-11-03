@@ -37,7 +37,6 @@ async function show() {
   const i18n = createInstance()
   await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { workspace: workspaceResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
   await act(async () => root.render(<I18nextProvider i18n={i18n}><ComputerPanel agentId="agent-1" name="Ana" /></I18nextProvider>))
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)) })
 }
 const button = (label: string) => [...container.querySelectorAll('button')].find((item) => item.textContent === label)
 const restarts = () => fetcher.mock.calls.filter(([url]) => String(url).endsWith('/restart'))
@@ -74,4 +73,117 @@ describe('computer panel restart', () => {
     await act(async () => { finish!(Response.json({ error: { code: 'computer_restart_failed', message: 'x' } }, { status: 409 })); await new Promise((resolve) => setTimeout(resolve, 5)) })
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('Não foi possível reiniciar o computador')
   })
+})
+
+function deferredResponse() {
+  let resolve!: (response: Response) => void
+  const promise = new Promise<Response>((done) => { resolve = done })
+  return { promise, resolve }
+}
+const snapshot = (holder: Computer['control_holder'] = 'agent') => Response.json({
+  computers: [{ ...computer, control_holder: holder }], runtime_online: true, runtime_paired: true, local_link_available: false,
+})
+
+it('waits for a slow periodic read instead of overlapping or starving it', async () => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    const slow = deferredResponse()
+    fetcher.mockImplementationOnce(() => slow.promise)
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    const calls = fetcher.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(8000))
+    expect(fetcher.mock.calls).toHaveLength(calls)
+    await act(async () => slow.resolve(snapshot('human')))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(fetcher.mock.calls).toHaveLength(calls + 1)
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['success', 'failure'] as const)('invalidates an old %s read before changing control and suspends polling until the action finishes', async (outcome) => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    const old = deferredResponse()
+    const control = deferredResponse()
+    fetcher.mockImplementationOnce(() => old.promise)
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    fetcher.mockImplementation((url: string) => String(url).endsWith('/control') ? control.promise : Promise.resolve(snapshot('human')))
+    await act(async () => button('Assumir controle')!.click())
+    const calls = fetcher.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(8000))
+    expect(fetcher.mock.calls).toHaveLength(calls)
+    await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human' })))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    await act(async () => old.resolve(outcome === 'success' ? snapshot() : Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 })))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    const after = fetcher.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(fetcher.mock.calls).toHaveLength(after + 1)
+  } finally { vi.useRealTimers() }
+})
+
+it('sends only one control mutation for clicks in the same render', async () => {
+  const control = deferredResponse()
+  await show()
+  fetcher.mockImplementation((url: string) => String(url).endsWith('/control') ? control.promise : Promise.resolve(snapshot('human')))
+  await act(async () => { button('Assumir controle')!.click(); button('Assumir controle')!.click() })
+  expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/control'))).toHaveLength(1)
+  await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human' })))
+})
+
+it('suspends periodic reads during restart and rejects the snapshot started before it', async () => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    const old = deferredResponse()
+    fetcher.mockImplementationOnce(() => old.promise)
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    await act(async () => button('Reiniciar')!.click())
+    await act(async () => { button('Reiniciar agora')!.click(); button('Reiniciar agora')!.click() })
+    expect(restarts()).toHaveLength(1)
+    const calls = fetcher.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(8000))
+    expect(fetcher.mock.calls).toHaveLength(calls)
+    fetcher.mockImplementation(async () => snapshot('human'))
+    await act(async () => finish!(Response.json({ ...computer, restarted: true })))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    await act(async () => old.resolve(snapshot()))
+    expect(button('Devolver à abelha')).toBeTruthy()
+  } finally { vi.useRealTimers() }
+})
+
+
+it('serializes computer creation and resumes polling after a failed mutation without retrying it', async () => {
+  vi.useFakeTimers()
+  try {
+    const creation = deferredResponse()
+    const empty = () => Response.json({ computers: [], runtime_online: true, runtime_paired: true, local_link_available: false })
+    fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST' ? creation.promise : empty())
+    await show()
+    await act(async () => { button('Ligar computador')!.click(); button('Ligar computador')!.click() })
+    const posts = () => fetcher.mock.calls.filter(([, init]) => (init as RequestInit).method === 'POST')
+    expect(posts()).toHaveLength(1)
+    const calls = fetcher.mock.calls.length
+    await act(async () => vi.advanceTimersByTimeAsync(8000))
+    expect(fetcher.mock.calls).toHaveLength(calls)
+    await act(async () => creation.resolve(Response.json({ error: { code: 'computer_restart_failed', message: 'x' } }, { status: 409 })))
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(button('Ligar computador')!.disabled).toBe(false)
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(fetcher.mock.calls).toHaveLength(calls + 1)
+    expect(posts()).toHaveLength(1)
+  } finally { vi.useRealTimers() }
+})
+
+it('does not start a new read when a restart finishes after the panel closes', async () => {
+  await show()
+  await act(async () => button('Reiniciar')!.click())
+  await act(async () => button('Reiniciar agora')!.click())
+  await act(async () => root.render(null))
+  const calls = fetcher.mock.calls.length
+  await act(async () => finish!(Response.json({ ...computer, restarted: true })))
+  expect(fetcher.mock.calls).toHaveLength(calls)
 })

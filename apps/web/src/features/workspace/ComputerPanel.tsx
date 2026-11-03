@@ -21,38 +21,60 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
   const [restarting, setRestarting] = useState(false)
   const restartRequest = useRef<string | null>(null)
   const [screen, setScreen] = useState(0)
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try { setState(await getComputers(agentId, signal)) } catch (failure) { if (!signal?.aborted) setError(asApiError(failure)) }
+  const reading = useRef<AbortController | null>(null)
+  const mutating = useRef(false)
+  const active = useRef(true)
+  const load = useCallback(async () => {
+    if (!active.current) return
+    reading.current?.abort()
+    const controller = new AbortController(); reading.current = controller
+    try {
+      const next = await getComputers(agentId, controller.signal)
+      if (!controller.signal.aborted) setState(next)
+    } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
+    finally { if (reading.current === controller) reading.current = null }
   }, [agentId])
   useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') void load(controller.signal) }, 4000)
-    return () => { controller.abort(); clearInterval(timer) }
+    active.current = true
+    void load()
+    const timer = setInterval(() => { if (!mutating.current && !reading.current && document.visibilityState === 'visible') void load() }, 4000)
+    return () => { active.current = false; reading.current?.abort(); clearInterval(timer) }
   }, [load])
   const computer: Computer | undefined = state?.computers.find((item) => item.status !== 'removed')
 
-  async function start() {
+  function beginMutation() {
+    if (mutating.current || !active.current) return false
+    mutating.current = true
+    // Nenhuma leitura iniciada antes da ação pode restaurar o estado anterior.
+    reading.current?.abort()
     setBusy(true); setError(null)
+    return true
+  }
+  function endMutation() {
+    mutating.current = false
+    if (active.current) setBusy(false)
+  }
+
+  async function start() {
+    if (!beginMutation()) return
     request.current ??= crypto.randomUUID()
-    try { await createComputer(agentId, request.current); request.current = null; await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
+    try { await createComputer(agentId, request.current); request.current = null; await load() } catch (failure) { if (active.current) setError(asApiError(failure)) } finally { endMutation() }
   }
   async function control(holder: 'agent' | 'human') {
-    if (!computer) return
-    setBusy(true); setError(null)
-    try { await setComputerControl(computer, holder); await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
+    if (!computer || !beginMutation()) return
+    try { await setComputerControl(computer, holder); await load() } catch (failure) { if (active.current) setError(asApiError(failure)) } finally { endMutation() }
   }
   async function restart() {
-    if (!computer) return
-    setConfirming(false); setRestarting(true); setBusy(true); setError(null)
+    if (!computer || !beginMutation()) return
+    setConfirming(false); setRestarting(true)
     // Mesmo identificador ao repetir após demora: a API devolve o mesmo reinício, sem outro.
     restartRequest.current ??= crypto.randomUUID()
     // Tela nova após o reinício: o visualizador reconecta sozinho.
-    try { await restartComputer(computer, restartRequest.current); restartRequest.current = null; setScreen((value) => value + 1); await load() } catch (failure) {
+    try { await restartComputer(computer, restartRequest.current); restartRequest.current = null; if (active.current) setScreen((value) => value + 1); await load() } catch (failure) {
       const problem = asApiError(failure)
       if (!['computer_restart_timeout', 'mutation_timeout', 'mutation_network'].includes(problem.code)) restartRequest.current = null
-      setError(problem)
-    } finally { setRestarting(false); setBusy(false) }
+      if (active.current) setError(problem)
+    } finally { if (active.current) setRestarting(false); endMutation() }
   }
 
   return <div className="flex h-full min-h-0 flex-col gap-3">
