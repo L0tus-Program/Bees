@@ -12,7 +12,7 @@ export function TaskFailure({ task, warnUnknown = false, compact = false }: { ta
   const message = failureMessage(i18n, code, run?.failure?.source, run?.failure?.response_issue)
   const step = task.agent_steps?.at(-1)
   const stepFailure = step?.code && step.code !== code && ['failed', 'rejected', 'outcome_unknown'].includes(step.status ?? '') ? `${step.tool}: ${failureMessage(i18n, step.code, 'tool')} · ${step.code}` : null
-  if (compact) return <span className="task-failure-summary block line-clamp-2 text-xs text-destructive">{run?.failure?.tool_name && `${run.failure.tool_name}: `}{message}{stepFailure && ` · ${stepFailure}`}{run?.failure?.provider_message && ` · ${run.failure.provider_message}`} · {code}</span>
+  if (compact) return <span className="task-failure-summary block line-clamp-2 text-xs text-foreground">{run?.failure?.tool_name && `${run.failure.tool_name}: `}{message}{stepFailure && ` · ${stepFailure}`}{run?.failure?.provider_message && ` · ${run.failure.provider_message}`} · {code}</span>
   return <div className="my-1 rounded-lg border border-warning/40 bg-warning/5 p-3 text-sm" role="status">
     <p>{message}</p>
     {stepFailure && <p className="mt-1 text-xs">{t('failureTool')}: {stepFailure}</p>}
