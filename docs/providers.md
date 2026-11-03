@@ -58,6 +58,13 @@ falha ou cancelamento. Reutilizar o UUID com outro modelo/endpoint é conflito;
 uma nova tentativa humana exige UUID novo. Esse registro é em memória e não
 promete replay entre reinícios da API.
 
+Enquanto a requisição de remoção aguarda o Ollama, novos downloads e outras
+remoções do mesmo modelo/endpoint normalizados são recusados com `model_in_use`
+(HTTP 409), inclusive em outra sessão. Outros alvos e replay de resultados
+anteriores continuam disponíveis. A exclusão dura até a requisição local terminar,
+inclusive por erro ou cancelamento; não promete término do efeito no Ollama,
+coordenação entre processos ou persistência após reinício. Não há retry automático.
+
 Ao editar o endereço do Ollama, o painel começa uma consulta para aquele destino
 e descarta a lista, o progresso e os avisos do endereço anterior. Respostas
 atrasadas e confirmações de uma tela encerrada não podem iniciar uma operação ou

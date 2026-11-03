@@ -193,6 +193,7 @@ class LocalModelManager:
         self._timeout = timeout
         self._pulls: dict[UUID, Pull] = {}
         self._requests: dict[UUID, Pull] = {}
+        self._deleting: set[tuple[str, str]] = set()
 
     def _client(self, endpoint: str, *, stream: bool = False) -> httpx.AsyncClient:
         timeout = httpx.Timeout(self._timeout, read=None if stream else self._timeout)
@@ -247,6 +248,8 @@ class LocalModelManager:
             if previous.model != model or previous.endpoint != endpoint:
                 raise LocalModelError("pull_conflict")
             return previous
+        if (endpoint, model) in self._deleting:
+            raise LocalModelError("model_in_use")
         for pull in self._pulls.values():
             if pull.status == "running" and pull.model == model and pull.endpoint == endpoint:
                 # Todo UUID aceito precisa preservar replay, inclusive após o terminal.
@@ -287,16 +290,21 @@ class LocalModelManager:
     async def delete(self, endpoint: str | None, model: str) -> None:
         endpoint = local_endpoint(endpoint)
         model = validate_model(model)
-        if any(
+        target = (endpoint, model)
+        if target in self._deleting or any(
             p.status == "running" and p.model == model and p.endpoint == endpoint
             for p in self._pulls.values()
         ):
             raise LocalModelError("model_in_use")
+        # Reservar antes do primeiro await também bloqueia outras sessões da API.
+        self._deleting.add(target)
         try:
             async with self._client(endpoint) as client:
                 response = await client.request("DELETE", "/api/delete", json={"model": model})
         except httpx.HTTPError:
             raise LocalModelError("backend_unavailable") from None
+        finally:
+            self._deleting.remove(target)
         if response.status_code == 404:
             raise LocalModelError("model_not_found")
         if response.status_code >= 400:

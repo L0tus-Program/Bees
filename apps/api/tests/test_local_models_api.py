@@ -3,6 +3,8 @@
 import asyncio
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 from uuid import uuid4
 
 import httpx
@@ -271,3 +273,40 @@ def test_shared_pull_replay_after_cancellation_keeps_id_and_rejects_conflicts(st
                 conflict.status_code == 409 and conflict.json()["error"]["code"] == "pull_conflict"
             )
     assert backend.pulls == ["qwen3:latest"]
+
+
+def test_delete_in_flight_refuses_concurrent_pull_and_delete(state):
+    client, _ = state
+    entered = Event()
+    release = asyncio.Event()
+    calls = []
+
+    async def backend(value):
+        calls.append(value)
+        if value.method == "DELETE":
+            entered.set()
+            await asyncio.wait_for(release.wait(), 15)
+        return httpx.Response(200, content=lines({"status": "success"}))
+
+    client.app.state.local_models = LocalModelManager(transport=httpx.MockTransport(backend))
+    auth = headers(client)
+    delete = {"model": "qwen3", "confirm_delete": True}
+    pull = {"model": "qwen3:latest", "client_request_id": str(uuid4()), "confirm_download": True}
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        deleting = executor.submit(
+            client.post, "/api/v1/local-models/delete", json=delete, headers=auth
+        )
+        try:
+            assert entered.wait(15)
+            for path, body in (("pulls", pull), ("delete", delete)):
+                refused = client.post(f"/api/v1/local-models/{path}", json=body, headers=auth)
+                assert refused.status_code == 409
+                assert refused.json()["error"]["code"] == "model_in_use"
+            assert len(calls) == 1
+        finally:
+            client.portal.call(release.set)
+        assert deleting.result(timeout=15).status_code == 200
+    started = client.post("/api/v1/local-models/pulls", json=pull, headers=auth)
+    assert started.status_code == 202
+    assert wait(client, started.json()["id"])["status"] == "completed"
+    assert [call.method for call in calls] == ["DELETE", "POST"]
