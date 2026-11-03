@@ -274,11 +274,14 @@ class ChatMessage(Contract):
                 if isinstance(item, ResponseMessage)
                 for part in item.content
             ]
-            calls = [
-                ToolCall(id=item.call_id, name=item.name, arguments=json.loads(item.arguments))
-                for item in self.responses_state.items
-                if isinstance(item, ResponseFunctionCall)
-            ]
+            try:
+                calls = [
+                    ToolCall(id=item.call_id, name=item.name, arguments=json.loads(item.arguments))
+                    for item in self.responses_state.items
+                    if isinstance(item, ResponseFunctionCall)
+                ]
+            except ValueError, TypeError, RecursionError:
+                raise ValueError("Estado Responses possui argumentos inválidos.") from None
             if "\n".join(text) != (self.content or "") or calls != self.tool_calls:
                 raise ValueError("Estado Responses diverge da mensagem normalizada.")
         if self.images and self.role != "user":

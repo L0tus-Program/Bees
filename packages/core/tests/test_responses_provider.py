@@ -359,6 +359,18 @@ def test_responses_state_must_match_canonical_message():
     with pytest.raises(ValidationError):
         ChatMessage.model_validate(raw)
 
+    adapter = create_adapter(
+        "openai_compatible",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=output(function()))),
+    )
+    first = asyncio.run(
+        adapter.complete(config("openai_compatible", api="responses"), request(tools=True))
+    )
+    raw = first.message.model_dump(mode="json")
+    raw["responses_state"]["items"][0]["arguments"] = "[" * 2000 + "0" + "]" * 2000
+    with pytest.raises(ValidationError):
+        ChatMessage.model_validate(raw)
+
 
 def test_agent_worker_resumes_saved_responses_tool_call_without_repeating_model_or_effect(tmp_path):
     case = Case(
