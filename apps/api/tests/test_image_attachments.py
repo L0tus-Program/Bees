@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import json
+import random
 import shutil
 import subprocess
 from uuid import UUID
@@ -19,8 +20,12 @@ from test_delegation_api import state as state  # noqa: F401
 from bees_core.agent_tools.cycle import AgentTaskWorker
 
 
-def image_bytes(format="PNG", *, text=None):
+def image_bytes(format="PNG", *, text=None, noise=0):
     image = Image.new("RGB", (600, 100), "white")
+    if noise:
+        image = Image.frombytes(
+            "RGB", (noise, noise), random.Random(221).randbytes(noise * noise * 3)
+        )
     if text:
         ImageDraw.Draw(image).text((20, 20), text, fill="black", font=ImageFont.load_default(36))
     output = io.BytesIO()
@@ -76,7 +81,8 @@ def test_image_reaches_provider_as_image_and_not_on_next_turn(state, format, mim
 
 def test_image_survives_durable_worker_submission_and_replay(state):
     revision = configure(state, True, tools=True)
-    raw = image_bytes()
+    raw = image_bytes(noise=96)
+    assert len(raw) > 24000  # Imagem não deve consumir a janela de texto do histórico.
     artifact = upload(state, raw, name="print.png", media_type="image/png").json()
     client, _, agent, _, conversation, requests, transport = state
     body = submission(state, artifact, attachment_consent={"expected_agent_revision": revision})
@@ -171,4 +177,19 @@ def test_ocr_failure_is_explicit_and_does_not_submit_work(state, monkeypatch, mo
     artifact = upload(state, image_bytes(), media_type="image/png").json()
     response = send(state, submission(state, artifact))
     assert response.status_code == 422 and response.json()["error"]["code"] == code
+    assert state[5] == [] and records(state) == []
+
+
+def test_image_byte_limit_is_aggregate_and_rejects_before_model(state):
+    revision = configure(state, True)
+    raw = image_bytes(noise=256)
+    files = [
+        upload(state, raw, name=f"print{index}.png", media_type="image/png").json()
+        for index in range(3)
+    ]
+    assert sum(file["size_bytes"] for file in files) > 512 * 1024
+    body = submission(state, files[0], attachment_consent={"expected_agent_revision": revision})
+    body["attachments"] = [submission(state, file)["attachments"][0] for file in files]
+    response = send(state, body)
+    assert response.status_code == 422 and response.json()["error"]["code"] == "request_too_large"
     assert state[5] == [] and records(state) == []
