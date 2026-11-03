@@ -235,3 +235,39 @@ def test_cancel_running_pull_and_delete_requires_confirmation(state):
         headers=headers(client),
     )
     assert invalid.status_code == 422
+
+
+def test_shared_pull_replay_after_cancellation_keeps_id_and_rejects_conflicts(state):
+    client, backend = state
+
+    async def slow():
+        yield lines({"status": "pulling manifest"})
+        await asyncio.sleep(3600)
+
+    backend.pull_response = lambda _: httpx.Response(200, content=slow())
+    original = {"client_request_id": str(uuid4()), "model": "qwen3", "confirm_download": True}
+    alias = original | {"client_request_id": str(uuid4()), "model": "qwen3:latest"}
+
+    def start(value):
+        return client.post("/api/v1/local-models/pulls", json=value, headers=headers(client))
+
+    started = start(original)
+    assert started.status_code == 202
+    shared = start(alias)
+    assert shared.status_code == 202 and shared.json()["id"] == started.json()["id"]
+    cancelled = client.post(
+        f"/api/v1/local-models/pulls/{started.json()['id']}/cancel",
+        json={},
+        headers=headers(client),
+    )
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+    assert backend.pulls == ["qwen3:latest"]
+    for value in (original, alias):
+        replay = start(value)
+        assert replay.status_code == 202 and replay.json() == cancelled.json()
+        for changes in ({"model": "qwen3:4b"}, {"endpoint": "http://127.0.0.1:11435"}):
+            conflict = start(value | changes)
+            assert (
+                conflict.status_code == 409 and conflict.json()["error"]["code"] == "pull_conflict"
+            )
+    assert backend.pulls == ["qwen3:latest"]

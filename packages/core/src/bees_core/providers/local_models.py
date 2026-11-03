@@ -192,6 +192,7 @@ class LocalModelManager:
         self._clock = clock
         self._timeout = timeout
         self._pulls: dict[UUID, Pull] = {}
+        self._requests: dict[UUID, Pull] = {}
 
     def _client(self, endpoint: str, *, stream: bool = False) -> httpx.AsyncClient:
         timeout = httpx.Timeout(self._timeout, read=None if stream else self._timeout)
@@ -241,13 +242,15 @@ class LocalModelManager:
     def start(self, value: PullInput) -> Pull:
         endpoint = local_endpoint(value.endpoint)
         model = validate_model(value.model)
-        for pull in self._pulls.values():
-            if pull.client_request_id == value.client_request_id:
-                if pull.model != model or pull.endpoint != endpoint:
-                    raise LocalModelError("pull_conflict")
-                return pull
+        previous = self._requests.get(value.client_request_id)
+        if previous is not None:
+            if previous.model != model or previous.endpoint != endpoint:
+                raise LocalModelError("pull_conflict")
+            return previous
         for pull in self._pulls.values():
             if pull.status == "running" and pull.model == model and pull.endpoint == endpoint:
+                # Todo UUID aceito precisa preservar replay, inclusive após o terminal.
+                self._requests[value.client_request_id] = pull
                 return pull
         pull = Pull(
             id=uuid4(),
@@ -257,6 +260,7 @@ class LocalModelManager:
             started_at=self._clock(),
         )
         self._pulls[pull.id] = pull
+        self._requests[value.client_request_id] = pull
         pull.task = asyncio.get_running_loop().create_task(self._run(pull))
         return pull
 
