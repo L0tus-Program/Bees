@@ -10,7 +10,7 @@ A preparação pode levar alguns minutos na primeira vez. Se falhar, o launcher 
 
 O launcher gera internamente um código de uso único, válido por 15 minutos, e abre um fragmento privado da URL. O frontend remove esse fragmento antes de renderizar e mantém o código apenas em memória. Nenhuma rota anônima fornece esse código. Se atualizar/fechar a página antes de criar a identidade, execute o launcher novamente; isso invalida a autorização anterior. Instalações já configuradas abrem o login.
 
-O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; os caminhos Linux/macOS estão descritos abaixo. Não há instalador assinado universal. Os launchers implementados não substituem o aceite de instalação limpa e de abertura gráfica real por plataforma, ainda acompanhado em BEES-028 (#92).
+O arquivo VBS usa Windows Script Host e PowerShell do Windows. Se a política da máquina desabilita esses componentes, a alternativa operacional é `scripts/start.ps1`; os caminhos Linux/macOS estão descritos abaixo. Não há instalador assinado universal. Os launchers implementados não substituem o aceite de instalação limpa e de abertura gráfica real por plataforma, ainda acompanhado em BEES-028 (#95) e no aceite de instalação limpa (#92).
 
 ## Uso no Linux e macOS
 
