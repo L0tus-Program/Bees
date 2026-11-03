@@ -7,6 +7,11 @@ type ViewState = 'connecting' | 'connected' | 'disconnected'
 
 // Tela autenticada pela sessão; entrada só é aceita quando o usuário está no controle.
 export function ScreenViewer({ computer }: { computer: Computer }) {
+  // Uma identidade/modo novo começa com seu próprio estado de conexão.
+  return <ScreenConnection key={JSON.stringify([computer.agent_id, computer.id, computer.control_holder])} computer={computer} />
+}
+
+function ScreenConnection({ computer }: { computer: Computer }) {
   const { t } = useTranslation('computer')
   const hintId = useId()
   const target = useRef<HTMLDivElement>(null)
@@ -21,10 +26,10 @@ export function ScreenViewer({ computer }: { computer: Computer }) {
       const client = new RFB(target.current, viewUrl(computer), { wsProtocols: ['binary'] })
       client.viewOnly = !interactive
       client.scaleViewport = true
-      client.addEventListener('connect', () => setState('connected'))
-      client.addEventListener('disconnect', () => setState('disconnected'))
+      client.addEventListener('connect', () => { if (!cancelled) setState('connected') })
+      client.addEventListener('disconnect', () => { if (!cancelled) setState('disconnected') })
       rfb = client
-    }, () => setState('disconnected'))
+    }, () => { if (!cancelled) setState('disconnected') })
     return () => { cancelled = true; rfb?.disconnect() }
     // Só reconecta quando muda o computador ou o modo; atualizações do mesmo registro não piscam a tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
