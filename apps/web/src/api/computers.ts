@@ -15,11 +15,19 @@ export interface ExecutorGrant { id: string; agent_id: string; enabled: boolean;
 export interface Invite { invite_id: string; token: string; expires_at: string; delivered_locally: boolean }
 
 const text = (value: unknown): value is string => typeof value === 'string'
+const identifier = (value: unknown): value is string => text(value) && value.trim().length > 0
+const revision = (value: unknown): boolean => Number.isSafeInteger(value) && (value as number) > 0
 const agentPath = (agentId: string) => `/agents/${encodeURIComponent(agentId)}/computers`
 
 function isComputer(value: unknown): value is Computer {
-  return record(value) && ['id', 'agent_id', 'executor_id', 'name', 'status', 'control_holder'].every((key) => text(value[key]))
-    && Number.isSafeInteger(value.revision) && Number.isSafeInteger(value.control_revision) && typeof value.online === 'boolean'
+  return record(value) && ['id', 'agent_id', 'executor_id'].every((key) => identifier(value[key]))
+    && text(value.name) && text(value.status) && ['provisioning', 'ready', 'failed', 'removing', 'removed'].includes(value.status)
+    && (value.control_holder === 'agent' || value.control_holder === 'human')
+    && revision(value.revision) && revision(value.control_revision) && typeof value.online === 'boolean'
+    && (value.reason_code === null || text(value.reason_code)) && text(value.created_at) && text(value.updated_at)
+}
+function isComputerReceipt(value: unknown, computer: Computer): value is Computer {
+  return isComputer(value) && value.agent_id === computer.agent_id && value.id === computer.id && value.executor_id === computer.executor_id
 }
 function isExecutor(value: unknown): value is Executor {
   return record(value) && ['id', 'kind', 'name', 'status'].every((key) => text(value[key])) && typeof value.online === 'boolean'
@@ -28,28 +36,31 @@ function isExecutor(value: unknown): value is Executor {
 
 export async function getComputers(agentId: string, signal?: AbortSignal): Promise<ComputerState> {
   const value = await request(agentPath(agentId), { authenticated: true, signal })
-  if (!record(value) || !Array.isArray(value.computers) || !value.computers.every(isComputer) || typeof value.runtime_online !== 'boolean') throw new ApiError('invalid_response')
+  if (!record(value) || !Array.isArray(value.computers)
+    || !value.computers.every((item) => isComputer(item) && item.agent_id === agentId)
+    || new Set(value.computers.map((item) => item.id)).size !== value.computers.length
+    || typeof value.runtime_online !== 'boolean' || typeof value.runtime_paired !== 'boolean' || typeof value.local_link_available !== 'boolean') throw new ApiError('invalid_response')
   return value as unknown as ComputerState
 }
 export async function createComputer(agentId: string, clientRequestId: string, name?: string) {
   const value = await request(agentPath(agentId), { authenticated: true, body: { client_request_id: clientRequestId, ...(name ? { name } : {}) }, timeoutMs: 20000 })
-  if (!isComputer(value)) throw new ApiError('invalid_response')
+  if (!isComputer(value) || value.agent_id !== agentId || value.id !== clientRequestId) throw new ApiError('invalid_response')
   return value
 }
 export async function removeComputer(computer: Computer) {
   const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/remove`, { authenticated: true, body: { expected_revision: computer.revision } })
-  if (!isComputer(value)) throw new ApiError('invalid_response')
+  if (!isComputerReceipt(value, computer)) throw new ApiError('invalid_response')
   return value
 }
 export async function setComputerControl(computer: Computer, holder: 'agent' | 'human') {
   const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/control`, { authenticated: true, body: { expected_revision: computer.control_revision, holder } })
-  if (!isComputer(value)) throw new ApiError('invalid_response')
+  if (!isComputerReceipt(value, computer)) throw new ApiError('invalid_response')
   return value
 }
 /** Fecha programas e sobe a área de trabalho de novo; a API aguarda o runtime confirmar. */
 export async function restartComputer(computer: Computer, clientRequestId: string) {
   const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/restart`, { authenticated: true, body: { client_request_id: clientRequestId }, timeoutMs: 100000 })
-  if (!isComputer(value)) throw new ApiError('invalid_response')
+  if (!isComputerReceipt(value, computer) || !record(value) || value.restarted !== true) throw new ApiError('invalid_response')
   return value
 }
 export function viewUrl(computer: Computer) {

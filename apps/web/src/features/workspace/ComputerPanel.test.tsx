@@ -224,3 +224,35 @@ it.each(['creation', 'control', 'restart'] as const)('preserves a failed %s noti
     expect(fetcher.mock.calls.filter(([, init]) => (init as RequestInit).method === 'POST')).toHaveLength(1)
   } finally { vi.useRealTimers() }
 })
+
+it('does not expose a foreign computer screen or actions from the initial snapshot', async () => {
+  fetcher.mockImplementation(async () => Response.json({
+    computers: [{ ...computer, agent_id: 'other-agent' }], runtime_online: true, runtime_paired: true, local_link_available: false,
+  }))
+  await show()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(container.textContent).not.toContain('tela')
+  expect(button('Assumir controle')).toBeUndefined()
+  expect(button('Reiniciar')).toBeUndefined()
+  expect(fetcher.mock.calls.every(([, init]) => (init as RequestInit).method === 'GET')).toBe(true)
+})
+
+it('keeps the last valid screen when polling returns a foreign computer and recovers on a valid snapshot', async () => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    fetcher.mockImplementationOnce(async () => Response.json({
+      computers: [{ ...computer, agent_id: 'other-agent', control_holder: 'human' }], runtime_online: true, runtime_paired: true, local_link_available: false,
+    }))
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(button('Assumir controle')).toBeTruthy()
+    expect(button('Devolver à abelha')).toBeUndefined()
+    fetcher.mockImplementation(async (url: string) => String(url).endsWith('/control')
+      ? Response.json({ ...computer, control_holder: 'human' }) : snapshot('human'))
+    await act(async () => button('Assumir controle')!.click())
+    const [url] = fetcher.mock.calls.find(([url]) => String(url).endsWith('/control'))!
+    expect(url).toBe('/api/v1/agents/agent-1/computers/computer-1/control')
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+  } finally { vi.useRealTimers() }
+})
