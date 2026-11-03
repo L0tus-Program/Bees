@@ -470,6 +470,15 @@ try {
     await page.getByRole('textbox', { name: 'Propósito' }).fill('Conferir orientação de imagens.')
     await page.getByRole('button', { name: 'Criar abelha' }).click()
     await page.getByRole('heading', { name: 'Visão desativada', exact: true }).waitFor()
+    // Os pacotes já existem; conceder ferramentas explicitamente à abelha desta fixture.
+    await page.evaluate(async () => {
+      const auth = await (await fetch('/api/v1/auth/status')).json()
+      const data = await (await fetch('/api/v1/onboarding')).json()
+      const agent = data.agents.find((item) => item.name === 'Visão desativada')
+      const response = await fetch(`/api/v1/agents/${agent.id}/agent/recommended-tools`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Bees-CSRF': auth.csrf_token }, body: JSON.stringify({ client_request_id: crypto.randomUUID() }) })
+      if (!response.ok) throw new Error('Não foi possível conceder ferramentas à fixture de visão.')
+    })
+    await page.reload()
     if (await page.getByRole('button', { name: 'Voltar à conversa' }).isVisible()) await page.getByRole('button', { name: 'Voltar à conversa' }).click()
     await waitFor(() => page.getByRole('button', { name: /^Anexar arquivo/ }).isEnabled(), 'anexos prontos')
     await page.locator('#chat-input').evaluate((input, data) => {
