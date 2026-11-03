@@ -344,6 +344,9 @@ try {
   await audit(page, '12-modelo-local-endpoint-atual')
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
+  // Fechar antes de reduzir a janela: a folha móvel do computador cobre o chat.
+  const closePanel = page.getByRole('button', { name: 'Fechar painel', exact: true })
+  if (await closePanel.isVisible()) await closePanel.click()
   // Limpeza só arquiva: cancelar preserva a conversa; confirmar cria contexto vazio sem gerar.
   await page.getByRole('button', { name: 'Limpar conversa', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Cancelar', exact: true }).click()
@@ -363,9 +366,6 @@ try {
   if ((await page.getByRole('log').textContent()).includes('chave-e2e') || (await page.getByRole('log').textContent()).includes('private.invalid')) throw new Error('O diagnóstico expôs dados privados do provedor.')
   await page.getByText('Detalhes do erro', { exact: true }).click()
   await page.getByText('tools.function.parameters', { exact: true }).waitFor()
-  // O computador lateral vira uma folha que cobre o chat no celular.
-  const closePanel = page.getByRole('button', { name: 'Fechar painel', exact: true })
-  if (await closePanel.isVisible()) await closePanel.click()
   await auditWidths(page, '14-erro-modelo-explicado')
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))
@@ -380,7 +380,7 @@ try {
     const data = await (await fetch('/api/v1/onboarding')).json()
     const agent = data.agents.at(-1)
     const delegations = await (await fetch(`/api/v1/agents/${agent.id}/delegations?conversation_id=${agent.conversation_id}&offset=0&limit=100`)).json()
-    const messages = await (await fetch(`/api/v1/agents/${agent.id}/conversations/${agent.conversation_id}/messages`)).json()
+    const messages = await (await fetch(`/api/v1/agents/${agent.id}/messages?conversation_id=${agent.conversation_id}`)).json()
     return JSON.stringify({ delegations, messages: messages.messages?.map((m) => ({ id: m.id, role: m.role })) }).slice(0, 3000)
   }).catch((failure) => String(failure))
   console.error('depuração:', debug)
