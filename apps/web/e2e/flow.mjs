@@ -469,6 +469,8 @@ try {
     await page.getByLabel('Nome da abelha').fill('Visão desativada')
     await page.getByRole('textbox', { name: 'Propósito' }).fill('Conferir orientação de imagens.')
     await page.getByRole('button', { name: 'Criar abelha' }).click()
+    await page.getByRole('heading', { name: 'Visão desativada', exact: true }).waitFor()
+    if (await page.getByRole('button', { name: 'Voltar à conversa' }).isVisible()) await page.getByRole('button', { name: 'Voltar à conversa' }).click()
     await waitFor(() => page.getByRole('button', { name: /^Anexar arquivo/ }).isEnabled(), 'anexos prontos')
     await page.locator('#chat-input').evaluate((input, data) => {
       const transfer = new DataTransfer()
