@@ -26,7 +26,7 @@ function freePort() {
 }
 
 // Modelo OpenAI-compatível: devolve um texto com marcador e conta as gerações.
-const model = { requests: 0, failNext: false, attached: false, expectedImages: [], imagesReceived: false }
+const model = { requests: 0, failNext: false, invalidArguments: false, failedTool: false, attached: false, expectedImages: [], imagesReceived: false }
 const modelServer = createServer((request, response) => {
   let body = ''
   request.on('data', (chunk) => { body += chunk })
@@ -38,6 +38,16 @@ const modelServer = createServer((request, response) => {
       model.failNext = false
       response.statusCode = 400
       response.end(JSON.stringify({ error: { code: 'invalid_function_parameters', param: 'tools[0].function.parameters', message: 'Invalid schema: required must list every property. Bearer chave-e2e https://private.invalid/token' } }))
+      return
+    }
+    if (model.invalidArguments) {
+      model.invalidArguments = false
+      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'bad-json', type: 'function', function: { name: 'publish_file', arguments: '{INVALID-PRIVATE-ARGUMENTS' } }] }, finish_reason: 'tool_calls' }] }))
+      return
+    }
+    if (model.failedTool) {
+      model.failedTool = false
+      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'blocked-web', type: 'function', function: { name: 'web_fetch', arguments: JSON.stringify({ url: 'http://127.0.0.1/' }) } }] }, finish_reason: 'tool_calls' }] }))
       return
     }
     const payload = JSON.parse(body || '{}')
@@ -387,10 +397,51 @@ try {
   await page.getByText('Detalhes do erro', { exact: true }).click()
   await page.getByText('tools.function.parameters', { exact: true }).waitFor()
   await auditWidths(page, '14-erro-modelo-explicado')
+  // Resposta HTTP 200 inválida: causa estrutural no turno, Atividade e Tarefas, sem retry.
+  await page.setViewportSize({ width: 1280, height: 900 })
+  model.invalidArguments = true
+  await page.locator('#chat-input').fill('Teste de argumentos inválidos')
+  await page.locator('#chat-input').press('Enter')
+  const reason = 'Os argumentos da ferramenta não formam um objeto JSON válido.'
+  await page.getByRole('log').getByText(reason, { exact: true }).waitFor({ timeout: 60_000 })
+  if ((await page.getByRole('log').textContent()).includes('INVALID-PRIVATE-ARGUMENTS')) throw new Error('O diagnóstico publicou argumentos inválidos privados.')
+  await page.getByRole('button', { name: 'Atividade', exact: true }).click()
+  await page.getByRole('tabpanel').locator('.task-failure-summary').filter({ hasText: reason }).waitFor()
+  await auditWidths(page, '15-causa-na-atividade')
+  const closeActivity = page.getByRole('button', { name: 'Fechar painel', exact: true })
+  if (await closeActivity.isVisible()) await closeActivity.click()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
+  await selectSettings(page, 'tasks')
+  const badTask = page.locator('.task-item').filter({ hasText: 'Teste de argumentos inválidos' })
+  await badTask.getByText(reason, { exact: false }).waitFor()
+  await badTask.click()
+  await page.locator('.task-detail').getByText(reason, { exact: true }).waitFor()
+  await auditWidths(page, '16-causa-na-tarefa')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('.appearance-select select').first().selectOption('dark')
+  await auditWidths(page, '16-causa-na-tarefa-escuro')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.locator('.appearance-select select').first().selectOption('light')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.getByRole('button', { name: 'Voltar à conversa' }).click()
+  // Falha real do caminho web: endereço privado é barrado antes da rede, com código no journal.
+  model.failedTool = true
+  await page.locator('#chat-input').fill('Teste de falha da ferramenta web')
+  await waitFor(() => page.getByRole('button', { name: 'Enviar', exact: true }).isEnabled(), 'editor pronto após configurações')
+  await page.locator('#chat-input').press('Enter')
+  await waitFor(() => model.requests === 7, 'tarefa com ferramenta recusada', 90_000)
+  await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
+  await selectSettings(page, 'tasks')
+  await page.locator('.task-item').filter({ hasText: 'Teste de falha da ferramenta web' }).click()
+  await page.locator('.task-detail').getByText('Ações de ferramentas registradas', { exact: true }).click()
+  await page.locator('.task-detail').getByText('web_private_address_blocked', { exact: true }).waitFor()
+  await page.locator('.task-detail').getByText('endereço privado bloqueado', { exact: false }).waitFor()
+  await auditWidths(page, '17-falha-da-ferramenta')
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, violations }, null, 2))
   console.log(JSON.stringify({ model_requests: model.requests, violations: violations.length, serious: serious.length }))
-  if (model.requests !== 4) throw new Error(`Esperava 4 chamadas (1 conversa + 2 do agente + 1 recusa), houve ${model.requests}.`)
+  if (model.requests !== 7) throw new Error(`Esperava 7 chamadas (1 conversa + 2 do agente + 2 falhas de modelo + 2 da ferramenta), houve ${model.requests}.`)
   if (serious.length) { console.error(JSON.stringify(serious, null, 2)); process.exitCode = 1 }
 } catch (error) {
   console.error(error)

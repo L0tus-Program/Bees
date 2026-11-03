@@ -441,6 +441,7 @@ fieldset { padding: 0; margin: 0; border: 0; min-width: 0; }
 .task-item.selected { border-color: var(--theme-border, #bca367); background: var(--theme-warning, #f7efda); }
 .task-item strong { font-size: 13px; overflow-wrap: anywhere; }
 .task-item span { font-size: 11px; color: var(--theme-accent-text, #66572f); }
+.task-item .task-failure-summary { grid-column: 1 / -1; overflow-wrap: anywhere; color: var(--theme-ink, #29332d); }
 .task-item small { font-size: 10px; color: var(--muted); grid-column: 1 / -1; }
 .task-empty { color: var(--muted); font-size: 13px; line-height: 1.8; padding: 16px 0; }
 .task-detail h3 { font-size: 18px; overflow-wrap: anywhere; }

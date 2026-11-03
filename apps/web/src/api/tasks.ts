@@ -14,7 +14,7 @@ export interface DeliverableItem {
   sha256: string | null; size_bytes: number | null; version: number | null; rows: number | null; columns: number | null; formula_like_cells: number | null
 }
 export interface DeliverableResults { items: DeliverableItem[]; partial: boolean; missing_data: string[] }
-export interface ModelFailure extends ProviderDiagnostic { code: string }
+export interface ModelFailure extends ProviderDiagnostic { code: string; source?: 'model' | 'tool'; tool_name?: string }
 export interface TaskRun { failure?: ModelFailure | null; id: string; status: TaskStatus; provider: string; model: string; started_at: string | null; finished_at: string | null; error_code: string | null; result: TaskResult | null }
 export interface TaskRecord {
   routine_execution?: { routine_id: string; revision: number; occurrence_id: string; scheduled_at: string; name: string; trigger?: 'manual' }
@@ -55,6 +55,9 @@ function isRun(value: unknown) {
     && nullableString(value.error_code) && isResult(value.result)
     && (value.failure === undefined || value.failure === null || (record(value.failure)
       && typeof value.failure.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value.failure.code)
+      && (value.failure.source === undefined || ['model', 'tool'].includes(String(value.failure.source)))
+      && (value.failure.tool_name === undefined || typeof value.failure.tool_name === 'string' && /^[a-z][a-z0-9_.-]{0,127}$/.test(value.failure.tool_name))
+      && (value.failure.source !== 'tool' || typeof value.failure.tool_name === 'string')
       && providerDiagnostic(value.failure) !== null)))
 }
 const nullableCount = (value: unknown) => value === null || count(value)

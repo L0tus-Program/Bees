@@ -236,7 +236,7 @@ def validate_calls(
         for call in calls:
             tool = definitions.get(call.name)
             if tool is None and not proposals:
-                raise ValueError("Ferramenta não declarada.")
+                raise ProviderError("invalid_response", response_issue="tool_not_offered")
             nodes = 0
 
             def bound(value: JsonValue, depth: int = 0) -> None:
@@ -255,7 +255,7 @@ def validate_calls(
                 Draft202012Validator(tool.parameters).validate(call.arguments)
             json.dumps(call.arguments, allow_nan=False)
     except ValueError, TypeError, SchemaValidationError, RecursionError:
-        raise ProviderError("invalid_response") from None
+        raise ProviderError("invalid_response", response_issue="tool_arguments_schema") from None
 
 
 class ChatRequest(Contract):

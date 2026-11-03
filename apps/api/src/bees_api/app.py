@@ -284,7 +284,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "provider_message": error.provider_message,
                         "http_status": error.upstream_status,
                         "parameter": error.parameter,
-                    },
+                    }
+                    | ({"response_issue": error.response_issue} if error.response_issue else {}),
                 }
                 | (
                     {"upstream_status": error.upstream_status}

@@ -1,5 +1,6 @@
 """Delegação e observação autenticadas; somente o worker consome a fila."""
 
+import re
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -11,7 +12,7 @@ from bees_api.onboarding import Input
 from bees_api.worker_status import HEARTBEAT_KEY, worker_status
 from bees_core.executor_transport.contracts import TransportError
 from bees_core.providers.errors import MESSAGES as PROVIDER_MESSAGES
-from bees_core.providers.errors import ProviderError
+from bees_core.providers.errors import RESPONSE_ISSUES, ProviderError
 from bees_core.recovery import RecoveryActionPage, RecoveryInventory, RecoveryInventoryService
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
@@ -114,6 +115,7 @@ def _model_failure(run, calls) -> dict | None:
         return None
     status = value.get("http_status")
     field = value.get("parameter")
+    issue = value.get("response_issue")
     return {
         "code": value["code"],
         "provider_message": public_provider_message(value.get("provider_message")),
@@ -130,6 +132,48 @@ def _model_failure(run, calls) -> dict | None:
             "stream",
         )
         else None,
+    } | ({"response_issue": issue} if isinstance(issue, str) and issue in RESPONSE_ISSUES else {})
+
+
+def _failure(run, calls, actions) -> dict | None:
+    model = _model_failure(run, calls)
+    if model is not None:
+        return model
+    last_call = next((call for call in reversed(calls) if call.run_id == run.id), None)
+    if last_call is not None and last_call.status in {"dispatch_started", "outcome_unknown"}:
+        # Causa do modelo não registrada: uma falha antiga de ferramenta não a substitui.
+        return None
+    if not run.error:
+        return None
+    generic = run.error in {
+        "outcome_unknown",
+        "tool_outcome_unknown",
+        "executor_error",
+        "executor_timeout",
+        "tool_failed",
+    }
+    failed = [
+        action
+        for action in actions
+        if action.run_id == run.id
+        and not action.obsolete
+        and action.tool_name != "tool.intent"
+        and action.status in {"failed_no_effect", "outcome_unknown"}
+        and isinstance(action.error_code, str)
+        and re.fullmatch(r"[a-z][a-z0-9_]{0,63}", action.error_code)
+        and re.fullmatch(r"[a-z][a-z0-9_.-]{0,127}", action.tool_name)
+        and (generic or action.error_code == run.error)
+    ]
+    if not failed:
+        return None
+    last = max(failed, key=lambda action: (action.updated_at, str(action.id)))
+    return {
+        "code": last.error_code,
+        "source": "tool",
+        "tool_name": last.tool_name,
+        "http_status": None,
+        "parameter": None,
+        "provider_message": None,
     }
 
 
@@ -227,7 +271,7 @@ def _view(detail) -> dict:
                     "started_at": run.started_at.isoformat() if run.started_at else None,
                     "finished_at": run.finished_at.isoformat() if run.finished_at else None,
                     "error_code": run.error,
-                    "failure": _model_failure(run, detail.calls),
+                    "failure": _failure(run, detail.calls, detail.actions),
                     "result": result,
                 }
                 if run

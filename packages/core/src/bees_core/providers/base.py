@@ -63,13 +63,13 @@ def decode_json(raw: bytes) -> dict[str, Any]:
             parse_constant=lambda _: (_ for _ in ()).throw(ValueError()),
         )
     except ValueError, UnicodeDecodeError, RecursionError:
-        raise ProviderError("invalid_response") from None
+        raise ProviderError("invalid_response", response_issue="invalid_json") from None
     if not isinstance(value, dict):
-        raise ProviderError("invalid_response")
+        raise ProviderError("invalid_response", response_issue="invalid_json")
     return value
 
 
-async def rejection(response: httpx.Response) -> ProviderError:
+async def rejection(response: httpx.Response, *, raw_body: bytes | None = None) -> ProviderError:
     """Classifica uma recusa limitada e remove dados privados do diagnóstico."""
     code = {
         401: "authentication_failed",
@@ -85,7 +85,10 @@ async def rejection(response: httpx.Response) -> ProviderError:
     if response.headers.get("content-encoding", "identity").lower() == "identity":
         try:
             raw = bytearray()
-            if response.is_stream_consumed:
+            if raw_body is not None:
+                if len(raw_body) <= 8192:
+                    raw.extend(raw_body)
+            elif response.is_stream_consumed:
                 if len(response.content) <= 8192:
                     raw.extend(response.content)
             else:
@@ -158,10 +161,11 @@ async def rejection(response: httpx.Response) -> ProviderError:
             pass
     return ProviderError(
         code,
-        upstream_status=response.status_code,
+        upstream_status=response.status_code if response.status_code >= 400 else None,
         parameter=parameter,
         provider_message=provider_message,
         retryable=response.status_code == 429 or response.status_code >= 500,
+        response_issue="error_envelope" if response.status_code < 400 else None,
     )
 
 
@@ -241,10 +245,10 @@ class HTTPAdapter:
                 raise ProviderError("provider_rejected", upstream_status=status)
             if response.headers.get("content-encoding", "identity").lower() != "identity":
                 # Não descompactar respostas externas sem limite anterior à expansão.
-                raise ProviderError("invalid_response")
+                raise ProviderError("invalid_response", response_issue="content_encoding")
             content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
             if content_type != "application/json" and not content_type.endswith("+json"):
-                raise ProviderError("invalid_response")
+                raise ProviderError("invalid_response", response_issue="content_type")
             length = response.headers.get("content-length")
             if length is not None:
                 try:
@@ -258,12 +262,20 @@ class HTTPAdapter:
             if response.is_stream_consumed:
                 if len(response.content) > config.max_response_bytes:
                     raise ProviderError("response_too_large")
-                return decode_json(response.content)
+                raw = response.content
+                data = decode_json(raw)
+                if isinstance(data.get("error"), (str, dict)):
+                    raise await rejection(response, raw_body=raw)
+                return data
             async for chunk in response.aiter_raw():
                 if len(chunks) + len(chunk) > config.max_response_bytes:
                     raise ProviderError("response_too_large")
                 chunks.extend(chunk)
-            return decode_json(bytes(chunks))
+            raw = bytes(chunks)
+            data = decode_json(raw)
+            if isinstance(data.get("error"), (str, dict)):
+                raise await rejection(response, raw_body=raw)
+            return data
 
 
 def create_adapter(

@@ -1,10 +1,12 @@
-export interface ProviderDiagnostic { provider_message?: string | null; http_status: number | null; parameter: string | null }
+export const responseIssues = ['invalid_json', 'content_type', 'content_encoding', 'choices', 'message', 'tool_calls', 'tool_call', 'tool_arguments_json', 'tool_arguments_schema', 'tool_not_offered', 'duplicate_tool_call', 'finish_reason', 'content', 'usage', 'error_envelope'] as const
+export interface ProviderDiagnostic { response_issue?: typeof responseIssues[number]; provider_message?: string | null; http_status: number | null; parameter: string | null }
 export function providerDiagnostic(value: unknown): ProviderDiagnostic | null {
   if (!record(value)
+    || !(value.response_issue === undefined || responseIssues.includes(value.response_issue as typeof responseIssues[number]))
     || !(value.provider_message === undefined || value.provider_message === null || typeof value.provider_message === 'string' && value.provider_message.length <= 1001)
     || !(value.http_status === null || Number.isInteger(value.http_status) && Number(value.http_status) >= 400 && Number(value.http_status) <= 599)
     || !(value.parameter === null || typeof value.parameter === 'string' && ['tools', 'tools.function.parameters', 'tools.function.strict', 'messages', 'model', 'store', 'stream'].includes(value.parameter))) return null
-  return { provider_message: value.provider_message as string | null | undefined, http_status: value.http_status as number | null, parameter: value.parameter as string | null }
+  return { ...(value.response_issue ? { response_issue: value.response_issue as typeof responseIssues[number] } : {}), provider_message: value.provider_message as string | null | undefined, http_status: value.http_status as number | null, parameter: value.parameter as string | null }
 }
 
 export class ApiError extends Error {

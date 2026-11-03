@@ -265,8 +265,8 @@ class ToolTaskWorker(TaskWorker):
                     raise ProviderError("tool_result_too_large")
         return result
 
-    def _settle_local(self, unit, claim, *, code):
-        super()._settle_local(unit, claim, code=code)
+    def _settle_local(self, unit, claim, *, code, failure=None):
+        super()._settle_local(unit, claim, code=code, failure=failure)
         task = unit.tasks.get(claim.task.id)
         if (
             task.metadata.get("execution_kind") == MODEL_TASK_KIND

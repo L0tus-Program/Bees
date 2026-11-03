@@ -82,6 +82,41 @@ function transferEvent(type: 'paste' | 'drop' | 'dragenter' | 'dragleave', files
 async function flushUploads() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 25)) }) }
 
 describe('chat as an assistant conversation', () => {
+  it('keeps the draft and waits for capabilities without switching to direct chat', async () => {
+    let resolve!: (value: Response) => void
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    fetcher.mockImplementation((...args: unknown[]) => String(args[0]).includes('/agent/capabilities') ? new Promise<Response>((done) => { resolve = done }) : previous(...args))
+    await show()
+    const input = container.querySelector('#chat-input') as HTMLTextAreaElement
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Use uma ferramenta'); input.dispatchEvent(new Event('input', { bubbles: true })) })
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(calls('/agent-messages')).toHaveLength(0)
+    expect(calls('/chat')).toHaveLength(0)
+    expect(container.textContent).toContain('Preparando conversa')
+    expect(input.value).toBe('Use uma ferramenta')
+    await act(async () => resolve(Response.json(capabilities)))
+    expect(calls('/agent-messages')).toHaveLength(0)
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(calls('/agent-messages')).toHaveLength(1)
+    expect(calls('/chat')).toHaveLength(0)
+  })
+
+  it('shows capability lookup failures and retries without silently using direct chat', async () => {
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    let failed = true
+    fetcher.mockImplementation((...args: unknown[]) => {
+      if (String(args[0]).includes('/agent/capabilities') && failed) return Promise.reject(new TypeError('offline'))
+      return previous(...args)
+    })
+    await show()
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(calls('/chat')).toHaveLength(0)
+    failed = false
+    await act(async () => { const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Tentar de novo')!; retry.click() })
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(calls('/chat')).toHaveLength(0)
+  })
+
   it('sends with Enter to the agent and keeps Shift+Enter for a new line', async () => {
     await show()
     const input = container.querySelector('#chat-input') as HTMLTextAreaElement

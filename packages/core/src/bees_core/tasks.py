@@ -16,6 +16,7 @@ from bees_core.providers.errors import ProviderError
 from bees_core.providers.service import PreparedChat, ProviderService
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError, RevisionConflict, StateStore
+from bees_core.tool_diagnostics import public_tool_code
 
 
 class TaskError(RuntimeError):
@@ -446,10 +447,7 @@ class TaskService:
                         run_id=action.run_id,
                         tool_name=action.tool_name,
                         status=action.status,
-                        error_code=action.metadata.get("error_code")
-                        if action.metadata.get("error_code")
-                        in ("tool_result_unknown", "tool_interrupted_unknown")
-                        else None,
+                        error_code=public_tool_code(action.metadata.get("error_code")),
                         obsolete=action.metadata.get("obsolete") is True,
                         acknowledged=action.unknown_acknowledged_at is not None,
                         created_at=action.created_at,

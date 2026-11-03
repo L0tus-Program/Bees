@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from bees_core.providers.base import HTTPAdapter, encode_json
 from bees_core.providers.contracts import (
+    ChatMessage,
     ChatRequest,
     ChatResponse,
     Diagnostic,
@@ -121,31 +122,44 @@ class OllamaAdapter(HTTPAdapter):
             await self._local_model(client, config)
             self._authorize_generation()
             data = await self._json(client, config, "POST", "api/chat", body=body)
+        issue = "finish_reason"
         try:
-            if data.get("done") is not True or data["message"].get("role") != "assistant":
+            if data.get("done") is not True:
                 raise ValueError()
+            issue = "message"
             raw = data["message"]
+            if raw.get("role") != "assistant":
+                raise ValueError()
             if raw.get("thinking"):
                 raise ProviderError("unsupported_capability")
             calls = []
+            issue = "tool_calls"
             raw_calls = raw.get("tool_calls")
             if raw_calls is not None and (not isinstance(raw_calls, list) or len(raw_calls) > 64):
                 raise ValueError()
             for value in raw_calls or []:
+                issue = "tool_call"
                 function = value["function"]
+                issue = "tool_arguments_json"
+                arguments = function["arguments"]
+                if not isinstance(arguments, dict):
+                    raise ValueError()
+                issue = "tool_call"
                 calls.append(
                     ToolCall(
                         id=f"ollama_{uuid4().hex}",
                         name=function["name"],
-                        arguments=function["arguments"],
+                        arguments=arguments,
                     )
                 )
             validate_calls(calls, request.tools, proposals=self._tool_proposals)
+            issue = "finish_reason"
             done_reason = data.get("done_reason", "stop")
             if calls and done_reason not in ("stop", "tool_calls"):
                 # Não promover uma saída truncada a chamada completa de ferramenta.
                 raise ValueError()
             counts = {}
+            issue = "usage"
             if "prompt_eval_count" in data:
                 counts["input_tokens"] = data["prompt_eval_count"]
             if "eval_count" in data:
@@ -153,13 +167,16 @@ class OllamaAdapter(HTTPAdapter):
             if "input_tokens" in counts and "output_tokens" in counts:
                 counts["total_tokens"] = counts["input_tokens"] + counts["output_tokens"]
             usage = Usage(kind="reported", **counts) if counts else Usage()
+            issue = "content"
+            message = ChatMessage(role="assistant", content=raw.get("content"), tool_calls=calls)
+            issue = "finish_reason"
             return ChatResponse(
-                message={"role": "assistant", "content": raw.get("content"), "tool_calls": calls},
+                message=message,
                 finish_reason="tool_calls" if calls else done_reason,
                 usage=usage,
             )
         except KeyError, TypeError, ValueError, AttributeError, ValidationError:
-            raise ProviderError("invalid_response") from None
+            raise ProviderError("invalid_response", response_issue=issue) from None
 
     async def diagnose(self, config: ProviderConfig) -> Diagnostic:
         config, _ = snapshots(config)

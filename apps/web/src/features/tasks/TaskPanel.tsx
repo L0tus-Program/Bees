@@ -6,6 +6,7 @@ import type { AgentSummary } from '../../api/onboarding'
 import { TaskForm } from './TaskForm'
 import { TaskDetail } from './TaskDetail'
 import { TaskTime } from './TaskTime'
+import { TaskFailure } from './TaskFailure'
 import { mergeTaskSnapshot } from './state'
 import { useTaskPolling } from './useTaskPolling'
 import { restoreToolTask } from './toolTaskRecovery'
@@ -30,7 +31,7 @@ export function TaskPanel({ agent }: { agent: AgentSummary }) {
     {monitor.data && <>
       {!monitor.data.tasks.length && <p className="task-empty">{t('empty')}</p>}
       {monitor.data.has_more && <p className="quiet-note">{t('limited')}</p>}
-      <div className="task-list">{monitor.data.tasks.map((task) => <button type="button" key={task.id} className={`task-item ${selectedId === task.id ? 'selected' : ''}`} aria-pressed={selectedId === task.id} onClick={() => setSelectedId(task.id)}><strong>{task.title}</strong><span>{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</span><small><TaskTime value={task.updated_at} /></small></button>)}</div>
+      <div className="task-list">{monitor.data.tasks.map((task) => <button type="button" key={task.id} className={`task-item ${selectedId === task.id ? 'selected' : ''}`} aria-pressed={selectedId === task.id} onClick={() => setSelectedId(task.id)}><strong>{task.title}</strong><span>{t(`status.${task.status}`)}{task.control_requested && ` · ${t(`requested.${task.control_requested}`)}`}</span><TaskFailure task={task} compact /><small><TaskTime value={task.updated_at} /></small></button>)}</div>
     </>}
     {selectedId && <TaskDetail key={`${agent.id}:${selectedId}`} agent={agent} taskId={selectedId} onRefresh={monitor.refresh} onClose={() => setSelectedId(null)} />}
   </section>
