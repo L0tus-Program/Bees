@@ -107,7 +107,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     try {
       const next = await cancelLocalPull(pull.id, controller.signal)
       if (!controller.signal.aborted) {
-        setPull(next)
+        setRetry(0); setPull(next)
         const message = next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null
         setNotice(message ? { kind: 'download', text: message } : null)
         if (next.status === 'completed') await load()
