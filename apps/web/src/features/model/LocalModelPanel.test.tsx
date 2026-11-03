@@ -288,3 +288,42 @@ it.each(['completed', 'failed'] as const)('keeps the %s outcome visible after lo
   expect(button('Baixar')).toBeUndefined()
   expect(button('Remover')).toBeUndefined()
 })
+
+it.each(['cancelled', 'completed', 'failed'] as const)('discovers another active download after %s without repeating a mutation', async (outcome) => {
+  const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
+  const terminal = { ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null }
+  let externalStarted = false
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); return Response.json(terminal) }
+    if (url.includes('/pulls/p2')) return Response.json(next)
+    return Response.json({ ...status, pulls: externalStarted ? [terminal, next] : [pull] })
+  }))
+  await render()
+  await act(async () => button('Cancelar download')!.click())
+  expect(container.querySelector('progress')).toBeNull()
+  externalStarted = true
+  await act(async () => button('Verificar de novo')!.click())
+  expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:4b')
+  expect(container.querySelector('progress')?.value).toBe(70)
+  expect(container.textContent).not.toContain('Download cancelado')
+  expect(container.textContent).not.toContain('qwen3:8b está pronto')
+  expect(container.textContent).not.toContain('O download de qwen3:8b falhou')
+  expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+})
+
+it('keeps tracking its current running download when another one appears first in the catalog', async () => {
+  const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
+  let reads = 0
+  const writes: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') writes.push(url)
+    reads += 1
+    return Response.json({ ...status, pulls: reads === 1 ? [pull] : [next, pull] })
+  }))
+  await render()
+  await act(async () => button('Verificar de novo')!.click())
+  expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:8b')
+  expect(container.querySelector('progress')?.value).toBe(40)
+  expect(writes).toEqual([])
+})

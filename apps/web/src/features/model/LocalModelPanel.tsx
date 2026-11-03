@@ -40,7 +40,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       const data = await getLocalModels(target, controller.signal)
       if (controller.signal.aborted) return
       setStatus({ state: 'ready', data })
-      setPull((current) => current ?? data.pulls.find((item) => item.status === 'running') ?? null)
+      setPull((current) => current?.status === 'running' ? current
+        : data.pulls.find((item) => item.status === 'running' && item.id !== current?.id) ?? current)
     } catch (error) { if (!controller.signal.aborted) setStatus({ state: 'error', error: asApiError(error) }) }
   }, [target])
 
@@ -49,6 +50,10 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     return () => reading.current?.abort()
   }, [load])
   useEffect(() => () => operation.current?.abort(), [])
+
+  useEffect(() => {
+    if (pull?.status === 'running') setNotice(null)
+  }, [pull?.id, pull?.status])
 
   useEffect(() => {
     if (!pull || pull.status !== 'running' || pending) return
