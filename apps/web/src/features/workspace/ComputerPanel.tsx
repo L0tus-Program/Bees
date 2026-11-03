@@ -15,6 +15,7 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
   const { t } = useTranslation('workspace')
   const [state, setState] = useState<ComputerState | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  const [readError, setReadError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
   const request = useRef<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -30,8 +31,8 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
     const controller = new AbortController(); reading.current = controller
     try {
       const next = await getComputers(agentId, controller.signal)
-      if (!controller.signal.aborted) setState(next)
-    } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
+      if (!controller.signal.aborted) { setState(next); setReadError(null) }
+    } catch (failure) { if (!controller.signal.aborted) setReadError(asApiError(failure)) }
     finally { if (reading.current === controller) reading.current = null }
   }, [agentId])
   useEffect(() => {
@@ -47,7 +48,7 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
     mutating.current = true
     // Nenhuma leitura iniciada antes da ação pode restaurar o estado anterior.
     reading.current?.abort()
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setReadError(null)
     return true
   }
   function endMutation() {
@@ -84,6 +85,7 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
       {computer?.status === 'ready' && <Badge variant={computer.online ? 'secondary' : 'outline'}>{computer.online ? t('inUse') : '—'}</Badge>}
     </div>
     {error && <div className="legacy-scope"><ErrorNotice error={error} /></div>}
+    {readError && <div className="legacy-scope"><ErrorNotice error={readError} /></div>}
     {!state && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('computerStarting')}</p>}
     {state && !computer && (state.runtime_paired && state.runtime_online
       ? <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-6"><p className="text-sm text-muted-foreground">{t('computerOff')}</p><Button onClick={() => { void start() }} disabled={busy}>{busy ? <Loader2 className="animate-spin" /> : <Power />}{t('computerStart')}</Button></div>

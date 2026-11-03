@@ -187,3 +187,40 @@ it('does not start a new read when a restart finishes after the panel closes', a
   await act(async () => finish!(Response.json({ ...computer, restarted: true })))
   expect(fetcher.mock.calls).toHaveLength(calls)
 })
+
+it.each(['initial', 'periodic'] as const)('clears a recovered %s read error without sending a mutation', async (stage) => {
+  vi.useFakeTimers()
+  try {
+    if (stage === 'periodic') await show()
+    fetcher.mockImplementationOnce(async () => Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 }))
+    if (stage === 'initial') await show()
+    else await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    fetcher.mockImplementation(async () => snapshot('human'))
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(fetcher.mock.calls.every(([, init]) => (init as RequestInit).method === 'GET')).toBe(true)
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['creation', 'control', 'restart'] as const)('preserves a failed %s notice when periodic reads recover', async (operation) => {
+  vi.useFakeTimers()
+  try {
+    if (operation === 'creation') fetcher.mockImplementationOnce(async () => Response.json({ computers: [], runtime_online: true, runtime_paired: true, local_link_available: false }))
+    await show()
+    const failure = () => Response.json({ error: { code: 'computer_restart_failed', message: 'x' } }, { status: 409 })
+    fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST' ? failure() : snapshot())
+    if (operation === 'restart') {
+      await act(async () => button('Reiniciar')!.click())
+      await act(async () => button('Reiniciar agora')!.click())
+    } else await act(async () => button(operation === 'creation' ? 'Ligar computador' : 'Assumir controle')!.click())
+    const alert = container.querySelector('[role="alert"]')?.textContent
+    expect(alert).toContain('Não foi possível reiniciar o computador')
+    fetcher.mockImplementationOnce(async () => Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 }))
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(alert)
+    expect(fetcher.mock.calls.filter(([, init]) => (init as RequestInit).method === 'POST')).toHaveLength(1)
+  } finally { vi.useRealTimers() }
+})
