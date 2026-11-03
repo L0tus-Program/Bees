@@ -100,7 +100,11 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     const controller = beginOperation(); if (!controller) return
     try {
       const next = await cancelLocalPull(pull.id, controller.signal)
-      if (!controller.signal.aborted) { setPull(next); setNotice(t('cancelled')) }
+      if (!controller.signal.aborted) {
+        setPull(next)
+        setNotice(next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null)
+        if (next.status === 'completed') await load()
+      }
     } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
     finally { finishOperation(controller) }
   }
