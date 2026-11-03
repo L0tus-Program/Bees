@@ -75,6 +75,13 @@ consulta válida à API Bees, mesmo com catálogo indisponível. Durante a atual
 da consulta, ou se ela falhar, cancelar fica desabilitado até atualizar o estado.
 Novos downloads e remoções continuam indisponíveis enquanto o Ollama não responde.
 
+Depois de um resultado terminal, uma nova consulta pode passar a acompanhar outro
+download ativo no mesmo endpoint, inclusive iniciado em outra janela. O aviso do
+download anterior é removido, preservando confirmações de remoção de modelos.
+Um download ainda em andamento mantém sua seleção;
+um snapshot atrasado do mesmo ID não transforma resultado terminal em execução.
+Essa atualização apenas consulta o estado, sem repetir download ou cancelamento.
+
 Download e remoção só aceitam respostas HTTP 2xx como sucesso; redirecionamentos
 não são seguidos nem confirmam efeito. Contadores de progresso presentes precisam
 ser inteiros não booleanos e não negativos. Ausência de `completed` equivale a
