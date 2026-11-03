@@ -83,6 +83,15 @@ class OpenAICompatibleAdapter(HTTPAdapter):
         config, request = validate_request(config, request)
         if config.kind != "openai_compatible":
             raise ProviderError("invalid_config")
+        from bees_core.providers.responses import ResponsesAdapter, uses_responses
+
+        if uses_responses(config):
+            return await ResponsesAdapter(
+                self._resolver,
+                self._transport,
+                self._generation_guard,
+                tool_proposals=self._tool_proposals,
+            ).complete(config, request)
         body = {
             "model": config.model,
             "messages": [wire_message(msg) for msg in request.messages],

@@ -103,6 +103,9 @@ class ConnectionConfig(Contract):
 class ProviderConfig(ConnectionConfig):
     model: str = Field(min_length=1, max_length=200)
     capabilities: ProviderCapabilities
+    api: Literal["auto", "chat_completions", "responses"] = Field(
+        default="auto", exclude_if=lambda value: value == "auto"
+    )
 
     @field_validator("model")
     @classmethod
@@ -113,6 +116,8 @@ class ProviderConfig(ConnectionConfig):
 
     @model_validator(mode="after")
     def local_model(self) -> Self:
+        if self.kind == "ollama" and self.api != "auto":
+            raise ValueError("A seleção de API pertence a provedores OpenAI compatíveis.")
         if self.kind == "ollama" and (
             "cloud" in self.model.lower() or "@" in self.model or "://" in self.model
         ):
@@ -201,17 +206,84 @@ class ImageContent(Contract):
         return self
 
 
+class ResponseReasoning(Contract):
+    type: Literal["reasoning"] = "reasoning"
+    id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$")
+    encrypted_content: str = Field(min_length=1, max_length=16777216)
+    summary: list = Field(default_factory=list, max_length=0)
+
+
+class ResponseText(Contract):
+    type: Literal["output_text", "refusal"]
+    text: str | None = None
+    refusal: str | None = None
+    annotations: list = Field(default_factory=list, max_length=0)
+
+    @model_validator(mode="after")
+    def valid_part(self) -> Self:
+        if self.type == "output_text" and (self.text is None or self.refusal is not None):
+            raise ValueError("Texto Responses inválido.")
+        if self.type == "refusal" and (self.refusal is None or self.text is not None):
+            raise ValueError("Recusa Responses inválida.")
+        return self
+
+
+class ResponseMessage(Contract):
+    type: Literal["message"] = "message"
+    role: Literal["assistant"] = "assistant"
+    content: list[ResponseText] = Field(min_length=1, max_length=256)
+    phase: Literal["commentary", "final_answer"] | None = None
+
+
+class ResponseFunctionCall(Contract):
+    type: Literal["function_call"] = "function_call"
+    call_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9_-]+$")
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    arguments: str = Field(max_length=16777216)
+
+
+class ResponsesState(Contract):
+    """Somente itens reapresentáveis; raciocínio opaco vinculado à conexão/modelo."""
+
+    binding: str = Field(pattern=r"^[0-9a-f]{64}$")
+    items: list[ResponseReasoning | ResponseMessage | ResponseFunctionCall] = Field(
+        min_length=1, max_length=256
+    )
+
+
 class ChatMessage(Contract):
     role: Literal["system", "user", "assistant", "tool"]
     content: str | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list, max_length=64)
     tool_call_id: str | None = None
+    responses_state: ResponsesState | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     images: list[ImageContent] = Field(
         default_factory=list, max_length=4, exclude_if=lambda value: not value
     )
 
     @model_validator(mode="after")
     def valid_role_payload(self) -> Self:
+        if self.responses_state is not None and self.role != "assistant":
+            raise ValueError("Estado Responses pertence somente à resposta do modelo.")
+        if self.responses_state is not None:
+            text = [
+                part.text if part.type == "output_text" else part.refusal
+                for item in self.responses_state.items
+                if isinstance(item, ResponseMessage)
+                for part in item.content
+            ]
+            try:
+                calls = [
+                    ToolCall(id=item.call_id, name=item.name, arguments=json.loads(item.arguments))
+                    for item in self.responses_state.items
+                    if isinstance(item, ResponseFunctionCall)
+                ]
+            except ValueError, TypeError, RecursionError:
+                raise ValueError("Estado Responses possui argumentos inválidos.") from None
+            if "\n".join(text) != (self.content or "") or calls != self.tool_calls:
+                raise ValueError("Estado Responses diverge da mensagem normalizada.")
         if self.images and self.role != "user":
             raise ValueError("Imagens pertencem somente à entrada do usuário.")
         if self.role != "assistant" and self.tool_calls:

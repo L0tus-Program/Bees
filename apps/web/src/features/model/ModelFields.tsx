@@ -33,6 +33,7 @@ export function ModelFields({ connection, vault }: { connection: ReturnType<type
         <p className="quiet-note">{t('discoveryScope')}</p>
         <div aria-live="polite">{discovery.state === 'error' && <><ErrorNotice error={discovery.error} /><p className="transfer-notice">{t('discoveryFallback')}</p></>}{discovery.state === 'ready' && !discovery.models.length && <p className="transfer-notice">{t('noModels')}</p>}</div>
         <details className="advanced-setup"><summary>{t('advancedModelOptions')}</summary>
+          {provider.kind === 'openai_compatible' && <label className="field" htmlFor="model-api"><span>{t('modelApi')}</span><select id="model-api" value={connection.api} onChange={(event) => connection.changeApi(event.target.value as typeof connection.api)} aria-describedby="model-api-help"><option value="auto">{t('modelApiAuto')}</option><option value="chat_completions">Chat Completions</option><option value="responses">Responses</option></select><small id="model-api-help">{t('modelApiHelp')}</small></label>}
           <label className="checkbox-field"><input type="checkbox" checked={connection.tools} onChange={(event) => connection.changeTools(event.target.checked)} /><span>{t('toolCalls')}<small>{t('toolCallsHelp')}</small></span></label>
           <label className="checkbox-field"><input type="checkbox" checked={connection.vision} onChange={(event) => connection.changeVision(event.target.checked)} /><span>{t('vision')}<small>{t('visionHelp')}</small></span></label>
         </details>

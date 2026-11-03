@@ -58,3 +58,16 @@ it('resets credential selection on a destination change, including when returnin
   expect((container.querySelector('#saved-credential') as HTMLSelectElement).value).toBe('')
   expect(container.querySelector('#api-key')).not.toBeNull()
 })
+
+it('saves an explicit Responses selection and resets it when the provider changes', async () => {
+  await show(); await change('#provider-kind', 'openai'); await change('#saved-credential', credential)
+  expect((container.querySelector('#model-api') as HTMLSelectElement).value).toBe('auto')
+  await change('#model-api', 'responses')
+  await change('#model-id', 'gpt-5.6-terra'); await change('#bee-name', 'Responses'); await change('#bee-purpose', 'Organizar')
+  await act(async () => { container.querySelectorAll('form')[1].dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+  const bodies = fetcher.mock.calls.filter(([url]) => url.endsWith('/models/prepare') || url.endsWith('/agents')).map(([, options]) => JSON.parse(options.body))
+  expect(bodies).toHaveLength(2)
+  for (const body of bodies) expect(body.config.api).toBe('responses')
+  await change('#provider-kind', 'custom')
+  expect((container.querySelector('#model-api') as HTMLSelectElement).value).toBe('auto')
+})

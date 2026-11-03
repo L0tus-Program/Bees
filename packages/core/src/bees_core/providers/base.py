@@ -115,7 +115,16 @@ async def rejection(response: httpx.Response, *, raw_body: bytes | None = None) 
                                     child,
                                     sensitive
                                     or key
-                                    in {"content", "text", "arguments", "images", "image_url"},
+                                    in {
+                                        "content",
+                                        "text",
+                                        "arguments",
+                                        "images",
+                                        "image_url",
+                                        "output",
+                                        "encrypted_content",
+                                        "refusal",
+                                    },
                                 )
                         elif isinstance(value, list):
                             for child in value:
@@ -135,6 +144,10 @@ async def rejection(response: httpx.Response, *, raw_body: bytes | None = None) 
                             "tools",
                             "tools.function.parameters",
                             "tools.function.strict",
+                            "tools.parameters",
+                            "tools.strict",
+                            "input",
+                            "include",
                             "messages",
                             "model",
                             "store",
@@ -146,10 +159,10 @@ async def rejection(response: httpx.Response, *, raw_body: bytes | None = None) 
                         pass
                     elif reason == "context_length_exceeded":
                         code = "context_window_exceeded"
-                    elif (
-                        reason in ("invalid_function_parameters", "invalid_tool_schema")
-                        or parameter == "tools.function.parameters"
-                    ):
+                    elif reason in (
+                        "invalid_function_parameters",
+                        "invalid_tool_schema",
+                    ) or parameter in {"tools.function.parameters", "tools.parameters"}:
                         code = "tool_schema_rejected"
                     elif reason in ("unsupported_parameter", "unsupported_value"):
                         code = (
