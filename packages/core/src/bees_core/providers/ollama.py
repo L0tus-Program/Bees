@@ -33,6 +33,8 @@ def wire_messages(request: ChatRequest) -> list[dict[str, Any]]:
     while index < len(request.messages):
         message = request.messages[index]
         value: dict[str, Any] = {"role": message.role, "content": message.content or ""}
+        if message.images:
+            value["images"] = [image.data for image in message.images]
         if message.tool_calls:
             value["tool_calls"] = [
                 {
@@ -92,8 +94,12 @@ class OllamaAdapter(HTTPAdapter):
         ):
             raise ProviderError("invalid_response")
         actual = ProviderCapabilities(
-            text="completion" in capabilities, tool_calls="tools" in capabilities
+            text="completion" in capabilities,
+            tool_calls="tools" in capabilities,
+            vision="vision" in capabilities,
         )
+        if config.capabilities.vision and not actual.vision:
+            raise ProviderError("image_vision_required")
         if not actual.text or (config.capabilities.tool_calls and not actual.tool_calls):
             raise ProviderError("unsupported_capability")
         return actual

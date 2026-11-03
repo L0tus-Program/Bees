@@ -210,7 +210,11 @@ class ConversationDelegationService:
             if attachment_consent.expected_agent_revision != agent.revision:
                 raise ProviderError("state_conflict")
             attachment_views, attachment_context = prepare_attachments(
-                self.artifacts, agent.id, conversation.id, attachments
+                self.artifacts,
+                agent.id,
+                conversation.id,
+                attachments,
+                vision=config.capabilities.vision,
             )
             context += attachment_context
         input_metadata = {"chat_request": binding}

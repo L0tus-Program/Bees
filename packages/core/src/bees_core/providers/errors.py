@@ -27,6 +27,10 @@ def public_provider_message(value: object, private: Iterable[str] = ()) -> str |
 
 
 ErrorCode = Literal[
+    "image_vision_required",
+    "image_ocr_unavailable",
+    "image_ocr_empty",
+    "image_ocr_failed",
     "invalid_config",
     "invalid_request",
     "unsupported_capability",
@@ -67,6 +71,21 @@ ErrorCode = Literal[
 ]
 
 MESSAGES: dict[str, str] = {
+    "image_vision_required": (
+        "Este modelo não está configurado com visão. Habilite visão para um modelo "
+        "compatível ou envie novamente para usar OCR local."
+    ),
+    "image_ocr_unavailable": (
+        "O modelo é textual e o OCR local não está disponível. Instale Tesseract com o "
+        "idioma inglês no servidor Bees ou configure um modelo com visão."
+    ),
+    "image_ocr_empty": (
+        "O OCR local não encontrou texto na imagem. Use um modelo com visão para analisar"
+        " seu conteúdo visual."
+    ),
+    "image_ocr_failed": (
+        "O OCR local não conseguiu ler esta imagem. Tente outra imagem ou um modelo com visão."
+    ),
     "routine_unavailable": "A rotina ou sua ocorrência mudou; revise a tarefa antes de continuar.",
     "skill_unavailable": (
         "A revisão ou as entradas da skill não estão mais disponíveis para executar."

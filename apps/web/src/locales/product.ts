@@ -1,4 +1,5 @@
 const pt = {
+  vision: 'Este modelo aceita imagens', visionHelp: 'Habilite somente se o modelo oferecer visão. Sem visão, imagens usam OCR local (inglês), que pode errar e não descreve objetos ou layout.',
   appearance: 'Aparência', appearanceSystem: 'Sistema', appearanceLight: 'Clara', appearanceDark: 'Escura', appearanceScope: 'Preferência somente neste navegador para esta instalação. Não altera os dados das abelhas.', appearanceUnsaved: 'Aparência aplicada nesta aba; não foi possível salvar a preferência no navegador.',
   chatDelegationRejected: 'A tentativa de criar uma tarefa foi recusada. Confira as tarefas registradas antes de fazer um novo pedido.',
   chatDelegationRejectedTurn: 'O modelo pediu mais de uma tarefa. Nenhuma foi criada. Faça um pedido por mensagem.',
@@ -77,6 +78,11 @@ const pt = {
   limitedHistory: 'Esta prévia mostra até 200 mensagens recentes. Seu histórico completo continua preservado no serviço.',
   limitedAgents: 'Esta lista atingiu o limite da prévia. Os demais registros permanecem preservados.',
   errors: {
+    image_vision_required: 'O modelo não oferece visão. Revise a configuração ou use OCR local.',
+    image_ocr_unavailable: 'O OCR local não está disponível. Instale Tesseract com inglês no servidor Bees ou escolha um modelo com visão.',
+    image_ocr_empty: 'O OCR não encontrou texto. Use um modelo com visão para analisar a imagem.',
+    image_ocr_failed: 'O OCR não conseguiu ler a imagem. Tente outra imagem ou um modelo com visão.',
+
     tool_schema_rejected: 'O provedor recusou o formato de uma ferramenta. Revise a compatibilidade do modelo ou use o modelo anterior enquanto o problema é corrigido.', model_tools_unsupported: 'O modelo ou endereço escolhido recusou chamadas de ferramentas. Confira o suporte a ferramentas desse modelo.', unsupported_model_parameter: 'O modelo não aceita uma das opções enviadas pelo Bees. Confira o campo recusado nos detalhes.', context_window_exceeded: 'O histórico e as ferramentas excedem a janela de contexto do modelo. Limpe a conversa ou escolha um modelo com contexto maior.', conversation_has_pending_work: 'Esta conversa tem trabalho pendente. Abra Atividade e encerre os trabalhos antes de limpar.',
     computer_restart_failed: 'Não foi possível reiniciar o computador. Tente de novo em instantes.', computer_restart_timeout: 'O computador demorou para reiniciar. Aguarde e confira a tela antes de repetir.',
     chat_outcome_unknown: 'Este envio não tem resposta confirmada. Consulte o histórico antes de fazer outro pedido: pode haver consumo de créditos. O Bees não o repete.',
@@ -149,6 +155,7 @@ const pt = {
 type ProductStrings = { [K in keyof typeof pt]: K extends 'errors' ? Record<keyof typeof pt.errors, string> : string }
 
 const en: ProductStrings = {
+  vision: 'This model accepts images', visionHelp: 'Enable only for a model with vision. Otherwise images use local OCR (English), which may be inaccurate and cannot describe objects or layout.',
   appearance: 'Appearance', appearanceSystem: 'System', appearanceLight: 'Light', appearanceDark: 'Dark', appearanceScope: 'Preference only in this browser for this installation. Bee data stays unchanged.', appearanceUnsaved: 'Appearance applied in this tab; the browser could not save the preference.',
   chatDelegationRejected: 'The attempt to create a task was rejected. Check recorded tasks before making a new request.',
   chatDelegationRejectedTurn: 'The model requested more than one task. None were created. Make one request per message.',
@@ -214,6 +221,11 @@ const en: ProductStrings = {
   noTextContent: 'No text content. No tool was executed by this interface.', waitingModel: 'Waiting for the model to respond. This call can take up to a minute.', messageLabel: 'Message to the bee', messagePlaceholder: 'Tell your bee what you need help with…',
   chatCost: 'This message uses the configured model and may consume provider credits.', send: 'Send', sending: 'Sending…', limitedHistory: 'This preview displays up to 200 recent messages. Your full history remains preserved in the service.', limitedAgents: 'This list reached the preview limit. Other records remain preserved.',
   errors: {
+    image_vision_required: 'The model does not offer vision. Review its configuration or use local OCR.',
+    image_ocr_unavailable: 'Local OCR is unavailable. Install Tesseract with English on the Bees server or choose a vision model.',
+    image_ocr_empty: 'OCR found no text. Use a vision model to analyze the image.',
+    image_ocr_failed: 'OCR could not read the image. Try another image or a vision model.',
+
     tool_schema_rejected: 'The provider rejected a tool’s format. Review model compatibility or use the previous model while this is fixed.', model_tools_unsupported: 'The selected model or endpoint rejected tool calls. Check this model’s tool support.', unsupported_model_parameter: 'The model does not accept an option sent by Bees. Check the rejected field in the details.', context_window_exceeded: 'History and tools exceed the model’s context window. Clear the conversation or choose a model with a larger context.', conversation_has_pending_work: 'This conversation has pending work. Open Activity and finish the work before clearing.',
     computer_restart_failed: 'Could not restart the computer. Try again in a moment.', computer_restart_timeout: 'The computer took too long to restart. Wait and check the screen before repeating.',
     chat_outcome_unknown: 'This message has no confirmed response. Check history before making another request: credits may have been consumed. Bees will not repeat it.',
@@ -267,6 +279,7 @@ const en: ProductStrings = {
 }
 
 const es: ProductStrings = {
+  vision: 'Este modelo acepta imágenes', visionHelp: 'Activa solo si el modelo admite visión. Sin visión, las imágenes usan OCR local (inglés), que puede fallar y no describe objetos ni diseño.',
   appearance: 'Apariencia', appearanceSystem: 'Sistema', appearanceLight: 'Claro', appearanceDark: 'Oscuro', appearanceScope: 'Preferencia solo en este navegador para esta instalación. No cambia los datos de las abejas.', appearanceUnsaved: 'Apariencia aplicada en esta pestaña; no se pudo guardar la preferencia en el navegador.',
   chatDelegationRejected: 'Se rechazó el intento de crear una tarea. Revisa las tareas registradas antes de hacer otro pedido.',
   chatDelegationRejectedTurn: 'El modelo pidió más de una tarea. No se creó ninguna. Haz un pedido por mensaje.',
@@ -317,6 +330,11 @@ const es: ProductStrings = {
   nextStepTitle: 'Conversa y delega una tarea.', nextStepDescription: ' Activa el modo agente para buscar en la web, usar el ordenador de la abeja o tu máquina. Las acciones sensibles piden tu aprobación; los resultados quedan en Entregas.', conversation: 'Conversación', conversationHistory: 'Historial de conversación', refreshHistory: 'Actualizar historial', chatScope: 'Conversa y, si quieres, permite que la abeja cree una tarea de texto en segundo plano. Su resultado aparece aquí, incluso después de volver a abrir la página.', chatEmptyTitle: '¿Qué vamos a pensar juntos?', chatEmptyDescription: 'Pide una explicación, organiza una idea o compara alternativas con el contexto que envíes.',
   you: 'Tú', systemMessage: 'Sistema', noTextContent: 'El modelo no devolvió texto en este mensaje. Revisa las tareas registradas en esta conversación.', waitingModel: 'Esperando la respuesta del modelo. Puede tardar hasta un minuto.', messageLabel: 'Mensaje para la abeja', messagePlaceholder: 'Cuéntale a tu abeja en qué necesitas ayuda…', chatCost: 'El mensaje usa el modelo configurado y puede consumir créditos del proveedor.', send: 'Enviar', sending: 'Enviando…', limitedHistory: 'Esta versión muestra hasta 200 mensajes recientes. Tu historial completo permanece en el servicio.', limitedAgents: 'Esta lista alcanzó el límite de la versión previa. Los demás registros se conservan.',
   errors: {
+    image_vision_required: 'El modelo no admite visión. Revisa la configuración o usa OCR local.',
+    image_ocr_unavailable: 'El OCR local no está disponible. Instala Tesseract con inglés en el servidor Bees o elige un modelo con visión.',
+    image_ocr_empty: 'El OCR no encontró texto. Usa un modelo con visión para analizar la imagen.',
+    image_ocr_failed: 'El OCR no pudo leer la imagen. Prueba otra imagen o un modelo con visión.',
+
     tool_schema_rejected: 'El proveedor rechazó el formato de una herramienta. Revisa la compatibilidad o usa el modelo anterior mientras se corrige.', model_tools_unsupported: 'El modelo o dirección elegidos rechazaron las llamadas a herramientas. Revisa su compatibilidad.', unsupported_model_parameter: 'El modelo no acepta una opción enviada por Bees. Consulta el campo rechazado en los detalles.', context_window_exceeded: 'El historial y las herramientas exceden el contexto del modelo. Limpia la conversación o elige un modelo con más contexto.', conversation_has_pending_work: 'Esta conversación tiene trabajo pendiente. Abre Actividad y termina el trabajo antes de limpiar.',
     computer_restart_failed: 'No se pudo reiniciar el ordenador. Inténtalo de nuevo en un momento.', computer_restart_timeout: 'El ordenador tardó en reiniciarse. Espera y revisa la pantalla antes de repetir.',
     chat_outcome_unknown: 'Este envío no tiene respuesta confirmada. Revisa el historial antes de hacer otro pedido: puede haber consumo de créditos. Bees no lo repite.',

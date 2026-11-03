@@ -356,7 +356,12 @@ class AgentTaskWorker(TaskWorker):
         if routine:
             parts.append(routine)
             parts.append(QUIET_INSTRUCTION)
-        return "\n\n".join(parts)
+        text = "\n\n".join(parts)
+        if attached and any("image_data" in entry for entry in attached):
+            from bees_core.attachments import attachment_message
+
+            return attachment_message(attached).model_copy(update={"content": text})
+        return text
 
     def _tools(self, unit, task, run):
         if not self._agent(task):

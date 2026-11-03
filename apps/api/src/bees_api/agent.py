@@ -221,10 +221,17 @@ def agent_message(
 ) -> dict:
     """Mensagem no chat executada pelo agente; a resposta volta para esta conversa."""
     validate_selection(body.attachments, body.attachment_consent)
+    vision = False
+    if body.attachments:
+        with request.app.state.store.transaction(write=False) as unit:
+            agent = ProviderService._agent(unit, agent_id)
+            if agent.revision != body.attachment_consent.expected_agent_revision:
+                raise ProviderError("state_conflict")
+            vision = ProviderService._validated_config(agent.provider_config).capabilities.vision
     # Arquivos lidos e verificados antes da transação: entram na tarefa como dados do turno.
     views, entries = (
         prepare_attachment_data(
-            request.app.state.artifacts, agent_id, conversation_id, body.attachments
+            request.app.state.artifacts, agent_id, conversation_id, body.attachments, vision=vision
         )
         if body.attachments
         else ([], [])
@@ -234,6 +241,9 @@ def agent_message(
             agent = unit.agents.get(agent_id)
             if agent is None or agent.revision != body.attachment_consent.expected_agent_revision:
                 raise ProviderError("state_conflict")
+            from bees_core.attachments import validate_snapshot
+
+            validate_snapshot(unit, agent_id, conversation_id, views)
         return submit_agent_message(
             request.app.state.database,
             unit,

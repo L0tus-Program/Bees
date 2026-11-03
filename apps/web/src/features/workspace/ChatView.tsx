@@ -14,7 +14,7 @@ import { confirmAction } from '../../components/confirmAction'
 import { ErrorNotice } from '../../components/Feedback'
 import { publishArtifact } from '../artifacts/api'
 import type { ArtifactRecord } from '../artifacts/api'
-import { checkedReceipt, MAX_CONTEXT_BYTES, prepareFile } from '../artifacts/mutations'
+import { attachmentBudget, checkedReceipt, formats, prepareFile } from '../artifacts/mutations'
 import { useResource } from '../../hooks/useResource'
 import { useTaskPolling } from '../tasks/useTaskPolling'
 import { commandIdentity } from '../tasks/state'
@@ -175,7 +175,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
       while (uploadQueue.current.length && !operation.signal.aborted) {
         const file = uploadQueue.current.shift()!
         try {
-          if (selectedFiles.current.length >= 4 || selectedFiles.current.reduce((sum, item) => sum + item.size_bytes, file.size) > MAX_CONTEXT_BYTES) { setError(new ApiErrorClass('attachment_limit')); continue }
+          if (!attachmentBudget([...selectedFiles.current, { media_type: formats[file.name.split('.').at(-1)?.toLowerCase() as keyof typeof formats] ?? '', size_bytes: file.size }])) { setError(new ApiErrorClass('attachment_limit')); continue }
           const candidate = await prepareFile(file, operation.signal)
           const intent = { id: crypto.randomUUID(), agentId: agent.id, conversationId: agent.conversation_id, name: candidate.name, media_type: candidate.media_type, size_bytes: candidate.size_bytes, sha256: candidate.sha256, previous: null }
           const receipt = checkedReceipt(intent, await publishArtifact(intent, candidate.bytes, operation.signal))
@@ -289,13 +289,14 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
             </li>)}
             {uploading && <li className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t('uploading')}</li>}
           </ul>}
+          {files.some((file) => file.media_type.startsWith('image/')) && <p className="px-3 pt-2 text-xs text-muted-foreground">{t(agent.provider_config?.capabilities.vision ? 'imageVisionHint' : 'imageOcrHint')}</p>}
           <label htmlFor="chat-input" className="sr-only">{t('placeholder', { name: agent.name })}</label>
           <Textarea id="chat-input" ref={inputRef} value={draft} rows={1} maxLength={16000} disabled={clearing || agent.status !== 'active'} placeholder={t('placeholder', { name: agent.name })} className="max-h-60 px-4 pt-3" aria-describedby="chat-enter-hint"
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() } }} />
           <div className="flex items-center gap-1 px-2 pb-2">
             {useAgent && <>
-              <input ref={fileInput} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={(event) => { void attach(event.target.files) }} />
+              <input ref={fileInput} type="file" className="sr-only" tabIndex={-1} aria-hidden="true" multiple accept=".txt,.md,.csv,.json,.png,.jpg,.jpeg,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg" onChange={(event) => { void attach(event.target.files) }} />
               <Tooltip label={`${t('attach')} — ${t('attachHint')}`}><Button variant="ghost" size="icon-sm" aria-label={t('attach')} disabled={!canAttach || uploading || files.length >= 4} onClick={() => fileInput.current?.click()}><Paperclip /></Button></Tooltip>
             </>}
             {dictation.supported && <Tooltip label={t(dictation.listening ? 'stopDictation' : 'dictate')}><Button variant="ghost" size="icon-sm" aria-label={t(dictation.listening ? 'stopDictation' : 'dictate')} aria-pressed={dictation.listening} onClick={() => { if (dictation.listening) { dictation.stop() } else { dictation.start() } }}>{dictation.listening ? <MicOff /> : <Mic />}</Button></Tooltip>}
