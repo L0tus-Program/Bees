@@ -175,6 +175,65 @@ A troca preserva o estado e recusa incompatibilidades com funções presentes no
 
 `--data-dir` ou `BEES_DATA_DIR` escolhe o mesmo diretório privado da API. A CLI usa o acesso do operador do sistema; a interface web exige sessão e CSRF. Pare o serviço antes de atualizar dependências ou migrar o banco.
 
+## Trocar remoto/local na mesma abelha — BEES-005.3
+
+Trocar **Modelo** altera a configuração da abelha existente; não crie outra abelha
+para testar preservação. Isso não exporta nem restaura dados, não transfere o cofre
+e não concede ferramentas ou permissões ao destino. A próxima geração pode enviar
+histórico e memórias selecionadas ao novo endpoint: revise o destino antes de salvar.
+O diagnóstico consulta disponibilidade; preparar e salvar não iniciam geração.
+
+Roteiro de aceite com dados próprios, sem publicar segredos:
+
+1. Escolha uma abelha de teste. Anote seu ID, a conversa, a revisão atual, uma
+   mensagem com marcador não secreto, uma memória, uma tarefa concluída e seu
+   resultado/artefato. Confira decisões existentes sem consumi-las novamente.
+   Use dados descartáveis: o destino receberá o contexto selecionado.
+2. Em **Configurações da abelha → Modelo**, escolha Ollama e um modelo instalado
+   com as capacidades exigidas pelo histórico. Preparar um modelo exige confirmação
+   separada de download. Confira o endpoint no servidor Bees, não no navegador do
+   usuário. Salve explicitamente; salvar/preparar não prova geração.
+3. Reabra a mesma abelha e conversa. Confira IDs, histórico anterior, memória,
+   tarefa, decisão e resultado. Envie uma mensagem nova com marcador e confira
+   resposta, provedor/modelo registrados e consumo. Recarregue e reinicie os
+   serviços de teste para verificar persistência sem reenviar a mensagem.
+4. Volte ao remoto por escolha explícita. Selecione uma credencial da conta
+   vinculada ao mesmo provedor/endpoint, ou cadastre uma chave para esse destino.
+   Não copie uma referência de segredo de outra conexão. Repita as verificações
+   na mesma abelha/conversa, incluindo uma nova geração remota autorizada.
+5. Registre separadamente data, versão/commit, modelo, protocolo, capacidades,
+   IDs de teste, resultados e uso `reported`/`estimated`/`unknown`. Não publique
+   chave, referência privada do cofre, contexto pessoal ou dump. Contadores
+   ausentes permanecem desconhecidos. Uma conversa correta não comprova delegação;
+   valide `create_text_task` e a entrega do worker em um caso próprio.
+
+Na CLI, use `configure` com o mesmo `--agent`, o mesmo `--data-dir` e a revisão
+atual em `--expected-revision`, conforme os comandos acima. A revisão devolvida
+substitui a anterior; não fixe `1` numa segunda edição. A CLI não oferece comandos
+para criar memória, tarefa ou aprovação: prepare e confira esses registros pela
+interface. Conflito de revisão exige reler o estado e revisar a escolha antes de
+nova edição; não repita o comando automaticamente.
+
+Histórico com funções exige `tool_calls` no destino. Histórico incompatível ou
+inválido é recusado; a janela recente não pode esconder a incompatibilidade nem
+cortar um bloco de chamadas/resultados pela metade. Uma chamada pendente não vira
+permissão para executar novamente uma ferramenta. Para Responses, estado cifrado
+só é reapresentado à mesma conexão/modelo/referência de credencial; uma troca
+preserva o histórico normalizado, sem prometer transportar esse estado opaco.
+
+Uma chamada já em voo conserva seu snapshot. No serviço de conversa, edição
+concorrente pode causar `state_conflict`: a entrada permanece, mas a resposta
+antiga não é anexada como se tivesse usado a configuração nova. Pode ter havido
+consumo no provedor anterior. Confira histórico e journal antes de decidir uma
+nova geração. Timeout, autenticação recusada e falha do modelo não provocam troca
+de destino, protocolo ou tentativa automática.
+
+Os [testes do serviço](../packages/core/tests/test_provider_service.py) verificam
+preservação do grafo após reabertura, CAS, incompatibilidade, blocos completos e
+edição durante resposta com transporte controlado. As provas reais abaixo são
+execuções separadas; **não comprovam ainda a ida e volta remoto/local no mesmo
+agente**. Esse aceite integrado permanece na [#8](https://github.com/L0tus-Program/Bees/issues/8).
+
 ## Uso, erros e concorrência
 
 No modo agente, a causa registrada aparece no turno e nos detalhes da tarefa, inclusive quando a chamada tem resultado desconhecido. O diagnóstico identifica código, modelo/provedor usados e, quando disponíveis, HTTP, nome do campo recusado e mensagem do provedor. A mensagem aparece diretamente no turno; os demais dados ficam em Detalhes do erro. Falhas imediatas de teste/envio também mostram o diagnóstico. Registros anteriores usam a causa do journal já existente; campos nunca registrados não são reconstruídos.
@@ -197,12 +256,13 @@ A biblioteca interna também aceita mensagens de resultado `tool`. Quando uma re
 
 Testes usam transportes controlados e servidores HTTP de loopback com mensagens de teste. Eles exercitam serialização, conversa/funções/resultados nos dois protocolos, restrições de destino, erros sem credenciais e preservação de estado. Isso comprova o driver e seu contrato, não a qualidade de um modelo nem equivalência completa com Dots/Grok Bot.
 
-### Modelos reais comprovados
+### Matriz de evidências de modelos e protocolos
 
 | Modelo | Protocolo | Capacidades declaradas | Conversa | Delegação `create_text_task` | Uso | Evidência |
 | --- | --- | --- | --- | --- | --- | --- |
 | `gpt-5.4-nano` (OpenAI) | `openai_compatible` (Chat Completions) | `text`, `tool_calls` | Real, persistida e recarregada | Real: o modelo escolheu a função, o Bees confirmou uma tarefa e o worker concluiu | `reported` (entrada/saída/total) | BEES-005.1, 09/10/2026 |
-| Backend local (Ollama) | `ollama` | — | Pendente | Pendente | — | BEES-005.2; Ollama não instalado na máquina de validação |
+| `Qwen3:1.7b`, Ollama0.40.6 CPU | `ollama` nativo | Texto e funções exercitados; visão não comprovada | Real, marcador exato e histórico reaberto | Real, tarefa concluída e `publish_file` com bytes conferidos | Conferir registro do caso; não inferir contadores ausentes | [BEES-005.2 #7](https://github.com/L0tus-Program/Bees/issues/7), 26/10/2026; [aceite v1](v1-acceptance.md#base-revisada) |
+| Família `gpt-5.6`, incluindo Terra | `openai_compatible` (Responses) | Texto, imagens, funções e estado cifrado cobertos por contratos controlados | Protocolo testado; reteste real pendente | Ciclo testado com HTTP controlado; reteste real pendente | Normalização testada; não é medição real | [#218](https://github.com/L0tus-Program/Bees/issues/218), implementação de 02/11/2026 |
 
 Aceite remoto de 09/10/2026, na instalação Docker padrão do mantenedor, com abelha e credencial de teste no cofre:
 
@@ -212,7 +272,18 @@ Aceite remoto de 09/10/2026, na instalação Docker padrão do mantenedor, com a
 - **Qualidade observada:** formato atendido (três tópicos em português), com conteúdo genérico e sem marcos históricos concretos. A tarefa recebe somente título, objetivo e resultado esperado escritos pelo modelo do chat. Detalhes do pedido que ele não transcrever não chegam ao worker; em um pedido de teste anterior com exemplos concretos, eles foram substituídos por valores genéricos.
 - **Não induzidos no provedor real:** argumentos inválidos e timeout ou resposta perdida, para não gerar custo ou estado incerto. Esses casos continuam comprovados por testes de falha controlada: recusa sem criar tarefa, ausência de repetição paga e `unknown` preservado.
 
-Uma execução de um modelo não comprova qualidade geral, outros modelos do mesmo fornecedor ou o backend local. O onboarding integra estes drivers; a comprovação local continua em BEES-005.2.
+Aceite local de 26/10/2026 na `dev` `c764525`: o caso final teve cinco gerações
+e quinze pedidos HTTP apenas ao daemon configurado. Replay de delegação não
+duplicou tarefa nem geração; reabertura preservou histórico e a fila ociosa não
+redisparou. A memória chegou como referência. Casos diagnósticos anteriores são
+separados; não houve remoto pago ou fallback nesse caso. A [#7](https://github.com/L0tus-Program/Bees/issues/7)
+foi concluída; o antigo bloqueio de instalação local deixou de valer.
+
+Uma execução de um modelo não comprova qualidade geral, outro modelo, visão ou
+continuidade entre dois provedores. As provas remota e local acima ocorreram
+separadamente. A troca integrada permanece em [BEES-005.3 #8](https://github.com/L0tus-Program/Bees/issues/8),
+e o reteste real de Responses permanece na #218. Nenhuma geração nova foi feita
+para esta atualização documental de 03/11/2026.
 
 ## Fontes dos protocolos
 
