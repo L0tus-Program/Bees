@@ -126,11 +126,32 @@ export function checkedRoutineIntent(value: unknown, agentId: string): RoutineIn
     || (value.action === 'status' ? !exact(value.body, ['client_request_id', 'expected_revision', 'status']) || !status(value.body.status) : !exact(value.body, ['client_request_id', 'expected_revision', 'definition']) || !isRoutineDefinition(value.body.definition))) throw new ApiError('invalid_request')
   return value as unknown as RoutineIntent
 }
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+  if (record(value)) return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+  return JSON.stringify(value)
+}
+function sameDefinition(actual: RoutineDefinition, expected: RoutineDefinition): boolean {
+  const normalize = (value: RoutineDefinition) => ({
+    ...value, execution_mode: value.execution_mode ?? 'prepare', skill_id: value.skill_id.toLowerCase(),
+    destination: { ...value.destination, conversation_id: value.destination.conversation_id.toLowerCase() },
+    runtime_binding: value.runtime_binding ? { ...value.runtime_binding, installation_id: value.runtime_binding.installation_id.toLowerCase(), resource_id: value.runtime_binding.resource_id.toLowerCase(), plugin_id: value.runtime_binding.plugin_id.toLowerCase() } : null,
+  })
+  const sent = normalize(expected)
+  // The service selects the current binding for a scheduled definition without one.
+  // An explicit binding is protected by the service's revision/resource checks.
+  if (sent.execution_mode === 'scheduled') {
+    if (!actual.runtime_binding) return false
+    if (sent.runtime_binding === null) sent.runtime_binding = normalize(actual).runtime_binding
+  }
+  return canonical(normalize(actual)) === canonical(sent)
+}
 export async function sendRoutine(raw: RoutineIntent, signal?: AbortSignal) {
-  const intent = checkedRoutineIntent(raw, raw.agentId)
+  const intent = structuredClone(checkedRoutineIntent(raw, raw.agentId))
   const path = intent.action === 'create' ? base(intent.agentId) : `${base(intent.agentId)}/${intent.routineId}/${intent.action === 'status' ? 'status' : 'revisions'}`
   const value = checkedRoutine(await request(path, { body: intent.body, ...(intent.action === 'status' ? { method: 'PUT' as const } : {}), authenticated: true, signal }), intent.agentId, intent.routineId)
   if (value.origin !== 'human' || value.revision !== (intent.body.expected_revision ?? 0) + 1 || value.status !== (intent.body.status ?? 'paused')) throw new ApiError('invalid_response')
+  if (intent.body.definition && (!value.definition || !sameDefinition(value.definition, intent.body.definition))) throw new ApiError('invalid_response')
   if (intent.body.proposal_source) {
     const source = value.metadata.proposal_source, expected = intent.body.proposal_source
     if (!isRoutineProposalSource(source) || source.conversation_id !== expected.conversation_id || source.message_id !== expected.message_id || source.content_hash !== expected.content_hash) throw new ApiError('invalid_response')
