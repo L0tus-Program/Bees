@@ -62,3 +62,41 @@ it('preserves the authenticated endpoint, CAS and explicit scope on a valid PUT'
   expect(new Headers(init.headers).get('X-Bees-CSRF')).toBe('test-csrf')
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
+
+it.each([
+  { ...grant, revision: 1 }, { ...grant, revision: 3 },
+  { ...grant, enabled: false },
+  ...['write', 'shell', 'browser'].map((key) => ({ ...grant, scope: { ...grant.scope, [key]: !grant.scope[key as keyof typeof grant.scope] } })),
+  ...[[], ['Outra'], ['Documentos', 'Outra'], ['Documentos', 'Documentos']].map((roots) => ({ ...grant, scope: { ...grant.scope, roots } })),
+])('rejects a well-formed receipt that differs from the submitted decision: %j', async (receipt) => {
+  const fetcher = response(receipt)
+  await expect(setGrant('executor-1', grant.agent_id, input)).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it('requires initial revision one when creating a grant', async () => {
+  const fetcher = response(grant)
+  await expect(setGrant('executor-1', grant.agent_id, { ...input, expected_revision: 0 })).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it('rejects reordered roots because the backend preserves the submitted array', async () => {
+  response({ ...grant, scope: { ...grant.scope, roots: ['Downloads', 'Documentos'] } })
+  await expect(setGrant('executor-1', grant.agent_id, { ...input, roots: ['Documentos', 'Downloads'] })).rejects.toMatchObject({ code: 'invalid_response' })
+})
+it.each([true, false])('accepts an exact newly created grant (enabled=%s)', async (enabled) => {
+  const scope = { roots: [], write: false, shell: false, browser: false }
+  const receipt = { ...grant, revision: 1, enabled, scope }
+  response(receipt)
+  await expect(setGrant('executor-1', grant.agent_id, { expected_revision: 0, enabled, ...scope })).resolves.toEqual(receipt)
+})
+it('checks the receipt against the decision sent even if the caller mutates its input in flight', async () => {
+  let resolve!: (value: Response) => void
+  const pending = new Promise<Response>((done) => { resolve = done })
+  const fetcher = vi.fn(async () => pending)
+  vi.stubGlobal('fetch', fetcher)
+  const body = { ...input, roots: [...input.roots] }
+  const saved = setGrant('executor-1', grant.agent_id, body)
+  body.enabled = false; body.roots.push('Outra'); body.expected_revision = 9
+  resolve(Response.json(grant))
+  await expect(saved).resolves.toEqual(grant)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})

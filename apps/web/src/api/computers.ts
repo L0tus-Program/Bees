@@ -111,7 +111,14 @@ export async function getGrants(executorId: string, signal?: AbortSignal): Promi
   return value.grants
 }
 export async function setGrant(executorId: string, agentId: string, body: { expected_revision: number; enabled: boolean; roots: string[]; write: boolean; shell: boolean; browser: boolean }) {
-  const value = await request(`/executors/${encodeURIComponent(executorId)}/grants/${encodeURIComponent(agentId)}`, { authenticated: true, method: 'PUT', body })
-  if (!isExecutorGrant(value) || value.agent_id !== agentId) throw new ApiError('invalid_response')
+  // Compare with the decision actually sent, independent of later caller edits.
+  const intent = { ...body, roots: [...body.roots] }
+  const value = await request(`/executors/${encodeURIComponent(executorId)}/grants/${encodeURIComponent(agentId)}`, { authenticated: true, method: 'PUT', body: intent })
+  // ExecutorService preserves the scope verbatim and advances CAS exactly once.
+  if (!isExecutorGrant(value) || value.agent_id !== agentId || value.revision !== intent.expected_revision + 1
+    || value.enabled !== intent.enabled || value.scope.write !== intent.write
+    || value.scope.shell !== intent.shell || value.scope.browser !== intent.browser
+    || value.scope.roots.length !== intent.roots.length
+    || !value.scope.roots.every((root, index) => root === intent.roots[index])) throw new ApiError('invalid_response')
   return value
 }

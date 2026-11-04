@@ -19,7 +19,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); setCsrfToken('csrf')
   container = document.createElement('div'); document.body.append(container)
   uncaught = []; root = createRoot(container, { onUncaughtError: (error) => { uncaught.push(error) } })
-  fetcher = vi.fn(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? grant : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
+  fetcher = vi.fn(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, revision: 3 } : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
   vi.stubGlobal('fetch', fetcher)
 })
 afterEach(async () => {
@@ -91,7 +91,7 @@ it('serializes same-turn saves and disables edits until receipt', async () => {
   await act(async () => { save().click(); save().click() })
   expect(puts()).toHaveLength(1)
   expect(boxes().every((input) => input.disabled || input.closest('fieldset')?.disabled)).toBe(true)
-  await act(async () => pending.resolve(Response.json(grant)))
+  await act(async () => pending.resolve(Response.json({ ...grant, revision: 3 })))
 })
 it.each([true, false])('ignores saves settling after the agent changes (success=%s)', async (success) => {
   await show()
@@ -108,7 +108,7 @@ it.each([true, false])('ignores saves settling after the agent changes (success=
 it('uses the receipt revision without an extra grant read', async () => {
   await show()
   const before = fetcher.mock.calls.filter(([url]) => (url as string).endsWith('/grants')).length
-  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, revision: 3 } : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, revision: JSON.parse(init.body as string).expected_revision + 1 } : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
   await act(async () => save().click())
   await act(async () => save().click())
   expect(JSON.parse(puts()[1][1].body as string).expected_revision).toBe(3)
@@ -121,7 +121,7 @@ it('reconciles a failed save without hiding its error or repeating the mutation'
   expect(puts()).toHaveLength(1)
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
   expect(boxes()[0].checked).toBe(false)
-  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, revision: 5 } : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, revision: 5, enabled: false } : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
   await act(async () => save().click())
   expect(JSON.parse(puts()[1][1].body as string).expected_revision).toBe(4)
   expect(container.querySelector('[role="alert"]')).toBeNull()
@@ -137,7 +137,7 @@ it('blocks another write when reconciliation also fails', async () => {
 })
 it('saves the empty new-agent grant with its own initial revision', async () => {
   await show()
-  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, agent_id: 'agent-2' } : url.endsWith('/grants') ? { grants: [] } : { executors: [executor] }))
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...grant, agent_id: 'agent-2', revision: 1, enabled: false, scope: { roots: [], write: false, shell: false, browser: false } } : url.endsWith('/grants') ? { grants: [] } : { executors: [executor] }))
   await show('agent-2')
   await act(async () => save().click())
   expect(puts()[0][0]).toContain('/agent-2')
@@ -304,4 +304,44 @@ it('shows a fresh valid invitation after a failed issuance', async () => {
   expect(container.querySelector('[role="alert"]')).toBeNull()
   expect(container.querySelector('.invite-token')?.textContent).toBe(invite.token)
   expect(container.querySelector('pre')?.textContent).toContain(`--invite ${invite.token} --root`)
+})
+
+it.each([
+  { ...grant, revision: 2 },
+  { ...grant, revision: 4 },
+  { ...grant, revision: 3, scope: { ...grant.scope, shell: true } },
+  { ...grant, revision: 3, enabled: false },
+])('reconciles a mismatching save receipt and keeps its error without retrying: %j', async (receipt) => {
+  await show()
+  const pending = deferred<Response>()
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => init.method === 'PUT' ? Response.json(receipt) : url.endsWith('/grants') ? pending.promise : Response.json({ executors: [executor] }))
+  await act(async () => save().click())
+  expect(save().disabled).toBe(true)
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  // The unverified receipt must not replace the draft before reconciliation.
+  expect(boxes()[0].checked).toBe(true)
+  expect(boxes()[3].checked).toBe(false)
+  const snapshot = { ...grant, revision: 5, enabled: false }
+  await act(async () => pending.resolve(Response.json({ grants: [snapshot] })))
+  expect(save().disabled).toBe(false)
+  expect(boxes()[0].checked).toBe(false)
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  await act(async () => vi.advanceTimersByTimeAsync(15000))
+  expect(puts()).toHaveLength(1)
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'PUT' ? { ...snapshot, revision: 6 } : { executors: [executor] }))
+  await act(async () => save().click())
+  expect(JSON.parse(puts()[1][1].body as string).expected_revision).toBe(5)
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
+it('blocks saving again when a mismatching receipt cannot be reconciled', async () => {
+  await show()
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => init.method === 'PUT' ? Response.json({ ...grant, revision: 3, scope: { ...grant.scope, write: true } }) : url.endsWith('/grants') ? Response.json({}, { status: 503 }) : Response.json({ executors: [executor] }))
+  await act(async () => save().click())
+  expect(save().disabled).toBe(true)
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  await act(async () => vi.advanceTimersByTimeAsync(15000))
+  await act(async () => save().click())
+  expect(puts()).toHaveLength(1)
+  expect(save().disabled).toBe(true)
 })
