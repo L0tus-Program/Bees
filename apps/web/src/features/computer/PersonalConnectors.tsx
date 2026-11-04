@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
@@ -13,27 +13,62 @@ function ConnectorGrant({ agentId, executor, onChanged }: { agentId: string; exe
   const [draft, setDraft] = useState({ enabled: false, roots: [] as string[], write: false, shell: false, browser: false })
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
-  const load = useCallback(async () => {
+  const [loadError, setLoadError] = useState<ApiError | null>(null)
+  const lifecycle = useRef(0)
+  const saving = useRef(false)
+  const applyGrant = useCallback((found: ExecutorGrant | null) => {
+    setGrantState(found)
+    setDraft(found ? { enabled: found.enabled, ...found.scope } : { enabled: false, roots: [], write: false, shell: false, browser: false })
+  }, [])
+  const load = useCallback(async (generation: number) => {
     try {
       const found = (await getGrants(executor.id)).find((item) => item.agent_id === agentId) ?? null
-      setGrantState(found)
-      if (found) setDraft({ enabled: found.enabled, ...found.scope })
-    } catch (failure) { setError(asApiError(failure)) }
-  }, [agentId, executor.id])
-  useEffect(() => { void load() }, [load])
+      if (lifecycle.current !== generation) return
+      applyGrant(found)
+      setLoadError(null)
+    } catch (failure) {
+      if (lifecycle.current === generation) {
+        setGrantState(undefined)
+        setLoadError(asApiError(failure))
+      }
+    }
+  }, [agentId, executor.id, applyGrant])
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    void load(generation)
+    return () => { lifecycle.current = generation + 1 }
+  }, [load])
   async function save() {
+    if (saving.current || grant === undefined) return
+    saving.current = true
+    const generation = lifecycle.current
     setBusy(true); setError(null)
-    try { await setGrant(executor.id, agentId, { expected_revision: grant?.revision ?? 0, ...draft }); await load(); onChanged() } catch (failure) { setError(asApiError(failure)); await load() } finally { setBusy(false) }
+    try {
+      const receipt = await setGrant(executor.id, agentId, { expected_revision: grant?.revision ?? 0, ...draft })
+      if (lifecycle.current !== generation) return
+      applyGrant(receipt)
+      onChanged()
+    } catch (failure) {
+      if (lifecycle.current !== generation) return
+      setError(asApiError(failure))
+      await load(generation)
+    } finally {
+      if (lifecycle.current === generation) {
+        saving.current = false
+        setBusy(false)
+      }
+    }
   }
   const roots = executor.roots ?? []
   return <div className="connector-grant">
     {error && <ErrorNotice error={error} />}
-    <label className="checkbox-field"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span>{t('grantEnabled')}</span></label>
+    {loadError && <ErrorNotice error={loadError} />}
+    <label className="checkbox-field"><input type="checkbox" disabled={busy || grant === undefined} checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /><span>{t('grantEnabled')}</span></label>
     <fieldset><legend>{t('grantRoots')}</legend>
       {roots.length === 0 && <small>{t('noRoots')}</small>}
-      {roots.map((root) => <label key={root} className="checkbox-field"><input type="checkbox" checked={draft.roots.includes(root)} onChange={(event) => setDraft({ ...draft, roots: event.target.checked ? [...draft.roots, root] : draft.roots.filter((item) => item !== root) })} /><span>{root}</span></label>)}
+      {roots.map((root) => <label key={root} className="checkbox-field"><input type="checkbox" disabled={busy || grant === undefined} checked={draft.roots.includes(root)} onChange={(event) => setDraft({ ...draft, roots: event.target.checked ? [...draft.roots, root] : draft.roots.filter((item) => item !== root) })} /><span>{root}</span></label>)}
     </fieldset>
-    {(['write', 'shell', 'browser'] as const).map((key) => <label key={key} className="checkbox-field"><input type="checkbox" checked={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })} /><span>{t(`grant_${key}`)}<small>{t(`grant_${key}_help`)}</small></span></label>)}
+    {(['write', 'shell', 'browser'] as const).map((key) => <label key={key} className="checkbox-field"><input type="checkbox" disabled={busy || grant === undefined} checked={draft[key]} onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })} /><span>{t(`grant_${key}`)}<small>{t(`grant_${key}_help`)}</small></span></label>)}
     <button type="button" className="button primary" disabled={busy || grant === undefined} onClick={() => { void save() }}>{t('saveGrant')}</button>
   </div>
 }
@@ -64,7 +99,7 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
     {items.map((executor) => <article key={executor.id} className="connector-card">
       <h4>{executor.name} <small className={executor.online ? 'status-online' : 'status-offline'}>{t(executor.online ? 'online' : 'offline_label')}</small></h4>
       {executor.platform && <small>{executor.platform}</small>}
-      <ConnectorGrant agentId={agentId} executor={executor} onChanged={() => { void load() }} />
+      <ConnectorGrant key={JSON.stringify([agentId, executor.id])} agentId={agentId} executor={executor} onChanged={() => { void load() }} />
       <button type="button" className="text-button" disabled={busy} onClick={() => { void revoke(executor) }}>{t('revoke')}</button>
     </article>)}
     <button type="button" className="button secondary" disabled={busy} onClick={() => { void pair() }}>{t('pairPersonal')}</button>
