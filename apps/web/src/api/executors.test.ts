@@ -28,7 +28,7 @@ it.each(invalid)('rejects malformed executor list entries: %j', async (patch) =>
   await expect(getExecutors()).rejects.toMatchObject({ code: 'invalid_response' })
 })
 it.each(invalid)('rejects malformed revoke receipts without repeating POST: %j', async (patch) => {
-  const fetcher = response({ ...executor, status: 'revoked', ...patch })
+  const fetcher = response({ ...executor, status: 'revoked', revision: 3, online: false, ...patch })
   await expect(revokeExecutor(executor)).rejects.toMatchObject({ code: 'invalid_response' })
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
@@ -41,7 +41,7 @@ it.each(['personal', 'computer_runtime'] as const)('rejects entries outside requ
   await expect(getExecutors(kind)).rejects.toMatchObject({ code: 'invalid_response' })
 })
 it.each([{ id: 'foreign' }, { kind: 'computer_runtime' }, { status: 'active' }])('binds revoke receipt to requested identity and revoked state: %j', async (patch) => {
-  const fetcher = response({ ...executor, status: 'revoked', ...patch })
+  const fetcher = response({ ...executor, status: 'revoked', revision: 3, online: false, ...patch })
   await expect(revokeExecutor(executor)).rejects.toMatchObject({ code: 'invalid_response' })
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
@@ -57,5 +57,27 @@ it('accepts a matching revoked receipt and preserves encoded path and CAS', asyn
   const receipt = { ...executor, status: 'revoked', revision: 3, online: false }
   const fetcher = response(receipt)
   await expect(revokeExecutor(executor)).resolves.toEqual(receipt)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/executors/executor%2F1/revoke', { method: 'POST', body: JSON.stringify({ expected_revision: 2 }) }])
+})
+
+it.each([{ revision: 1 }, { revision: 2 }, { revision: 4 }, { online: true }])('rejects a revoke receipt inconsistent with the committed transition: %j', async (patch) => {
+  const fetcher = response({ ...executor, status: 'revoked', revision: 3, online: false, ...patch })
+  await expect(revokeExecutor(executor)).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it.each([false, true])('checks the original revoke intent despite caller mutation (altered receipt=%s)', async (alteredReceipt) => {
+  const target = { ...executor }
+  let resolve!: (value: Response) => void
+  const fetcher = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() => new Promise((done) => { resolve = done }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = revokeExecutor(target)
+  Object.assign(target, { id: 'foreign', kind: 'computer_runtime', revision: 8 })
+  const receipt = { ...(alteredReceipt ? target : executor), status: 'revoked', revision: alteredReceipt ? 9 : 3, online: false }
+  const assertion = alteredReceipt
+    ? expect(result).rejects.toMatchObject({ code: 'invalid_response' })
+    : expect(result).resolves.toEqual(receipt)
+  resolve(Response.json(receipt))
+  await assertion
+  expect(fetcher).toHaveBeenCalledTimes(1)
   expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/executors/executor%2F1/revoke', { method: 'POST', body: JSON.stringify({ expected_revision: 2 }) }])
 })

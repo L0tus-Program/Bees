@@ -234,7 +234,7 @@ it('does not resurrect a revoked connector from a pre-mutation read', async () =
   fetcher.mockImplementationOnce(async () => old.promise)
   await act(async () => vi.advanceTimersByTimeAsync(5000))
   registerConfirmHost(({ resolve }) => resolve(true))
-  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2 } : { executors: [] }))
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2, online: false } : { executors: [] }))
   await act(async () => revokeButton().click())
   expect(container.querySelector('.connector-card')).toBeNull()
   await act(async () => old.resolve(Response.json({ executors: [executor] })))
@@ -244,7 +244,7 @@ it('does not resurrect a revoked connector from a pre-mutation read', async () =
 it('keeps a revoked connector removed when reconciliation fails', async () => {
   await show()
   registerConfirmHost(({ resolve }) => resolve(true))
-  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2 } : {}, { status: init.method === 'POST' ? 200 : 503 }))
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2, online: false } : {}, { status: init.method === 'POST' ? 200 : 503 }))
   await act(async () => revokeButton().click())
   expect(container.querySelector('.connector-card')).toBeNull()
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
@@ -265,7 +265,7 @@ it('does not reconcile a revoke settling after unmount', async () => {
   await act(async () => revokeButton().click())
   await act(async () => root.render(null))
   const before = fetcher.mock.calls.length
-  await act(async () => pending.resolve(Response.json({ ...executor, status: 'revoked', revision: 2 })))
+  await act(async () => pending.resolve(Response.json({ ...executor, status: 'revoked', revision: 2, online: false })))
   expect(fetcher.mock.calls).toHaveLength(before)
 })
 
@@ -344,4 +344,20 @@ it('blocks saving again when a mismatching receipt cannot be reconciled', async 
   await act(async () => save().click())
   expect(puts()).toHaveLength(1)
   expect(save().disabled).toBe(true)
+})
+
+it.each([{ revision: 1 }, { revision: 3 }, { online: true }])('keeps the connector and error visible after an inconsistent revoke receipt: %j', async (patch) => {
+  registerConfirmHost(({ resolve }) => resolve(true))
+  await show()
+  fetcher.mockImplementation(async (url: string, init: RequestInit) => Response.json(init.method === 'POST'
+    ? { ...executor, status: 'revoked', revision: 2, online: false, ...patch }
+    : url.endsWith('/grants') ? { grants: [grant] } : { executors: [executor] }))
+  await act(async () => revokeButton().click())
+  expect(container.querySelector('.connector-card')).not.toBeNull()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  await act(async () => vi.advanceTimersByTimeAsync(15000))
+  expect(container.querySelector('.connector-card')).not.toBeNull()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(posts()).toHaveLength(1)
+  expect(uncaught).toEqual([])
 })

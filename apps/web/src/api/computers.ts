@@ -99,8 +99,12 @@ export async function createInvite(kind: Executor['kind'], name: string): Promis
   return value as unknown as Invite
 }
 export async function revokeExecutor(executor: Executor) {
-  const value = await request(`/executors/${encodeURIComponent(executor.id)}/revoke`, { authenticated: true, body: { expected_revision: executor.revision } })
-  if (!isExecutor(value) || value.id !== executor.id || value.kind !== executor.kind || value.status !== 'revoked') throw new ApiError('invalid_response')
+  // Keep receipt validation bound to the request, even if the caller edits its snapshot.
+  const { id, kind, revision: expectedRevision } = executor
+  const value = await request(`/executors/${encodeURIComponent(id)}/revoke`, { authenticated: true, body: { expected_revision: expectedRevision } })
+  // ExecutorService.revoke advances CAS once and clears the connection.
+  if (!isExecutor(value) || value.id !== id || value.kind !== kind || value.status !== 'revoked'
+    || value.revision !== expectedRevision + 1 || value.online) throw new ApiError('invalid_response')
   return value
 }
 export async function getGrants(executorId: string, signal?: AbortSignal): Promise<ExecutorGrant[]> {
