@@ -68,8 +68,13 @@ export async function removeComputer(computer: Computer) {
   return value
 }
 export async function setComputerControl(computer: Computer, holder: 'agent' | 'human') {
-  const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/control`, { authenticated: true, body: { expected_revision: computer.control_revision, holder } })
-  if (!isComputerReceipt(value, computer)) throw new ApiError('invalid_response')
+  // Bind validation to the snapshot sent, even if the caller later edits it.
+  const intent = { ...computer }
+  const expectedControlRevision = intent.control_revision + (intent.control_holder === holder ? 0 : 1)
+  const value = await request(`${agentPath(intent.agent_id)}/${encodeURIComponent(intent.id)}/control`, { authenticated: true, body: { expected_revision: intent.control_revision, holder } })
+  // set_control leaves CAS unchanged for the current owner and advances it once otherwise.
+  if (!isComputerReceipt(value, intent) || value.status !== 'ready'
+    || value.control_holder !== holder || value.control_revision !== expectedControlRevision) throw new ApiError('invalid_response')
   return value
 }
 /** Fecha programas e sobe a área de trabalho de novo; a API aguarda o runtime confirmar. */

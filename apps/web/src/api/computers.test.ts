@@ -79,7 +79,7 @@ it('accepts valid lifecycle states, nullable reasons and empty offline snapshots
 })
 it('accepts correctly bound mutation receipts and preserves CAS and request identifiers', async () => {
   for (const operation of Object.keys(operations) as (keyof typeof operations)[]) {
-    const value = { ...computer, control_holder: 'human', restarted: true }
+    const value = { ...computer, control_holder: 'human', control_revision: operation === 'control' ? 2 : 1, restarted: true }
     const fetcher = response(value)
     await expect(operations[operation]()).resolves.toEqual(value)
     expect(fetcher).toHaveBeenCalledTimes(1)
@@ -89,4 +89,43 @@ it('accepts correctly bound mutation receipts and preserves CAS and request iden
       ? { client_request_id: operation === 'create' ? computer.id : 'request-1' }
       : operation === 'remove' ? { expected_revision: 3 } : { expected_revision: 1, holder: 'human' })
   }
+})
+
+it.each(['agent', 'human'] as const)('rejects inconsistent transfer receipts when requesting %s control', async (holder) => {
+  const source = { ...computer, control_holder: holder === 'human' ? 'agent' as const : 'human' as const }
+  for (const patch of [{ control_holder: source.control_holder }, { control_revision: 1 }, { control_revision: 3 }, { status: 'failed' }, { status: 'removed' }]) {
+    const fetcher = response({ ...source, control_holder: holder, control_revision: 2, ...patch })
+    await expect(setComputerControl(source, holder)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }
+})
+it.each(['agent', 'human'] as const)('accepts a transfer or unchanged %s owner with the matching control revision', async (holder) => {
+  for (const unchanged of [false, true]) {
+    const source = { ...computer, control_holder: unchanged ? holder : holder === 'human' ? 'agent' as const : 'human' as const }
+    const receipt = { ...source, control_holder: holder, control_revision: unchanged ? 1 : 2, revision: 7 }
+    const fetcher = response(receipt)
+    await expect(setComputerControl(source, holder)).resolves.toEqual(receipt)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }
+})
+it.each(['agent', 'human'] as const)('rejects revision changes for an unchanged %s owner', async (holder) => {
+  const source = { ...computer, control_holder: holder, control_revision: 3 }
+  for (const control_revision of [2, 4]) {
+    const fetcher = response({ ...source, control_revision })
+    await expect(setComputerControl(source, holder)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }
+})
+it.each([false, true])('binds a delayed control receipt to the original request (altered receipt=%s)', async (alteredReceipt) => {
+  const source = { ...computer }
+  let resolve!: (value: Response) => void
+  const fetcher = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() => new Promise((done) => { resolve = done }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = setComputerControl(source, 'human')
+  Object.assign(source, { agent_id: 'other-agent', id: 'other-computer', executor_id: 'other-executor', control_holder: 'human', control_revision: 8 })
+  const receipt = { ...(alteredReceipt ? source : computer), control_holder: 'human', control_revision: alteredReceipt ? 8 : 2 }
+  const assertion = alteredReceipt ? expect(result).rejects.toMatchObject({ code: 'invalid_response' }) : expect(result).resolves.toEqual(receipt)
+  resolve(Response.json(receipt)); await assertion
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/agents/agent-1/computers/computer-1/control', { method: 'POST', body: JSON.stringify({ expected_revision: 1, holder: 'human' }) }])
 })
