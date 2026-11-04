@@ -223,3 +223,19 @@ it.each(['executor_offline', 'computer_unavailable'])('retains an uncertain rest
   expect(restartIds()).toHaveLength(3)
   expect(new Set(restartIds()).size).toBe(1)
 })
+
+it.each(['agent', 'human'] as const)('reconciles an inconsistent control receipt without announcing success or retrying (initial owner=%s)', async (holder) => {
+  const source = { ...computer, control_holder: holder }
+  fetcher.mockImplementation(async () => snapshot([source])); await show()
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST'
+    ? Response.json({ ...source, control_revision: 2 }) : snapshot([source]))
+  await click(holder === 'agent' ? 'takeControl' : 'returnControl')
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(container.querySelector('.success-notice')).toBeNull()
+  expect(button(holder === 'agent' ? 'takeControl' : 'returnControl')).toBeTruthy()
+  expect(posts()).toHaveLength(1)
+  const reads = fetcher.mock.calls.length
+  await tick(); expect(fetcher.mock.calls.length).toBeGreaterThan(reads)
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(posts()).toHaveLength(1)
+})

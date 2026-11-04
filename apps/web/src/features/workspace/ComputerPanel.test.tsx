@@ -118,7 +118,7 @@ it.each(['success', 'failure'] as const)('invalidates an old %s read before chan
     const calls = fetcher.mock.calls.length
     await act(async () => vi.advanceTimersByTimeAsync(8000))
     expect(fetcher.mock.calls).toHaveLength(calls)
-    await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human' })))
+    await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human', control_revision: 2 })))
     expect(button('Devolver à abelha')).toBeTruthy()
     await act(async () => old.resolve(outcome === 'success' ? snapshot() : Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 })))
     expect(button('Devolver à abelha')).toBeTruthy()
@@ -135,7 +135,7 @@ it('sends only one control mutation for clicks in the same render', async () => 
   fetcher.mockImplementation((url: string) => String(url).endsWith('/control') ? control.promise : Promise.resolve(snapshot('human')))
   await act(async () => { button('Assumir controle')!.click(); button('Assumir controle')!.click() })
   expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/control'))).toHaveLength(1)
-  await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human' })))
+  await act(async () => control.resolve(Response.json({ ...computer, control_holder: 'human', control_revision: 2 })))
 })
 
 it('suspends periodic reads during restart and rejects the snapshot started before it', async () => {
@@ -253,7 +253,7 @@ it('keeps the last valid screen when polling returns a foreign computer and reco
     expect(button('Assumir controle')).toBeTruthy()
     expect(button('Devolver à abelha')).toBeUndefined()
     fetcher.mockImplementation(async (url: string) => String(url).endsWith('/control')
-      ? Response.json({ ...computer, control_holder: 'human' }) : snapshot('human'))
+      ? Response.json({ ...computer, control_holder: 'human', control_revision: 2 }) : snapshot('human'))
     await act(async () => button('Assumir controle')!.click())
     const [url] = fetcher.mock.calls.find(([url]) => String(url).endsWith('/control'))!
     expect(url).toBe('/api/v1/agents/agent-1/computers/computer-1/control')
@@ -337,5 +337,22 @@ it.each(['id', 'executor_id'] as const)('uses a new restart identity after the t
     await confirmRestart()
     expect(restartIds()).toHaveLength(2)
     expect(restartIds()[0]).not.toBe(restartIds()[1])
+  } finally { vi.useRealTimers() }
+})
+
+
+it('retains control error after an invalid receipt and reconciles on polling without resending', async () => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    fetcher.mockImplementation(async (url: string) => String(url).endsWith('/control')
+      ? Response.json({ ...computer, control_holder: 'human', control_revision: 1 }) : snapshot('human'))
+    await act(async () => button('Assumir controle')!.click())
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(button('Assumir controle')).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    expect(button('Devolver à abelha')).toBeTruthy()
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(fetcher.mock.calls.filter(([, init]) => (init as RequestInit).method === 'POST')).toHaveLength(1)
   } finally { vi.useRealTimers() }
 })
