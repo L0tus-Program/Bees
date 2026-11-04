@@ -8,6 +8,7 @@ import { I18nextProvider } from 'react-i18next'
 import { computerResources } from '../../locales/computer'
 import { productResources } from '../../locales/product'
 import { setCsrfToken } from '../../api/client'
+import { registerConfirmHost } from '../../components/confirmAction'
 import { PersonalConnectors } from './PersonalConnectors'
 
 const executor = { id: 'executor-1', kind: 'personal', name: 'Meu computador', status: 'active', revision: 1, online: true, last_seen_at: null, version: null, platform: null, created_at: '2026-11-04T07:00:00Z', capabilities: [], roots: ['Documentos'] }
@@ -21,7 +22,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetcher)
 })
 afterEach(async () => {
-  await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); setCsrfToken()
+  await act(async () => root.unmount()); container.remove(); registerConfirmHost(null); vi.useRealTimers(); vi.unstubAllGlobals(); setCsrfToken()
 })
 async function show(agentId = "agent-1") {
   const instance = createInstance()
@@ -168,4 +169,101 @@ it('shows a controlled error for malformed connector roots without mounting a gr
   expect(uncaught).toEqual([])
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
   expect(container.querySelector('.connector-grant')).toBeNull()
+})
+
+const pairButton = () => [...container.querySelectorAll('button')].find((item) => item.textContent === computerResources['pt-BR'].pairPersonal)!
+const revokeButton = () => [...container.querySelectorAll('button')].find((item) => item.textContent === computerResources['pt-BR'].revoke)!
+const posts = () => fetcher.mock.calls.filter(([, init]) => (init as RequestInit).method === 'POST')
+it.each([true, false])('ignores older list results (success=%s)', async (success) => {
+  await show()
+  const old = deferred<Response>()
+  fetcher.mockImplementationOnce(async () => old.promise)
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  fetcher.mockImplementation(async () => Response.json({ executors: [] }))
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  await act(async () => old.resolve(Response.json(success ? { executors: [executor] } : {}, { status: success ? 200 : 503 })))
+  expect(container.querySelector('.connector-card')).toBeNull()
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
+it('clears a recovered list error', async () => {
+  fetcher.mockImplementation(async () => Response.json({}, { status: 503 }))
+  await show()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  fetcher.mockImplementation(async () => Response.json({ executors: [] }))
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})
+it('serializes invitations and suspends polling until completion', async () => {
+  await show()
+  const pending = deferred<Response>()
+  fetcher.mockImplementation(async () => pending.promise)
+  await act(async () => { pairButton().click(); pairButton().click() })
+  expect(posts()).toHaveLength(1)
+  const before = fetcher.mock.calls.length
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(fetcher.mock.calls).toHaveLength(before)
+  await act(async () => pending.resolve(Response.json({ token: 'one-time', expires_at: '2026-11-04T09:00:00Z' })))
+  expect(container.querySelector('.invite-token')?.textContent).toBe('one-time')
+  expect(pairButton().disabled).toBe(false)
+})
+it('locks revocation before confirmation and rejects competing actions', async () => {
+  await show()
+  const decision = deferred<boolean>()
+  const confirm = vi.fn(({ resolve }: { resolve: (value: boolean) => void }) => { void decision.promise.then(resolve) })
+  registerConfirmHost(confirm)
+  await act(async () => { revokeButton().click(); revokeButton().click(); pairButton().click() })
+  expect(confirm).toHaveBeenCalledTimes(1)
+  expect(posts()).toHaveLength(0)
+  await act(async () => decision.resolve(false))
+  expect(pairButton().disabled).toBe(false)
+  expect(posts()).toHaveLength(0)
+})
+it('does not dispatch a confirmed revoke after unmount', async () => {
+  await show()
+  const decision = deferred<boolean>()
+  registerConfirmHost(({ resolve }) => { void decision.promise.then(resolve) })
+  await act(async () => revokeButton().click())
+  await act(async () => root.render(null))
+  await act(async () => decision.resolve(true))
+  expect(posts()).toHaveLength(0)
+})
+it('does not resurrect a revoked connector from a pre-mutation read', async () => {
+  await show()
+  const old = deferred<Response>()
+  fetcher.mockImplementationOnce(async () => old.promise)
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  registerConfirmHost(({ resolve }) => resolve(true))
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2 } : { executors: [] }))
+  await act(async () => revokeButton().click())
+  expect(container.querySelector('.connector-card')).toBeNull()
+  await act(async () => old.resolve(Response.json({ executors: [executor] })))
+  expect(container.querySelector('.connector-card')).toBeNull()
+  expect(posts()).toHaveLength(1)
+})
+it('keeps a revoked connector removed when reconciliation fails', async () => {
+  await show()
+  registerConfirmHost(({ resolve }) => resolve(true))
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? { ...executor, status: 'revoked', revision: 2 } : {}, { status: init.method === 'POST' ? 200 : 503 }))
+  await act(async () => revokeButton().click())
+  expect(container.querySelector('.connector-card')).toBeNull()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+})
+it('preserves mutation errors across successful polling without repeating POST', async () => {
+  await show()
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => Response.json(init.method === 'POST' ? {} : { executors: [] }, { status: init.method === 'POST' ? 503 : 200 }))
+  await act(async () => pairButton().click())
+  await act(async () => vi.advanceTimersByTimeAsync(10000))
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(posts()).toHaveLength(1)
+})
+it('does not reconcile a revoke settling after unmount', async () => {
+  await show()
+  registerConfirmHost(({ resolve }) => resolve(true))
+  const pending = deferred<Response>()
+  fetcher.mockImplementation(async () => pending.promise)
+  await act(async () => revokeButton().click())
+  await act(async () => root.render(null))
+  const before = fetcher.mock.calls.length
+  await act(async () => pending.resolve(Response.json({ ...executor, status: 'revoked', revision: 2 })))
+  expect(fetcher.mock.calls).toHaveLength(before)
 })
