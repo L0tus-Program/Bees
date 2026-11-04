@@ -71,3 +71,33 @@ it('blocks unreadable recovery without automatic POST', async () => {
   await render(null)
   expect(container.textContent).toContain(skillResources['pt-BR'].processRecoveryBlocked); expect(fetcher).not.toHaveBeenCalled()
 })
+
+it.each(['pt-BR', 'en', 'es'] as const)('keeps recovery for an incompatible receipt and opens only the confirmed task (%s)', async (language) => {
+  for (const lng of ['en', 'es'] as const) {
+    i18n.addResourceBundle(lng, 'skills', skillResources[lng])
+    i18n.addResourceBundle(lng, 'product', productResources[lng])
+  }
+  await i18n.changeLanguage(language)
+  const writes: SkillTaskBody[] = []
+  const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      const body = JSON.parse(options.body as string); writes.push(body)
+      const receipt = skillTaskReceipt(body)
+      if (writes.length === 1) receipt.request_hash = 'b'.repeat(64)
+      return Response.json(receipt)
+    }
+    return Response.json(toolTaskCapabilities)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  await render(); await submit()
+  expect(writes).toHaveLength(1)
+  expect(container.querySelector('[data-testid=created-task]')).toBeNull()
+  expect(sessionStorage.getItem(`bees.skill-task.pending.v1.${selectedAgent.id}`)).toContain(writes[0].client_request_id)
+  expect(container.textContent).toContain(skillResources[language].runPending)
+  await act(async () => root.unmount()); root = createRoot(container); await render(null)
+  expect(writes).toHaveLength(1)
+  await act(async () => button(skillResources[language].verify).click())
+  expect(writes).toHaveLength(2); expect(writes[1]).toEqual(writes[0])
+  await vi.waitFor(() => expect(container.querySelector('[data-testid=created-task]')?.textContent).toBe(skillTaskReceipt().task.id))
+  expect(sessionStorage.getItem(`bees.skill-task.pending.v1.${selectedAgent.id}`)).toBeNull()
+})
