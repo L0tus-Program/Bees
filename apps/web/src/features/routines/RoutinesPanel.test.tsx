@@ -315,6 +315,43 @@ describe('routine history boundaries', () => {
 })
 
 describe('routine uncertainty safety', () => {
+  describe.each(['pt-BR', 'en', 'es'] as const)('definition receipt recovery in %s', (language) => {
+    it.each(['create', 'revise'] as const)('keeps a divergent %s receipt uncertain until human verification of the same request', async (action) => {
+      await act(async () => { await i18n.changeLanguage(language) })
+      const text = routineResources[language]
+      let current: Routine[] = action === 'create' ? [] : [routine]
+      let attempts = 0
+      const fetcher = vi.fn(async (url: string, options: RequestInit) => {
+        if (url.includes('/skills')) return Response.json([skill])
+        if (options.method === 'POST') {
+          attempts++
+          const body = JSON.parse(String(options.body))
+          const saved = body.definition
+          current = [{ ...routine, name: saved.name, instructions: saved.instructions, schedule: saved.schedule, timezone: saved.timezone, definition: saved, revision: action === 'create' ? 1 : 2 }]
+          return Response.json(attempts === 1 ? { ...current[0], definition: { ...saved, inputs: { tema: 'Outro tema' } } } : current[0])
+        }
+        return Response.json(url.endsWith(`/routines/${routine.id}`) ? current[0] : current)
+      }); vi.stubGlobal('fetch', fetcher)
+      await render(); await click(button(action === 'create' ? text.create : text.edit))
+      await field(text.name, 'Agenda confirmada'); await field(skill.current.definition.inputs[0].description, 'Ciência')
+      await submit(); await click(button(text.confirm))
+      const original = restoreRoutineIntent(agentId)
+      expect(original?.body.definition?.inputs).toEqual({ tema: 'Ciência' })
+      expect(container.textContent).toContain(text.lost)
+      expect(container.textContent).not.toContain(text.saved)
+      expect(button(text.create).disabled).toBe(true)
+      expect(attempts).toBe(1)
+      const before = fetcher.mock.calls.length
+      await click(button(text.verify))
+      expect(fetcher.mock.calls[before][1].method).toBe('GET')
+      const writes = fetcher.mock.calls.filter(([, options]) => options.method === 'POST')
+      expect(writes).toHaveLength(2)
+      expect(writes[0][1].body).toBe(writes[1][1].body)
+      expect(JSON.parse(String(writes[1][1].body)).client_request_id).toBe(original?.body.client_request_id)
+      expect(restoreRoutineIntent(agentId)).toBeNull()
+      expect(container.textContent).toContain(text.saved)
+    })
+  })
   it('keeps an uncertain request in memory when optional session storage is blocked', async () => {
     let attempts = 0; let current = activeRoutine
     const fetcher = vi.fn(async (url: string, options: RequestInit) => {
