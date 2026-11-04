@@ -10,7 +10,7 @@ import { productResources } from '../../locales/product'
 import { setCsrfToken } from '../../api/client'
 import { PersonalConnectors } from './PersonalConnectors'
 
-const executor = { id: 'executor-1', kind: 'personal', name: 'Meu computador', status: 'active', revision: 1, online: true, capabilities: [], roots: ['Documentos'] }
+const executor = { id: 'executor-1', kind: 'personal', name: 'Meu computador', status: 'active', revision: 1, online: true, last_seen_at: null, version: null, platform: null, created_at: '2026-11-04T07:00:00Z', capabilities: [], roots: ['Documentos'] }
 const grant = { id: 'grant-1', agent_id: 'agent-1', enabled: true, revision: 2, scope: { roots: ['Documentos'], write: false, shell: false, browser: true } }
 let container: HTMLDivElement, root: Root, fetcher: ReturnType<typeof vi.fn>, uncaught: unknown[]
 beforeEach(() => {
@@ -160,4 +160,12 @@ it('starts a new form when polling replaces the connector', async () => {
   expect(boxes().every((input) => !input.checked)).toBe(true)
   await act(async () => pending.resolve(Response.json({ grants: [] })))
   expect(save().disabled).toBe(false)
+})
+
+it('shows a controlled error for malformed connector roots without mounting a grant form', async () => {
+  fetcher.mockImplementation(async () => Response.json({ executors: [{ ...executor, roots: [1] }] }))
+  await show()
+  expect(uncaught).toEqual([])
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(container.querySelector('.connector-grant')).toBeNull()
 })
