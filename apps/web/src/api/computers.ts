@@ -30,8 +30,14 @@ function isComputerReceipt(value: unknown, computer: Computer): value is Compute
   return isComputer(value) && value.agent_id === computer.agent_id && value.id === computer.id && value.executor_id === computer.executor_id
 }
 function isExecutor(value: unknown): value is Executor {
-  return record(value) && ['id', 'kind', 'name', 'status'].every((key) => text(value[key])) && typeof value.online === 'boolean'
-    && Number.isSafeInteger(value.revision) && Array.isArray(value.capabilities)
+  return record(value) && identifier(value.id) && text(value.name)
+    && (value.kind === 'computer_runtime' || value.kind === 'personal')
+    && (value.status === 'active' || value.status === 'revoked')
+    && typeof value.online === 'boolean' && revision(value.revision)
+    && Array.isArray(value.capabilities) && value.capabilities.every(text)
+    && (value.roots === undefined || (Array.isArray(value.roots) && value.roots.every(text)))
+    && ['last_seen_at', 'version', 'platform'].every((key) => value[key] === null || text(value[key]))
+    && text(value.created_at)
 }
 function isExecutorGrant(value: unknown): value is ExecutorGrant {
   if (!record(value) || !record(value.scope)) return false
@@ -77,7 +83,8 @@ export function viewUrl(computer: Computer) {
 }
 export async function getExecutors(kind?: Executor['kind'], signal?: AbortSignal): Promise<Executor[]> {
   const value = await request(`/executors${kind ? `?kind=${kind}` : ''}`, { authenticated: true, signal })
-  if (!record(value) || !Array.isArray(value.executors) || !value.executors.every(isExecutor)) throw new ApiError('invalid_response')
+  if (!record(value) || !Array.isArray(value.executors) || !value.executors.every((item) => isExecutor(item) && (!kind || item.kind === kind))
+    || new Set(value.executors.map((item) => item.id)).size !== value.executors.length) throw new ApiError('invalid_response')
   return value.executors
 }
 export async function createInvite(kind: Executor['kind'], name: string): Promise<Invite> {
@@ -87,7 +94,7 @@ export async function createInvite(kind: Executor['kind'], name: string): Promis
 }
 export async function revokeExecutor(executor: Executor) {
   const value = await request(`/executors/${encodeURIComponent(executor.id)}/revoke`, { authenticated: true, body: { expected_revision: executor.revision } })
-  if (!isExecutor(value)) throw new ApiError('invalid_response')
+  if (!isExecutor(value) || value.id !== executor.id || value.kind !== executor.kind || value.status !== 'revoked') throw new ApiError('invalid_response')
   return value
 }
 export async function getGrants(executorId: string, signal?: AbortSignal): Promise<ExecutorGrant[]> {
