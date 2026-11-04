@@ -239,3 +239,19 @@ it.each(['agent', 'human'] as const)('reconciles an inconsistent control receipt
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
   expect(posts()).toHaveLength(1)
 })
+
+it.each(['ready', 'failed'] as const)('preserves an invalid removal error and reconciles %s state without repeating the POST', async (status) => {
+  const current = { ...computer, status }
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST'
+    ? Response.json(current) : snapshot([current]))
+  await show()
+  await click('remove')
+  expect(posts()).toHaveLength(1)
+  expect(container.textContent).toContain(productResources['pt-BR'].errors.invalid_response)
+  expect(container.textContent).not.toContain(computerResources['pt-BR'].removed)
+  expect(button('remove')).toBeTruthy()
+  await tick()
+  expect(posts()).toHaveLength(1)
+  expect(container.textContent).toContain(productResources['pt-BR'].errors.invalid_response)
+  expect(fetcher.mock.calls.filter(([, init]) => init.method === 'GET')).toHaveLength(3)
+})

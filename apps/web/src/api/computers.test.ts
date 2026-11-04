@@ -79,7 +79,7 @@ it('accepts valid lifecycle states, nullable reasons and empty offline snapshots
 })
 it('accepts correctly bound mutation receipts and preserves CAS and request identifiers', async () => {
   for (const operation of Object.keys(operations) as (keyof typeof operations)[]) {
-    const value = { ...computer, control_holder: 'human', control_revision: operation === 'control' ? 2 : 1, restarted: true }
+    const value = { ...computer, status: operation === 'remove' ? 'removing' : computer.status, revision: operation === 'remove' ? 4 : 3, control_holder: 'human', control_revision: operation === 'control' ? 2 : 1, restarted: true }
     const fetcher = response(value)
     await expect(operations[operation]()).resolves.toEqual(value)
     expect(fetcher).toHaveBeenCalledTimes(1)
@@ -128,4 +128,56 @@ it.each([false, true])('binds a delayed control receipt to the original request 
   resolve(Response.json(receipt)); await assertion
   expect(fetcher).toHaveBeenCalledTimes(1)
   expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/agents/agent-1/computers/computer-1/control', { method: 'POST', body: JSON.stringify({ expected_revision: 1, holder: 'human' }) }])
+})
+
+it.each([
+  { status: 'ready' }, { status: 'provisioning' }, { status: 'failed' }, { status: 'removed' },
+  { revision: 2 }, { revision: 3 }, { revision: 5 },
+])('rejects an inconsistent removal receipt without retry: %j', async (patch) => {
+  const fetcher = response({ ...computer, status: 'removing', revision: 4, ...patch })
+  await expect(removeComputer(computer)).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it.each(['provisioning', 'ready', 'failed', 'removing', 'removed'] as const)('accepts the matching removal receipt for %s', async (status) => {
+  const source = { ...computer, status }
+  const unchanged = status === 'removing' || status === 'removed'
+  const receipt = { ...source, status: unchanged ? status : status === 'failed' ? 'removed' : 'removing', revision: unchanged ? 3 : 4, online: false }
+  const fetcher = response(receipt)
+  await expect(removeComputer(source)).resolves.toEqual(receipt)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/agents/agent-1/computers/computer-1/remove', { method: 'POST', body: JSON.stringify({ expected_revision: 3 }) }])
+})
+it.each(['failed', 'removing', 'removed'] as const)('rejects an incompatible removal transition from %s', async (status) => {
+  const source = { ...computer, status }
+  const expectedStatus = status === 'failed' ? 'removed' : status
+  const expectedRevision = status === 'failed' ? 4 : 3
+  for (const patch of [{ status: expectedStatus === 'removed' ? 'removing' : 'removed' }, { revision: expectedRevision - 1 }, { revision: expectedRevision + 1 }]) {
+    const fetcher = response({ ...source, status: expectedStatus, revision: expectedRevision, ...patch })
+    await expect(removeComputer(source)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }
+})
+it.each([false, true])('binds a delayed removal receipt to the original snapshot (altered receipt=%s)', async (alteredReceipt) => {
+  const source = { ...computer }
+  let resolve!: (value: Response) => void
+  const fetcher = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() => new Promise((done) => { resolve = done }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = removeComputer(source)
+  Object.assign(source, { agent_id: 'other-agent', id: 'other-computer', executor_id: 'other-executor', status: 'failed', revision: 8 })
+  const receipt = alteredReceipt ? { ...source, status: 'removed', revision: 9 } : { ...computer, status: 'removing', revision: 4 }
+  const assertion = alteredReceipt ? expect(result).rejects.toMatchObject({ code: 'invalid_response' }) : expect(result).resolves.toEqual(receipt)
+  resolve(Response.json(receipt)); await assertion
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/agents/agent-1/computers/computer-1/remove', { method: 'POST', body: JSON.stringify({ expected_revision: 3 }) }])
+})
+it('keeps removal validation bound to the original lifecycle and CAS after caller edits', async () => {
+  const source = { ...computer }
+  let resolve!: (value: Response) => void
+  const fetcher = vi.fn(() => new Promise<Response>((done) => { resolve = done }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = removeComputer(source)
+  Object.assign(source, { status: 'failed', revision: 8 })
+  const assertion = expect(result).rejects.toMatchObject({ code: 'invalid_response' })
+  resolve(Response.json({ ...source, status: 'removed', revision: 9 })); await assertion
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })

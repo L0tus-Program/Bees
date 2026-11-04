@@ -63,8 +63,15 @@ export async function createComputer(agentId: string, clientRequestId: string, n
   return value
 }
 export async function removeComputer(computer: Computer) {
-  const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/remove`, { authenticated: true, body: { expected_revision: computer.revision } })
-  if (!isComputerReceipt(value, computer)) throw new ApiError('invalid_response')
+  // Bind the receipt to the lifecycle and CAS snapshot actually sent.
+  const intent = { ...computer }
+  const unchanged = intent.status === 'removing' || intent.status === 'removed'
+  const expectedStatus = unchanged ? intent.status : intent.status === 'failed' ? 'removed' : 'removing'
+  const expectedRevision = intent.revision + (unchanged ? 0 : 1)
+  const value = await request(`${agentPath(intent.agent_id)}/${encodeURIComponent(intent.id)}/remove`, { authenticated: true, body: { expected_revision: intent.revision } })
+  // remove_computer preserves an existing removal, otherwise advancing CAS once.
+  if (!isComputerReceipt(value, intent) || value.status !== expectedStatus
+    || value.revision !== expectedRevision) throw new ApiError('invalid_response')
   return value
 }
 export async function setComputerControl(computer: Computer, holder: 'agent' | 'human') {
