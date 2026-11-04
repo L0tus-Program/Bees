@@ -69,8 +69,9 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
       if (active.current) setScreen((value) => value + 1)
     } catch (failure) {
       const problem = asApiError(failure)
-      // Resposta inválida também pode ter perdido o recibo de um efeito já realizado.
-      if (problem.status < 500 && !['computer_restart_timeout', 'mutation_timeout', 'mutation_network', 'invalid_response'].includes(problem.code)) restartId.current = null
+      // Só recibos terminais do runtime encerram o pedido. Uma recusa antes do
+      // despacho (por exemplo offline) não resolve um reinício anterior incerto.
+      if (problem.status === 409 && ['computer_restart_failed', 'computer_not_provisioned'].includes(problem.code)) restartId.current = null
       throw problem
     }
   }

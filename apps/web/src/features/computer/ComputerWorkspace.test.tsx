@@ -110,9 +110,9 @@ it.each(['computer_restart_timeout', 'mutation_timeout', 'mutation_network', 'in
   await click('restart'); expect(restartIds()[2]).not.toBe(ids[0])
 })
 
-it('starts a new restart request after a definitive failure', async () => {
+it.each(['computer_restart_failed', 'computer_not_provisioned'])('starts a new restart request after terminal runtime failure %s', async (code) => {
   await show()
-  fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST' ? failure() : snapshot())
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => init.method === 'POST' ? failure(code) : snapshot())
   await click('restart'); await click('restart')
   expect(restartIds()).toHaveLength(2); expect(restartIds()[0]).not.toBe(restartIds()[1])
 })
@@ -206,4 +206,20 @@ it('recovers periodic read errors while retaining the action error and last vali
   await tick(); expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1)
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(actionError)
   expect(posts()).toHaveLength(1)
+})
+
+
+it.each(['executor_offline', 'computer_unavailable'])('retains an uncertain restart across a later %s refusal', async (code) => {
+  await show()
+  let attempts = 0
+  fetcher.mockImplementation(async (_url: string, init: RequestInit) => {
+    if (init.method !== 'POST') return snapshot()
+    attempts += 1
+    if (attempts === 1) return failure('computer_restart_timeout')
+    if (attempts === 2) return failure(code)
+    return Response.json({ ...computer, restarted: true })
+  })
+  await click('restart'); await click('restart'); await click('restart')
+  expect(restartIds()).toHaveLength(3)
+  expect(new Set(restartIds()).size).toBe(1)
 })
