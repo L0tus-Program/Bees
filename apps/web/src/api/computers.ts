@@ -86,8 +86,12 @@ export async function setComputerControl(computer: Computer, holder: 'agent' | '
 }
 /** Fecha programas e sobe a área de trabalho de novo; a API aguarda o runtime confirmar. */
 export async function restartComputer(computer: Computer, clientRequestId: string) {
-  const value = await request(`${agentPath(computer.agent_id)}/${encodeURIComponent(computer.id)}/restart`, { authenticated: true, body: { client_request_id: clientRequestId }, timeoutMs: 100000 })
-  if (!isComputerReceipt(value, computer) || !record(value) || value.restarted !== true) throw new ApiError('invalid_response')
+  // Freeze the target identity before waiting for the runtime confirmation.
+  const intent = { ...computer }
+  const value = await request(`${agentPath(intent.agent_id)}/${encodeURIComponent(intent.id)}/restart`, { authenticated: true, body: { client_request_id: clientRequestId }, timeoutMs: 100000 })
+  // The route returns its ready/online pre-dispatch snapshot; it does not use caller CAS.
+  if (!isComputerReceipt(value, intent) || value.status !== 'ready' || !value.online
+    || !record(value) || value.restarted !== true) throw new ApiError('invalid_response')
   return value
 }
 export function viewUrl(computer: Computer) {

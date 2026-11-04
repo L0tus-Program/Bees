@@ -181,3 +181,34 @@ it('keeps removal validation bound to the original lifecycle and CAS after calle
   resolve(Response.json({ ...source, status: 'removed', revision: 9 })); await assertion
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
+
+
+it.each(['provisioning', 'failed', 'removing', 'removed'] as const)('rejects a restart confirmation for a %s computer without retry', async (status) => {
+  const fetcher = response({ ...computer, status, restarted: true })
+  await expect(restartComputer(computer, 'restart-1')).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it('rejects a restart confirmation with an offline target snapshot', async () => {
+  const fetcher = response({ ...computer, online: false, restarted: true })
+  await expect(restartComputer(computer, 'restart-1')).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+it.each([false, true])('binds a delayed restart receipt to the original identity (altered receipt=%s)', async (alteredReceipt) => {
+  const source = { ...computer }
+  let resolve!: (value: Response) => void
+  const fetcher = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() => new Promise((done) => { resolve = done }))
+  vi.stubGlobal('fetch', fetcher)
+  const result = restartComputer(source, 'restart-1')
+  Object.assign(source, { agent_id: 'other-agent', id: 'other-computer', executor_id: 'other-executor' })
+  const receipt = { ...(alteredReceipt ? source : computer), restarted: true }
+  const assertion = alteredReceipt ? expect(result).rejects.toMatchObject({ code: 'invalid_response' }) : expect(result).resolves.toEqual(receipt)
+  resolve(Response.json(receipt)); await assertion
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/agents/agent-1/computers/computer-1/restart', { method: 'POST', body: JSON.stringify({ client_request_id: 'restart-1' }) }])
+})
+it('accepts a ready online restart snapshot with server revisions independent of the caller', async () => {
+  const receipt = { ...computer, revision: 7, control_revision: 4, control_holder: 'human', restarted: true }
+  const fetcher = response(receipt)
+  await expect(restartComputer(computer, 'restart-1')).resolves.toEqual(receipt)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})

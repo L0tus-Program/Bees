@@ -269,7 +269,7 @@ const confirmRestart = async () => {
 }
 const restartFailure = (code: string, status = 409) => Response.json({ error: { code, message: 'x' } }, { status })
 
-it.each(['computer_restart_timeout', 'mutation_network', 'mutation_timeout', 'invalid_response', 'http_502'])(
+it.each(['computer_restart_timeout', 'mutation_network', 'mutation_timeout', 'invalid_response', 'invalid_restart_status', 'offline_restart_snapshot', 'http_502'])(
   'reconciles an uncertain %s restart without automatic POST or reconnect', async (code) => {
     vi.useFakeTimers()
     try {
@@ -279,6 +279,8 @@ it.each(['computer_restart_timeout', 'mutation_network', 'mutation_timeout', 'in
         if (code === 'mutation_network') throw new TypeError('connection lost')
         if (code === 'mutation_timeout') return new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
         if (code === 'invalid_response') return Response.json({ ...computer, restarted: false })
+        if (code === 'invalid_restart_status') return Response.json({ ...computer, status: 'removed', restarted: true })
+        if (code === 'offline_restart_snapshot') return Response.json({ ...computer, online: false, restarted: true })
         return restartFailure(code, code === 'http_502' ? 502 : 409)
       })
       await confirmRestart()
