@@ -20,7 +20,7 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
   const request = useRef<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [restarting, setRestarting] = useState(false)
-  const restartRequest = useRef<string | null>(null)
+  const restartRequest = useRef<{ target: string; id: string } | null>(null)
   const [screen, setScreen] = useState(0)
   const reading = useRef<AbortController | null>(null)
   const mutating = useRef(false)
@@ -69,11 +69,14 @@ export function ComputerPanel({ agentId, name }: { agentId: string; name: string
     if (!computer || !beginMutation()) return
     setConfirming(false); setRestarting(true)
     // Mesmo identificador ao repetir após demora: a API devolve o mesmo reinício, sem outro.
-    restartRequest.current ??= crypto.randomUUID()
+    const target = JSON.stringify([computer.agent_id, computer.id, computer.executor_id])
+    if (restartRequest.current?.target !== target) restartRequest.current = { target, id: crypto.randomUUID() }
     // Tela nova após o reinício: o visualizador reconecta sozinho.
-    try { await restartComputer(computer, restartRequest.current); restartRequest.current = null; if (active.current) setScreen((value) => value + 1); await load() } catch (failure) {
+    try { await restartComputer(computer, restartRequest.current.id); restartRequest.current = null; if (active.current) setScreen((value) => value + 1); await load() } catch (failure) {
       const problem = asApiError(failure)
-      if (!['computer_restart_timeout', 'mutation_timeout', 'mutation_network'].includes(problem.code)) restartRequest.current = null
+      // Só um recibo terminal do runtime encerra o pedido incerto. Recusa antes
+      // do despacho, resposta inválida ou falha de transporte não o resolvem.
+      if (problem.status === 409 && ['computer_restart_failed', 'computer_not_provisioned'].includes(problem.code)) restartRequest.current = null
       if (active.current) setError(problem)
     } finally { if (active.current) setRestarting(false); endMutation() }
   }
