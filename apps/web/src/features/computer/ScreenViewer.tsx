@@ -21,16 +21,26 @@ function ScreenConnection({ computer }: { computer: Computer }) {
   useEffect(() => {
     let rfb: { disconnect(): void; viewOnly: boolean; scaleViewport: boolean; addEventListener: EventTarget['addEventListener'] } | null = null
     let cancelled = false
+    function stop() {
+      cancelled = true
+      const client = rfb; rfb = null
+      // Cliente parcialmente inicializado pode falhar também ao desconectar.
+      try { client?.disconnect() } catch { /* A conexão já foi invalidada. */ }
+    }
     void import('@novnc/novnc').then(({ default: RFB }) => {
       if (cancelled || !target.current) return
       const client = new RFB(target.current, viewUrl(computer), { wsProtocols: ['binary'] })
+      rfb = client
       client.viewOnly = !interactive
       client.scaleViewport = true
       client.addEventListener('connect', () => { if (!cancelled) setState('connected') })
       client.addEventListener('disconnect', () => { if (!cancelled) setState('disconnected') })
-      rfb = client
-    }, () => { if (!cancelled) setState('disconnected') })
-    return () => { cancelled = true; rfb?.disconnect() }
+    }).catch(() => {
+      if (cancelled) return
+      stop()
+      setState('disconnected')
+    })
+    return stop
     // Só reconecta quando muda o computador ou o modo; atualizações do mesmo registro não piscam a tela.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computer.id, computer.agent_id, interactive, attempt])
