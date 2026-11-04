@@ -11,11 +11,20 @@ import { computerResources } from '../../locales/computer'
 import { ScreenViewer } from './ScreenViewer'
 
 const clients = vi.hoisted(() => [] as { emit(name: string): void; disconnect: ReturnType<typeof vi.fn>; viewOnly: boolean; scaleViewport: boolean }[])
+const startup = vi.hoisted(() => ({ failure: '', disconnectFails: false }))
 vi.mock('@novnc/novnc', () => ({ default: class extends EventTarget {
-  viewOnly = true
-  scaleViewport = false
-  disconnect = vi.fn(() => this.emit('disconnect'))
-  constructor() { super(); clients.push(this) }
+  private readOnly = true
+  private scaled = false
+  get viewOnly() { return this.readOnly }
+  set viewOnly(value: boolean) { if (startup.failure === 'viewOnly') throw new Error('private diagnostic'); this.readOnly = value }
+  get scaleViewport() { return this.scaled }
+  set scaleViewport(value: boolean) { if (startup.failure === 'scaleViewport') throw new Error('private diagnostic'); this.scaled = value }
+  disconnect = vi.fn(() => { this.emit('disconnect'); if (startup.disconnectFails) throw new Error('private diagnostic') })
+  constructor() { super(); if (startup.failure === 'constructor') throw new Error('private diagnostic'); clients.push(this) }
+  override addEventListener(...args: Parameters<EventTarget['addEventListener']>) {
+    super.addEventListener(...args)
+    if (startup.failure === 'listener' && args[0] === 'disconnect') throw new Error('private diagnostic')
+  }
   emit(name: string) { this.dispatchEvent(new Event(name)) }
 } }))
 const computer: Computer = { id: 'c1', agent_id: 'a1', executor_id: 'e1', name: 'PC', status: 'ready', revision: 1, control_holder: 'agent', control_revision: 1, reason_code: null, online: true, created_at: '', updated_at: '' }
@@ -23,6 +32,7 @@ let root: Root, container: HTMLDivElement, instance: i18n
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   clients.length = 0
+  startup.failure = ''; startup.disconnectFails = false
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   instance = createInstance()
   await instance.init({ lng: 'pt-BR', resources: { 'pt-BR': { computer: computerResources['pt-BR'] } }, interpolation: { escapeValue: false } })
@@ -77,4 +87,44 @@ it('does not create a client when unmounted before the import settles', async ()
   act(() => root.render(null))
   await act(async () => {})
   expect(clients).toHaveLength(0)
+})
+
+it.each(['constructor', 'viewOnly', 'scaleViewport', 'listener'])('recovers explicitly after %s fails during startup', async (failure) => {
+  startup.failure = failure
+  await show()
+  expect(status()).toContain('Tela desconectada')
+  expect(container.querySelector('button')?.textContent).toBe('Reconectar')
+  expect(container.textContent).not.toContain('private diagnostic')
+  const abandoned = clients[0]
+  if (abandoned) {
+    expect(abandoned.disconnect).toHaveBeenCalledTimes(1)
+    await act(async () => abandoned.emit('connect'))
+    expect(status()).toContain('Tela desconectada')
+  }
+  startup.failure = ''
+  await show({ ...computer, revision: 2 })
+  expect(clients).toHaveLength(abandoned ? 1 : 0)
+  expect(status()).toContain('Tela desconectada')
+  await act(async () => container.querySelector('button')!.click())
+  expect(status()).toContain('Conectando à tela')
+  expect(clients.at(-1)?.viewOnly).toBe(true)
+  await act(async () => clients.at(-1)!.emit('connect'))
+  expect(status()).toContain('Tela conectada')
+  if (abandoned) {
+    await act(async () => abandoned.emit('disconnect'))
+    expect(status()).toContain('Tela conectada')
+    expect(abandoned.disconnect).toHaveBeenCalledTimes(1)
+  }
+})
+
+it('offers recovery even when disconnecting a partially initialized client throws', async () => {
+  startup.failure = 'listener'; startup.disconnectFails = true
+  await show()
+  expect(status()).toContain('Tela desconectada')
+  expect(clients[0].disconnect).toHaveBeenCalledTimes(1)
+  startup.failure = ''; startup.disconnectFails = false
+  await act(async () => container.querySelector('button')!.click())
+  await emit(1, 'connect')
+  expect(status()).toContain('Tela conectada')
+  expect(clients[0].disconnect).toHaveBeenCalledTimes(1)
 })
