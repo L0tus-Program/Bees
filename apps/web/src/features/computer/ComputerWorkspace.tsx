@@ -13,23 +13,67 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
   const { t, i18n } = useTranslation('computer')
   const [state, setState] = useState<ComputerState | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
+  const [readError, setReadError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
   const [viewing, setViewing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const createId = useRef<string | null>(null)
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try { setState(await getComputers(agentId, signal)); setError(null) } catch (failure) { if (!signal?.aborted) setError(asApiError(failure)) }
+  const restartId = useRef<{ target: string; id: string } | null>(null)
+  const [screen, setScreen] = useState(0)
+  const reading = useRef<AbortController | null>(null)
+  const mutating = useRef(false)
+  const confirming = useRef(false)
+  const active = useRef(true)
+  const load = useCallback(async () => {
+    if (!active.current) return
+    reading.current?.abort()
+    const controller = new AbortController(); reading.current = controller
+    try {
+      const next = await getComputers(agentId, controller.signal)
+      if (!controller.signal.aborted) { setState(next); setReadError(null) }
+    } catch (failure) { if (!controller.signal.aborted) setReadError(asApiError(failure)) }
+    finally { if (reading.current === controller) reading.current = null }
   }, [agentId])
   useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    const timer = setInterval(() => { void load(controller.signal) }, 4000)
-    return () => { controller.abort(); clearInterval(timer) }
+    active.current = true
+    void load()
+    const timer = setInterval(() => { if (!mutating.current && !reading.current && document.visibilityState === 'visible') void load() }, 4000)
+    return () => { active.current = false; reading.current?.abort(); clearInterval(timer) }
   }, [load])
   async function mutate(operation: () => Promise<unknown>, success?: string) {
-    if (busy) return
-    setBusy(true); setError(null); setNotice(null)
-    try { await operation(); if (success) setNotice(success); await load() } catch (failure) { setError(asApiError(failure)); await load() } finally { setBusy(false) }
+    if (mutating.current || !active.current) return
+    mutating.current = true
+    // Não aceitar snapshots iniciados antes da ação, mesmo que o fetch ignore abort.
+    reading.current?.abort()
+    setBusy(true); setError(null); setReadError(null); setNotice(null)
+    try { await operation(); if (active.current && success) setNotice(success) }
+    catch (failure) { if (active.current) setError(asApiError(failure)) }
+    finally {
+      await load()
+      mutating.current = false
+      if (active.current) setBusy(false)
+    }
+  }
+  async function confirmMutation(message: string, operation: () => Promise<unknown>, success: string) {
+    if (confirming.current || mutating.current || !active.current) return
+    confirming.current = true
+    try { if (await confirmAction(message)) await mutate(operation, success) }
+    finally { confirming.current = false }
+  }
+  async function restart(computer: Computer) {
+    const target = JSON.stringify([computer.agent_id, computer.id, computer.executor_id])
+    if (restartId.current?.target !== target) restartId.current = { target, id: crypto.randomUUID() }
+    try {
+      await restartComputer(computer, restartId.current.id)
+      restartId.current = null
+      if (active.current) setScreen((value) => value + 1)
+    } catch (failure) {
+      const problem = asApiError(failure)
+      // Só recibos terminais do runtime encerram o pedido. Uma recusa antes do
+      // despacho (por exemplo offline) não resolve um reinício anterior incerto.
+      if (problem.status === 409 && ['computer_restart_failed', 'computer_not_provisioned'].includes(problem.code)) restartId.current = null
+      throw problem
+    }
   }
   const computer: Computer | undefined = state?.computers.find((item) => item.status !== 'removed')
   return <section className="surface computer-workspace" aria-labelledby="computer-heading">
@@ -37,8 +81,9 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
     <h2 id="computer-heading">{t('title')}</h2>
     <p className="quiet-note">{t('scope')}</p>
     {error && <ErrorNotice error={error} />}
+    {readError && <ErrorNotice error={readError} />}
     {notice && <p className="success-notice" role="status">{t(notice)}</p>}
-    {!state && !error && <LoadingNotice />}
+    {!state && !error && !readError && <LoadingNotice />}
     {state && <>
       <div className="computer-runtime">
         <strong>{t('runtime')}</strong>
@@ -63,10 +108,10 @@ export function ComputerWorkspace({ agentId }: { agentId: string }) {
             {computer.control_holder === 'agent'
               ? <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'human'), 'controlTaken'); setViewing(true) }}>{t('takeControl')}</button>
               : <button type="button" className="button primary" disabled={busy} onClick={() => { void mutate(() => setComputerControl(computer, 'agent'), 'controlReturned') }}>{t('returnControl')}</button>}
-            <button type="button" className="button secondary" disabled={busy || !computer.online} onClick={() => { void confirmAction(t('restartConfirm')).then((ok) => { if (ok) void mutate(() => restartComputer(computer, crypto.randomUUID()), 'restarted') }) }}>{t('restart')}</button>
-            <button type="button" className="button secondary" disabled={busy} onClick={() => { void confirmAction(t('removeConfirm')).then((ok) => { if (ok) void mutate(() => removeComputer(computer), 'removed') }) }}>{t('remove')}</button>
+            <button type="button" className="button secondary" disabled={busy || !computer.online} onClick={() => { void confirmMutation(t('restartConfirm'), () => restart(computer), 'restarted') }}>{t('restart')}</button>
+            <button type="button" className="button secondary" disabled={busy} onClick={() => { void confirmMutation(t('removeConfirm'), () => removeComputer(computer), 'removed') }}>{t('remove')}</button>
           </div>
-          {viewing && computer.online && <ScreenViewer key={`${computer.id}:${computer.control_revision}`} computer={computer} />}
+          {viewing && computer.online && <ScreenViewer key={screen} computer={computer} />}
         </>}
         {computer.status === 'failed' && <button type="button" className="button secondary" disabled={busy} onClick={() => { void mutate(() => removeComputer(computer), 'removed') }}>{t('remove')}</button>}
       </div>}
