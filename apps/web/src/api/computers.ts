@@ -33,6 +33,14 @@ function isExecutor(value: unknown): value is Executor {
   return record(value) && ['id', 'kind', 'name', 'status'].every((key) => text(value[key])) && typeof value.online === 'boolean'
     && Number.isSafeInteger(value.revision) && Array.isArray(value.capabilities)
 }
+function isExecutorGrant(value: unknown): value is ExecutorGrant {
+  if (!record(value) || !record(value.scope)) return false
+  const scope = value.scope
+  return identifier(value.id) && identifier(value.agent_id)
+    && typeof value.enabled === 'boolean' && revision(value.revision)
+    && Array.isArray(scope.roots) && scope.roots.every(text)
+    && ['write', 'shell', 'browser'].every((key) => typeof scope[key] === 'boolean')
+}
 
 export async function getComputers(agentId: string, signal?: AbortSignal): Promise<ComputerState> {
   const value = await request(agentPath(agentId), { authenticated: true, signal })
@@ -84,11 +92,13 @@ export async function revokeExecutor(executor: Executor) {
 }
 export async function getGrants(executorId: string, signal?: AbortSignal): Promise<ExecutorGrant[]> {
   const value = await request(`/executors/${encodeURIComponent(executorId)}/grants`, { authenticated: true, signal })
-  if (!record(value) || !Array.isArray(value.grants)) throw new ApiError('invalid_response')
-  return value.grants as ExecutorGrant[]
+  if (!record(value) || !Array.isArray(value.grants) || !value.grants.every(isExecutorGrant)
+    || new Set(value.grants.map((item) => item.id)).size !== value.grants.length
+    || new Set(value.grants.map((item) => item.agent_id)).size !== value.grants.length) throw new ApiError('invalid_response')
+  return value.grants
 }
 export async function setGrant(executorId: string, agentId: string, body: { expected_revision: number; enabled: boolean; roots: string[]; write: boolean; shell: boolean; browser: boolean }) {
   const value = await request(`/executors/${encodeURIComponent(executorId)}/grants/${encodeURIComponent(agentId)}`, { authenticated: true, method: 'PUT', body })
-  if (!record(value) || !text(value.id)) throw new ApiError('invalid_response')
-  return value as unknown as ExecutorGrant
+  if (!isExecutorGrant(value) || value.agent_id !== agentId) throw new ApiError('invalid_response')
+  return value
 }
