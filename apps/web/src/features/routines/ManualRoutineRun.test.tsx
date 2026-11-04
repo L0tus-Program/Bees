@@ -105,3 +105,30 @@ describe('manual routine human confirmation and recovery', () => {
     expect(restoreManualRoutine(agentId).intent).toEqual(original)
   })
 })
+
+it.each(['pt-BR', 'en', 'es'] as const)('retains the same manual request until a matching GET receipt in %s', async (language) => {
+  let saved: Awaited<ReturnType<typeof reply>>
+  let original: ManualRoutineIntent
+  const fetcher = vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      original = { agentId, routineId: routine.id, body: JSON.parse(options.body as string) }
+      saved = await reply(original)
+      return Response.json({ ...saved, routine_revision: 2 })
+    }
+    return Response.json(fetcher.mock.calls.length === 2 ? { ...saved, request_hash: '0'.repeat(64) } : saved)
+  })
+  vi.stubGlobal('fetch', fetcher)
+  const words = routineResources[language]
+  await render(language); await click(words.manualConfirm)
+  expect(created).not.toHaveBeenCalled()
+  expect(restoreManualRoutine(agentId).intent).toEqual(original!)
+  await click(words.manualVerify)
+  expect(created).not.toHaveBeenCalled()
+  expect(restoreManualRoutine(agentId).intent).toEqual(original!)
+  expect(container.textContent).toContain(words.manualUncertain)
+  expect(container.textContent).not.toContain(words.manualRetry)
+  await click(words.manualVerify)
+  expect(created).toHaveBeenCalledExactlyOnceWith(agentId)
+  expect(restoreManualRoutine(agentId).intent).toBeNull()
+  expect(fetcher.mock.calls.map((call) => call[1].method)).toEqual(['POST', 'GET', 'GET'])
+})
