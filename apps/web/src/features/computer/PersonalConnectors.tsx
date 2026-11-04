@@ -107,7 +107,7 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
     mutating.current = true
     ++reads.current
     const generation = lifecycle.current
-    setBusy(true); setError(null)
+    setBusy(true); setError(null); setInvite(null)
     try {
       const receipt = await createInvite('personal', t('defaultConnectorName'))
       if (lifecycle.current === generation) setInvite(receipt)

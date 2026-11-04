@@ -1,4 +1,5 @@
 import { ApiError, record, request } from './client'
+import { timestamp, uuid } from './activity'
 
 export interface Computer {
   id: string; agent_id: string; executor_id: string; name: string
@@ -89,7 +90,12 @@ export async function getExecutors(kind?: Executor['kind'], signal?: AbortSignal
 }
 export async function createInvite(kind: Executor['kind'], name: string): Promise<Invite> {
   const value = await request('/executors/invites', { authenticated: true, body: { kind, name } })
-  if (!record(value) || !text(value.token) || !text(value.expires_at)) throw new ApiError('invalid_response')
+  // ExecutorService issues 32 random bytes encoded as unpadded URL-safe base64.
+  // This token is also interpolated into the connector's copyable command.
+  if (!record(value) || !uuid(value.invite_id) || value.invite_id.length !== 36
+    || !text(value.token) || value.token.length !== 43 || !/^[A-Za-z0-9_-]{43}$/.test(value.token)
+    || !timestamp(value.expires_at) || typeof value.delivered_locally !== 'boolean'
+    || (kind === 'personal' && value.delivered_locally)) throw new ApiError('invalid_response')
   return value as unknown as Invite
 }
 export async function revokeExecutor(executor: Executor) {

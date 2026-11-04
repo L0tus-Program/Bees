@@ -12,6 +12,7 @@ import { registerConfirmHost } from '../../components/confirmAction'
 import { PersonalConnectors } from './PersonalConnectors'
 
 const executor = { id: 'executor-1', kind: 'personal', name: 'Meu computador', status: 'active', revision: 1, online: true, last_seen_at: null, version: null, platform: null, created_at: '2026-11-04T07:00:00Z', capabilities: [], roots: ['Documentos'] }
+const invite = { invite_id: '238f792a-e4ca-466c-80f9-a8222041eb53', token: 'a'.repeat(43), expires_at: '2026-11-04T10:00:00Z', delivered_locally: false }
 const grant = { id: 'grant-1', agent_id: 'agent-1', enabled: true, revision: 2, scope: { roots: ['Documentos'], write: false, shell: false, browser: true } }
 let container: HTMLDivElement, root: Root, fetcher: ReturnType<typeof vi.fn>, uncaught: unknown[]
 beforeEach(() => {
@@ -202,8 +203,8 @@ it('serializes invitations and suspends polling until completion', async () => {
   const before = fetcher.mock.calls.length
   await act(async () => vi.advanceTimersByTimeAsync(5000))
   expect(fetcher.mock.calls).toHaveLength(before)
-  await act(async () => pending.resolve(Response.json({ token: 'one-time', expires_at: '2026-11-04T09:00:00Z' })))
-  expect(container.querySelector('.invite-token')?.textContent).toBe('one-time')
+  await act(async () => pending.resolve(Response.json(invite)))
+  expect(container.querySelector('.invite-token')?.textContent).toBe(invite.token)
   expect(pairButton().disabled).toBe(false)
 })
 it('locks revocation before confirmation and rejects competing actions', async () => {
@@ -266,4 +267,41 @@ it('does not reconcile a revoke settling after unmount', async () => {
   const before = fetcher.mock.calls.length
   await act(async () => pending.resolve(Response.json({ ...executor, status: 'revoked', revision: 2 })))
   expect(fetcher.mock.calls).toHaveLength(before)
+})
+
+it.each([{ token: 'bad; command' }, { expires_at: 'tomorrow' }, { invite_id: undefined }, { delivered_locally: true }])('does not display instructions from an invalid invitation: %j', async (patch) => {
+  await show()
+  fetcher.mockImplementation(async () => Response.json({ ...invite, ...patch }))
+  await act(async () => pairButton().click())
+  expect(container.querySelector('.connector-invite')).toBeNull()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(pairButton().disabled).toBe(false)
+  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  expect(posts()).toHaveLength(1)
+  expect(uncaught).toEqual([])
+})
+it.each([true, false])('clears previous instructions during reissuance and keeps them hidden after failure (malformed=%s)', async (malformed) => {
+  await show()
+  fetcher.mockImplementation(async () => Response.json(invite))
+  await act(async () => pairButton().click())
+  expect(container.querySelector('.invite-token')?.textContent).toBe(invite.token)
+  const pending = deferred<Response>()
+  fetcher.mockImplementation(async () => pending.promise)
+  await act(async () => pairButton().click())
+  expect(container.querySelector('.connector-invite')).toBeNull()
+  await act(async () => pending.resolve(Response.json(malformed ? { ...invite, token: '' } : {}, { status: malformed ? 200 : 503 })))
+  expect(container.querySelector('.connector-invite')).toBeNull()
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(posts()).toHaveLength(2)
+})
+it('shows a fresh valid invitation after a failed issuance', async () => {
+  await show()
+  fetcher.mockImplementation(async () => Response.json({}))
+  await act(async () => pairButton().click())
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  fetcher.mockImplementation(async () => Response.json(invite))
+  await act(async () => pairButton().click())
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+  expect(container.querySelector('.invite-token')?.textContent).toBe(invite.token)
+  expect(container.querySelector('pre')?.textContent).toContain(`--invite ${invite.token} --root`)
 })
