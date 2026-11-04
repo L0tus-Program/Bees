@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { webcrypto } from 'node:crypto'
-import { act } from 'react'
+import { act, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +12,11 @@ import { productResources } from '../../locales/product'
 import { workspaceResources } from '../../locales/workspace'
 import { ComputerPanel } from './ComputerPanel'
 
-vi.mock('../computer/ScreenViewer', () => ({ ScreenViewer: () => <div>tela</div> }))
+const screen = vi.hoisted(() => ({ mounts: 0 }))
+vi.mock('../computer/ScreenViewer', () => ({ ScreenViewer: function Viewer() {
+  useEffect(() => { screen.mounts += 1 }, [])
+  return <div>tela</div>
+} }))
 
 const computer: Computer = {
   id: 'computer-1', agent_id: 'agent-1', executor_id: 'executor-1', name: 'Computador', status: 'ready', revision: 3,
@@ -24,7 +28,7 @@ let finish: ((response: Response) => void) | null
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto); setCsrfToken('csrf')
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
-  finish = null
+  finish = null; screen.mounts = 0
   fetcher = vi.fn(async (url: string) => {
     if (url.endsWith('/restart')) return new Promise<Response>((resolve) => { finish = resolve })
     return Response.json({ computers: [computer], runtime_online: true, runtime_paired: true, local_link_available: false })
@@ -254,5 +258,84 @@ it('keeps the last valid screen when polling returns a foreign computer and reco
     const [url] = fetcher.mock.calls.find(([url]) => String(url).endsWith('/control'))!
     expect(url).toBe('/api/v1/agents/agent-1/computers/computer-1/control')
     expect(container.querySelector('[role="alert"]')).toBeNull()
+  } finally { vi.useRealTimers() }
+})
+
+
+const restartIds = () => restarts().map(([, init]) => JSON.parse((init as RequestInit).body as string).client_request_id)
+const confirmRestart = async () => {
+  await act(async () => button('Reiniciar')!.click())
+  await act(async () => button('Reiniciar agora')!.click())
+}
+const restartFailure = (code: string, status = 409) => Response.json({ error: { code, message: 'x' } }, { status })
+
+it.each(['computer_restart_timeout', 'mutation_network', 'mutation_timeout', 'invalid_response', 'http_502'])(
+  'reconciles an uncertain %s restart without automatic POST or reconnect', async (code) => {
+    vi.useFakeTimers()
+    try {
+      await show()
+      fetcher.mockImplementation(async (url: string, init: RequestInit) => {
+        if (!String(url).endsWith('/restart')) return snapshot()
+        if (code === 'mutation_network') throw new TypeError('connection lost')
+        if (code === 'mutation_timeout') return new Promise<Response>((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+        if (code === 'invalid_response') return Response.json({ ...computer, restarted: false })
+        return restartFailure(code, code === 'http_502' ? 502 : 409)
+      })
+      await confirmRestart()
+      if (code === 'mutation_timeout') await act(async () => vi.advanceTimersByTimeAsync(100000))
+      expect(container.querySelector('[role="alert"]')).not.toBeNull()
+      expect(screen.mounts).toBe(1)
+      await act(async () => vi.advanceTimersByTimeAsync(4000))
+      expect(restarts()).toHaveLength(1)
+      fetcher.mockImplementation(async (url: string) => String(url).endsWith('/restart') ? Response.json({ ...computer, restarted: true }) : snapshot())
+      await confirmRestart()
+      expect(restartIds()).toHaveLength(2)
+      expect(restartIds()[1]).toBe(restartIds()[0])
+      expect(screen.mounts).toBe(2)
+      await confirmRestart()
+      expect(restartIds()[2]).not.toBe(restartIds()[0])
+    } finally { vi.useRealTimers() }
+  },
+)
+
+it.each(['executor_offline', 'computer_unavailable', 'csrf_missing', 'computer_restart_failed'])(
+  'retains a pending restart across a later nonterminal %s refusal', async (code) => {
+    await show()
+    let attempts = 0
+    fetcher.mockImplementation(async (url: string) => {
+      if (!String(url).endsWith('/restart')) return snapshot()
+      attempts += 1
+      if (attempts === 1) return restartFailure('computer_restart_timeout')
+      if (attempts === 2) return restartFailure(code, code === 'computer_restart_failed' ? 503 : 409)
+      return Response.json({ ...computer, restarted: true })
+    })
+    await confirmRestart(); await confirmRestart(); await confirmRestart()
+    expect(restartIds()).toHaveLength(3)
+    expect(new Set(restartIds()).size).toBe(1)
+  },
+)
+
+it.each(['computer_restart_failed', 'computer_not_provisioned'])(
+  'releases a restart identity after terminal 409 %s', async (code) => {
+    await show()
+    fetcher.mockImplementation(async (url: string) => String(url).endsWith('/restart') ? restartFailure(code) : snapshot())
+    await confirmRestart(); await confirmRestart()
+    expect(restartIds()).toHaveLength(2)
+    expect(restartIds()[0]).not.toBe(restartIds()[1])
+  },
+)
+
+it.each(['id', 'executor_id'] as const)('uses a new restart identity after the target %s changes', async (field) => {
+  vi.useFakeTimers()
+  try {
+    await show()
+    fetcher.mockImplementation(async (url: string) => String(url).endsWith('/restart') ? restartFailure('computer_restart_timeout') : snapshot())
+    await confirmRestart()
+    const replacement = { ...computer, [field]: 'replacement' }
+    fetcher.mockImplementation(async (url: string) => String(url).endsWith('/restart') ? Response.json({ ...replacement, restarted: true }) : Response.json({ computers: [replacement], runtime_online: true, runtime_paired: true, local_link_available: false }))
+    await act(async () => vi.advanceTimersByTimeAsync(4000))
+    await confirmRestart()
+    expect(restartIds()).toHaveLength(2)
+    expect(restartIds()[0]).not.toBe(restartIds()[1])
   } finally { vi.useRealTimers() }
 })
