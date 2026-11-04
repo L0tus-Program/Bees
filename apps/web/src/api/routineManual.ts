@@ -26,13 +26,18 @@ async function checkedReceipt(value: unknown, intent: ManualRoutineIntent): Prom
     || !exact(value.occurrence.metadata, ['origin', 'task_status']) || value.occurrence.metadata.origin !== 'manual' || value.occurrence.metadata.task_status !== 'queued') throw new ApiError('invalid_response')
   return value as unknown as ManualRoutineReceipt
 }
+// Bind both transport and asynchronous receipt validation to the same human request.
+function snapshotManualIntent(raw: ManualRoutineIntent): ManualRoutineIntent {
+  const intent = checkedManualIntent(raw, raw.agentId)
+  return { agentId: intent.agentId, routineId: intent.routineId, body: { ...intent.body } }
+}
 const endpoint = (intent: ManualRoutineIntent) => `/agents/${intent.agentId}/routines/${intent.routineId}/manual`
 export async function executeManualRoutine(raw: ManualRoutineIntent, signal?: AbortSignal) {
-  const intent = checkedManualIntent(raw, raw.agentId)
+  const intent = snapshotManualIntent(raw)
   return checkedReceipt(await request(endpoint(intent), { body: intent.body, authenticated: true, signal }), intent)
 }
 export async function getManualRoutineReceipt(raw: ManualRoutineIntent, signal?: AbortSignal) {
-  const intent = checkedManualIntent(raw, raw.agentId)
+  const intent = snapshotManualIntent(raw)
   return checkedReceipt(await request(`${endpoint(intent)}/${intent.body.client_request_id}`, { authenticated: true, signal }), intent)
 }
 const key = (agentId: string) => `bees.routine-manual.pending.v1.${agentId}`
