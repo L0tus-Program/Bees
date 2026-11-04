@@ -87,7 +87,7 @@ it('sends a single control mutation for clicks in the same render', async () => 
   await act(async () => pending.resolve(failure()))
 })
 
-it.each(['computer_restart_timeout', 'mutation_timeout', 'mutation_network', 'invalid_response', 'http_502'] as const)('reuses the restart ID after %s without automatic retry and reconnects only on success', async (code) => {
+it.each(['computer_restart_timeout', 'mutation_timeout', 'mutation_network', 'invalid_response', 'invalid_restart_status', 'offline_restart_snapshot', 'http_502'] as const)('reuses the restart ID after %s without automatic retry and reconnects only on success', async (code) => {
   await show(); await click('showScreen'); expect(screen.mounts).toBe(1)
   let nextFailure = true
   fetcher.mockImplementation(async (_url: string, init: RequestInit) => {
@@ -95,6 +95,8 @@ it.each(['computer_restart_timeout', 'mutation_timeout', 'mutation_network', 'in
     if (!nextFailure) return Response.json({ ...computer, restarted: true })
     if (code === 'mutation_network') throw new TypeError('connection lost')
     if (code === 'invalid_response') return Response.json({ ...computer, restarted: false })
+    if (code === 'invalid_restart_status') return Response.json({ ...computer, status: 'removed', restarted: true })
+    if (code === 'offline_restart_snapshot') return Response.json({ ...computer, online: false, restarted: true })
     if (code === 'http_502') return Response.json({ error: { code } }, { status: 502 })
     return failure(code)
   })
