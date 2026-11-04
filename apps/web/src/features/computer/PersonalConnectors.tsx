@@ -79,23 +79,68 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
   const [invite, setInvite] = useState<Invite | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [busy, setBusy] = useState(false)
-  const load = useCallback(async () => {
-    try { setItems((await getExecutors('personal')).filter((item) => item.status === 'active')) } catch (failure) { setError(asApiError(failure)) }
+  const [loadError, setLoadError] = useState<ApiError | null>(null)
+  const lifecycle = useRef(0)
+  const reads = useRef(0)
+  const mutating = useRef(false)
+  const load = useCallback(async (afterMutation = false) => {
+    if (mutating.current && !afterMutation) return
+    const generation = lifecycle.current
+    const request = ++reads.current
+    try {
+      const found = await getExecutors('personal')
+      if (lifecycle.current !== generation || reads.current !== request) return
+      setItems(found.filter((item) => item.status === 'active'))
+      setLoadError(null)
+    } catch (failure) {
+      if (lifecycle.current === generation && reads.current === request) setLoadError(asApiError(failure))
+    }
   }, [])
-  useEffect(() => { void load(); const timer = setInterval(() => { void load() }, 5000); return () => clearInterval(timer) }, [load])
+  useEffect(() => {
+    const generation = ++lifecycle.current
+    void load()
+    const timer = setInterval(() => { void load() }, 5000)
+    return () => { lifecycle.current = generation + 1; clearInterval(timer) }
+  }, [load])
   async function pair() {
+    if (mutating.current) return
+    mutating.current = true
+    ++reads.current
+    const generation = lifecycle.current
     setBusy(true); setError(null)
-    try { setInvite(await createInvite('personal', t('defaultConnectorName'))) } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
+    try {
+      const receipt = await createInvite('personal', t('defaultConnectorName'))
+      if (lifecycle.current === generation) setInvite(receipt)
+    } catch (failure) {
+      if (lifecycle.current === generation) setError(asApiError(failure))
+    } finally {
+      if (lifecycle.current === generation) { mutating.current = false; setBusy(false) }
+    }
   }
   async function revoke(executor: Executor) {
-    if (!await confirmAction(t('revokeConfirm'))) return
+    if (mutating.current) return
+    mutating.current = true
+    ++reads.current
+    const generation = lifecycle.current
     setBusy(true)
-    try { await revokeExecutor(executor); await load() } catch (failure) { setError(asApiError(failure)) } finally { setBusy(false) }
+    try {
+      if (!await confirmAction(t('revokeConfirm')) || lifecycle.current !== generation) return
+      setError(null)
+      const receipt = await revokeExecutor(executor)
+      if (lifecycle.current !== generation) return
+      setItems((current) => current.filter((item) => item.id !== receipt.id))
+      await load(true)
+    } catch (failure) {
+      if (lifecycle.current === generation) setError(asApiError(failure))
+    } finally {
+      if (lifecycle.current === generation) { mutating.current = false; setBusy(false) }
+    }
   }
   return <section className="personal-connectors" aria-labelledby="personal-heading">
     <h3 id="personal-heading">{t('personalTitle')}</h3>
     <p className="quiet-note">{t('personalScope')}</p>
     {error && <ErrorNotice error={error} />}
+    {loadError && <ErrorNotice error={loadError} />}
     {items.map((executor) => <article key={executor.id} className="connector-card">
       <h4>{executor.name} <small className={executor.online ? 'status-online' : 'status-offline'}>{t(executor.online ? 'online' : 'offline_label')}</small></h4>
       {executor.platform && <small>{executor.platform}</small>}
