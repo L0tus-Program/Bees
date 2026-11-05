@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { webcrypto } from 'node:crypto'
+import { createHash, webcrypto } from 'node:crypto'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Root } from 'react-dom/client'
@@ -28,9 +28,10 @@ beforeEach(async () => {
   i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: Object.fromEntries(['pt-BR', 'en', 'es'].map((lng) => [lng, { skills: skillResources[lng as keyof typeof skillResources], product: productResources[lng as keyof typeof productResources] }])), interpolation: { escapeValue: false } })
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setCsrfToken() })
-async function render() { await act(async () => root.render(<I18nextProvider i18n={i18n}><SkillsPanel agent={{ ...chatAgent, id: agentId }} /></I18nextProvider>)) }
+async function render() { await act(async () => root.render(<I18nextProvider i18n={i18n}><SkillsPanel agent={{ ...chatAgent, id: agentId }} /></I18nextProvider>)); await settled() }
 function button(label: string) { const found = [...container.querySelectorAll('button')].find((element) => element.textContent === label); if (!found) throw new Error(label); return found }
-async function click(label: string) { await act(async () => button(label).click()) }
+async function settled() { await vi.waitFor(async () => { await act(async () => {}); expect(container.querySelector('[aria-busy=true]')).toBeNull() }) }
+async function click(label: string) { await act(async () => button(label).click()); await settled() }
 async function input(label: string, value: string) {
   const element = [...container.querySelectorAll('label')].find((item) => item.firstChild?.textContent === label)?.querySelector('input,textarea') as HTMLInputElement | HTMLTextAreaElement
   if (!element) throw new Error(label)
@@ -44,7 +45,7 @@ function fetcher() {
     if (url.includes('/deliveries?')) return Response.json({ ...historyPage([source]), agent_id: agentId })
     if (options.method === 'POST') {
       command = JSON.parse(options.body as string)
-      return Response.json({ ...skill, current: { ...skill.current, definition: command.definition } })
+      return Response.json({ ...skill, current: { ...skill.current, definition: command.definition, content_hash: createHash('sha256').update(JSON.stringify(command.definition, ['completion', 'description', 'environment', 'inputs', 'instruction', 'name', 'output', 'purpose', 'required', 'resources', 'steps', 'title', 'tools']).replace(/[\u007f-\uffff]/g, (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'))).digest('hex') } })
     }
     if (url.endsWith('/revisions/1/process')) {
       const { task_id, run_id, message_id, result_sha256, review } = command
@@ -67,7 +68,7 @@ describe('process conversion with explicit review', () => {
     await act(async () => (container.querySelector('.skill-process > fieldset input[type=checkbox]') as HTMLInputElement).click())
     await input('Nome', definition.name); await input('Objetivo', definition.purpose); await input('Título do passo', definition.steps[0].title); await input('Instrução', definition.steps[0].instruction); await input('Entrega esperada', definition.output); await input('Como conferir a conclusão', definition.completion)
     expect(button('Salvar versão desabilitada').disabled).toBe(false)
-    await act(async () => container.querySelector('.skill-editor')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+    await act(async () => container.querySelector('.skill-editor')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))); await settled()
     const posts = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
     expect(posts).toHaveLength(1)
     const body = JSON.parse(posts[0][1].body as string)

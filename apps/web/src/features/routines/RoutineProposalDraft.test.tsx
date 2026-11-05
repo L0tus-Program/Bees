@@ -21,6 +21,7 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 async function render(language: keyof typeof routineResources = 'pt-BR') {
   const i18n = createInstance(); await i18n.init({ lng: language, resources: { [language]: { routines: routineResources[language], product: productResources[language] } }, interpolation: { escapeValue: false } })
   await act(async () => root.render(<I18nextProvider i18n={i18n}><RoutineProposalDraft agentId={agentId} conversationId={conversationId} messageId={occurrence.id} onClose={close} onLock={lock} /></I18nextProvider>))
+  await vi.waitFor(async () => { await act(async () => {}); expect(container.querySelector('[aria-busy=true]')).toBeNull() })
 }
 function button(name: string) { const found = [...container.querySelectorAll('button')].find((b) => b.textContent === name); if (!found) throw new Error('Missing ' + name); return found }
 async function click(name: string) { await act(async () => button(name).click()) }

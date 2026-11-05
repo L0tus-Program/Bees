@@ -24,9 +24,10 @@ beforeEach(async () => {
   wrapper = (node) => <I18nextProvider i18n={i18n}>{node}</I18nextProvider>
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
-async function render(node: ReactNode = <SkillsPanel agent={{ ...chatAgent, id: agentId }} />) { await act(async () => root.render(wrapper(node))) }
+async function render(node: ReactNode = <SkillsPanel agent={{ ...chatAgent, id: agentId }} />) { await act(async () => root.render(wrapper(node))); await settled() }
 function button(text: string) { const value = [...container.querySelectorAll('button')].find((item) => item.textContent === text); if (!value) throw new Error('Missing ' + text); return value }
-async function click(value: HTMLElement) { await act(async () => value.click()) }
+async function settled() { await vi.waitFor(async () => { await act(async () => {}); expect(container.querySelector('[aria-busy=true]')).toBeNull() }) }
+async function click(value: HTMLElement) { await act(async () => value.click()); await settled() }
 async function chooseFile(value: unknown) {
   const input = container.querySelector('input[type=file]') as HTMLInputElement
   Object.defineProperty(input, 'files', { configurable: true, value: [new File([JSON.stringify(value)], 'procedure.json', { type: 'application/json' })] })
