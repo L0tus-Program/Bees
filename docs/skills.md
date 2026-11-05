@@ -176,6 +176,18 @@ Quando a resposta se perde, a interface bloqueia novas mutações até **Verific
 pedido**, reutilizando o UUID original. Não há repetição automática, chamada ao modelo
 ou custo de provedor nesse caminho.
 
+O SDK confere o conteúdo devolvido ao criar, revisar, importar ou converter um
+processo: entradas, passos, recursos, entrega e conclusão devem corresponder ao
+pedido confirmado. A ordem das chaves JSON não importa; ordem das listas e texto
+são preservados. O comando completo é copiado antes de aguardar a resposta.
+Recibos com conteúdo, origem, revisão de estado ou habilitação incompatíveis não
+liberam a recuperação. Criações/importações começam na versão/revisão 1 e
+edições avançam a revisão de estado exatamente uma vez, sem habilitar a nova versão.
+O recibo de edição não traz a versão anterior: a validação estrutural exige versão
+nova a partir de 2, mas a comparação com a versão anterior continua no serviço.
+Essas verificações não substituem a validação de origem do processo no backend
+nem comprovam execução ou qualidade do procedimento com modelo real.
+
 A migração `0014_skills.sql` cria `skills`, `skill_revisions`, `skill_commands` e
 `skill_events`. Revisões, pedidos e eventos são imutáveis. A ligação à abelha não pode
 ser transferida, e a atualização do conteúdo limpa a habilitação na mesma transação.
