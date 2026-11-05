@@ -114,6 +114,19 @@ export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Prom
     || result.current.origin !== (path.endsWith('/import') ? 'import' : 'human')
     || result.revision !== (skillId ? (snapshot.expected_revision as number) + 1 : 1)
     || (skillId ? result.current_version < 2 : result.current_version !== 1))) throw new ApiError('invalid_response')
+  if (path === `${base(agentId)}/from-process`) {
+    try {
+      const origin = await getProcessOrigin(agentId, result.id, result.current_version, signal)
+      if (!origin || origin.task_id !== snapshot.task_id || origin.run_id !== snapshot.run_id
+        || origin.message_id !== snapshot.message_id || origin.result_sha256 !== snapshot.result_sha256
+        || canonical(origin.review) !== canonical(snapshot.review)) throw new ApiError('invalid_response')
+    } catch (failure) {
+      if (signal?.aborted) throw failure
+      // A failed read cannot reject a POST that has already returned a valid receipt.
+      // Keep it uncertain even on HTTP 4xx so recovery retains the original UUID/body.
+      throw new ApiError('invalid_response')
+    }
+  }
   return result
 }
 

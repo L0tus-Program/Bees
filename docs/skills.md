@@ -185,8 +185,18 @@ liberam a recuperação. Criações/importações começam na versão/revisão 1
 edições avançam a revisão de estado exatamente uma vez, sem habilitar a nova versão.
 O recibo de edição não traz a versão anterior: a validação estrutural exige versão
 nova a partir de 2, mas a comparação com a versão anterior continua no serviço.
+Na conversão de processo, o SDK consulta também a origem imutável da versão
+retornada antes de mostrar sucesso. Tarefa, execução, mensagem, hash do resultado,
+fontes (inclusive ordem), nota de revisão e pendências devem coincidir com o comando
+copiado antes do POST. Campos de identidade, versão, ator e confirmação humana
+seguem o contrato fechado da origem. A consulta não executa o procedimento.
+Origem ausente, divergente ou indisponível conserva o pedido pendente, inclusive
+quando o GET retorna HTTP 4xx: isso não comprova que o POST anterior foi recusado.
+Recarregar não reenvia; a pessoa usa **Verificar o mesmo pedido** com UUID/corpo
+originais. Fechar a aba pode perder a recuperação local. Uma falha de consulta não
+reverte uma skill que já tenha sido salva.
 Essas verificações não substituem a validação de origem do processo no backend
-nem comprovam execução ou qualidade do procedimento com modelo real.
+nem comprovam o hash criptográfico da definição, execução ou qualidade com modelo real.
 
 A migração `0014_skills.sql` cria `skills`, `skill_revisions`, `skill_commands` e
 `skill_events`. Revisões, pedidos e eventos são imutáveis. A ligação à abelha não pode
