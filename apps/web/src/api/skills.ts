@@ -78,18 +78,50 @@ export function importIntent(agentId: string, document: unknown): SkillIntent {
 export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Promise<Skill> {
   if (!record(intent.body) || !uuid(intent.body.client_request_id)) throw new ApiError('invalid_request')
   const { agentId, skillId, path, method } = intent
-  // Enable commands contain scalars only. Capture the decision before POST so
-  // caller edits while awaiting the receipt cannot change what is confirmed.
+  // Capture identity and the complete declarative command before any await.
   const body = { ...intent.body }
   const enabling = method === 'PUT' || path.endsWith('/enabled')
   if (enabling && (method !== 'PUT' || !uuid(skillId) || path !== `${base(agentId)}/${skillId}/enabled`
     || !exact(body, ['client_request_id', 'expected_revision', 'version', 'enabled'])
     || !positive(body.expected_revision) || body.expected_revision === Number.MAX_SAFE_INTEGER
     || !positive(body.version) || body.version > body.expected_revision || typeof body.enabled !== 'boolean')) throw new ApiError('invalid_request')
-  const result = checkedSkill(await request(path, { body, method, authenticated: true, signal }), agentId, skillId)
+  let definition: SkillDefinition | undefined
+  if (!enabling) {
+    if (method !== undefined) throw new ApiError('invalid_request')
+    const root = base(agentId)
+    if (skillId !== undefined) {
+      if (!uuid(skillId) || path !== `${root}/${skillId}/revisions`
+        || !exact(body, ['client_request_id', 'expected_revision', 'definition'])
+        || !positive(body.expected_revision) || body.expected_revision === Number.MAX_SAFE_INTEGER) throw new ApiError('invalid_request')
+      definition = body.definition as SkillDefinition
+    } else if (path === `${root}/import`) {
+      if (!exact(body, ['client_request_id', 'document'])) throw new ApiError('invalid_request')
+      definition = checkedDocument(body.document).definition
+    } else if (path === `${root}/from-process`) {
+      checkedProcessIntent(intent, agentId)
+      definition = body.definition as SkillDefinition
+    } else if (path === root && exact(body, ['client_request_id', 'definition'])) {
+      definition = body.definition as SkillDefinition
+    } else throw new ApiError('invalid_request')
+    if (!isDefinition(definition)) throw new ApiError('invalid_request')
+  }
+  const snapshot = JSON.parse(JSON.stringify(body)) as Record<string, unknown>
+  const expectedDefinition = definition ? canonical(definition) : undefined
+  const result = checkedSkill(await request(path, { body: snapshot, method, authenticated: true, signal }), agentId, skillId)
   if (enabling && (result.revision !== (body.expected_revision as number) + 1 || result.current_version !== body.version
     || result.enabled_version !== (body.enabled ? body.version : null))) throw new ApiError('invalid_response')
+  if (!enabling && (canonical(result.current.definition) !== expectedDefinition || result.enabled_version !== null
+    || result.current.origin !== (path.endsWith('/import') ? 'import' : 'human')
+    || result.revision !== (skillId ? (snapshot.expected_revision as number) + 1 : 1)
+    || (skillId ? result.current_version < 2 : result.current_version !== 1))) throw new ApiError('invalid_response')
   return result
+}
+
+// Object key order is irrelevant; array order and user text remain significant.
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+  if (record(value)) return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
+  return JSON.stringify(value)
 }
 
 function isProcessReview(value: unknown): value is ProcessReview {

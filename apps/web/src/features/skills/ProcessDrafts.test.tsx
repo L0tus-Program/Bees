@@ -41,7 +41,7 @@ function fetcher() {
   return vi.fn(async (url: string, options: RequestInit) => {
     if (url.includes('/deliveries/results/')) return Response.json({ item: source, content })
     if (url.includes('/deliveries?')) return Response.json({ ...historyPage([source]), agent_id: agentId })
-    if (options.method === 'POST') return Response.json(skill)
+    if (options.method === 'POST') return Response.json({ ...skill, current: { ...skill.current, definition: JSON.parse(options.body as string).definition } })
     return Response.json([])
   })
 }
