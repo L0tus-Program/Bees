@@ -77,7 +77,19 @@ export function importIntent(agentId: string, document: unknown): SkillIntent {
 }
 export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Promise<Skill> {
   if (!record(intent.body) || !uuid(intent.body.client_request_id)) throw new ApiError('invalid_request')
-  return checkedSkill(await request(intent.path, { body: intent.body, method: intent.method, authenticated: true, signal }), intent.agentId, intent.skillId)
+  const { agentId, skillId, path, method } = intent
+  // Enable commands contain scalars only. Capture the decision before POST so
+  // caller edits while awaiting the receipt cannot change what is confirmed.
+  const body = { ...intent.body }
+  const enabling = method === 'PUT' || path.endsWith('/enabled')
+  if (enabling && (method !== 'PUT' || !uuid(skillId) || path !== `${base(agentId)}/${skillId}/enabled`
+    || !exact(body, ['client_request_id', 'expected_revision', 'version', 'enabled'])
+    || !positive(body.expected_revision) || body.expected_revision === Number.MAX_SAFE_INTEGER
+    || !positive(body.version) || body.version > body.expected_revision || typeof body.enabled !== 'boolean')) throw new ApiError('invalid_request')
+  const result = checkedSkill(await request(path, { body, method, authenticated: true, signal }), agentId, skillId)
+  if (enabling && (result.revision !== (body.expected_revision as number) + 1 || result.current_version !== body.version
+    || result.enabled_version !== (body.enabled ? body.version : null))) throw new ApiError('invalid_response')
+  return result
 }
 
 function isProcessReview(value: unknown): value is ProcessReview {
