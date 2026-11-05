@@ -39,3 +39,49 @@ it('reads saved private inputs only explicitly and verifies their complete snaps
   snapshot.inputs.texto = 'Alterado'
   await expect(getSkillContext(skillTaskIntent.agentId, skillTaskReceipt().task.id, binding)).rejects.toMatchObject({ code: 'invalid_response' })
 })
+
+const mutations = {
+  agent: (intent: typeof skillTaskIntent) => { intent.agentId = crypto.randomUUID() },
+  request: (intent: typeof skillTaskIntent) => { intent.body.client_request_id = crypto.randomUUID() },
+  skill: (intent: typeof skillTaskIntent) => { intent.body.skill_id = crypto.randomUUID() },
+  version: (intent: typeof skillTaskIntent) => { intent.body.skill_version++ },
+  inputs: (intent: typeof skillTaskIntent) => { intent.body.inputs.texto = 'Outro conteúdo' },
+  body: (intent: typeof skillTaskIntent) => { intent.body = { ...intent.body, inputs: { texto: 'Corpo substituído' }, skill_version: 2 } },
+}
+it.each(Object.entries(mutations).flatMap(([field, mutate]) => [false, true].map((altered) => ({ field, mutate, altered }))))('preserves the sent $field despite caller mutation (altered receipt=$altered)', async ({ mutate, altered }) => {
+  const intent = structuredClone(skillTaskIntent)
+  let deliver!: (response: Response) => void
+  const fetcher = vi.fn<(url: string, options: RequestInit) => Promise<Response>>(() => new Promise<Response>((resolve) => { deliver = resolve }))
+  vi.stubGlobal('fetch', fetcher)
+  const pending = createSkillTask(intent)
+  const assertion = altered ? expect(pending).rejects.toMatchObject({ code: 'invalid_response' }) : expect(pending).resolves.toMatchObject({ agent_id: skillTaskIntent.agentId })
+  mutate(intent)
+  const receipt = skillTaskReceipt(altered ? intent.body : skillTaskIntent.body)
+  receipt.task.agent_id = altered ? intent.agentId : skillTaskIntent.agentId
+  deliver(Response.json(receipt))
+  await assertion
+  expect(fetcher).toHaveBeenCalledOnce()
+  expect(fetcher.mock.calls[0][0]).toBe(`/api/v1/agents/${skillTaskIntent.agentId}/skill-tasks`)
+  expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual(skillTaskIntent.body)
+})
+it.each((['agent', 'skill', 'version', 'body'] as const).flatMap((field) => [false, true].map((altered) => ({ field, altered }))))('keeps the original $field while the receipt hash is pending (altered receipt=$altered)', async ({ field, altered }) => {
+  const intent = structuredClone(skillTaskIntent)
+  let hashing!: () => void
+  const started = new Promise<void>((resolve) => { hashing = resolve })
+  let finish!: () => void
+  const gate = new Promise<void>((resolve) => { finish = resolve })
+  vi.stubGlobal('crypto', { randomUUID: () => webcrypto.randomUUID(), subtle: { digest: async (algorithm: string, bytes: BufferSource) => { hashing(); await gate; return webcrypto.subtle.digest(algorithm, bytes) } } })
+  const changed = structuredClone(intent); mutations[field](changed)
+  const receipt = skillTaskReceipt(altered ? changed.body : intent.body)
+  receipt.task.agent_id = altered ? changed.agentId : intent.agentId
+  // Keep the original request hash so identity/version checks after digest must run.
+  receipt.request_hash = skillTaskReceipt().request_hash
+  const fetcher = vi.fn(async () => Response.json(receipt)); vi.stubGlobal('fetch', fetcher)
+  const pending = createSkillTask(intent)
+  const assertion = altered ? expect(pending).rejects.toMatchObject({ code: 'invalid_response' }) : expect(pending).resolves.toMatchObject({ agent_id: skillTaskIntent.agentId })
+  await started
+  Object.assign(intent, changed)
+  finish()
+  await assertion
+  expect(fetcher).toHaveBeenCalledOnce()
+})

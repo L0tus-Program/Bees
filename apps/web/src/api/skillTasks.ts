@@ -22,8 +22,10 @@ export function checkedSkillTaskIntent(value: unknown, agentId: string): SkillTa
     || value.body.max_calls !== 4 || value.body.max_active_seconds !== 120 || new TextEncoder().encode(JSON.stringify(value.body)).length > 8192) throw new ApiError('invalid_request')
   return value as unknown as SkillTaskIntent
 }
-export async function createSkillTask(intent: SkillTaskIntent, signal?: AbortSignal): Promise<TaskRecord> {
-  checkedSkillTaskIntent(intent, intent.agentId)
+export async function createSkillTask(raw: SkillTaskIntent, signal?: AbortSignal): Promise<TaskRecord> {
+  // Keep transport and receipt checks bound to the same validated human request.
+  const checked = checkedSkillTaskIntent(raw, raw.agentId)
+  const intent: SkillTaskIntent = { agentId: checked.agentId, body: { ...checked.body, inputs: { ...checked.body.inputs } } }
   const result = await request(`/agents/${intent.agentId}/skill-tasks`, { body: intent.body, authenticated: true, signal })
   if (!exact(result, ['task', 'client_request_id', 'request_hash']) || result.client_request_id !== intent.body.client_request_id || result.request_hash !== await digest(intent.body)
     || !isTask(result.task) || result.task.agent_id !== intent.agentId || !identity(result.task.id) || !identity(result.task.conversation_id) || !identity(result.task.active_run_id)
