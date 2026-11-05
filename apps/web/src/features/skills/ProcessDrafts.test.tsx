@@ -25,7 +25,7 @@ const intent = { agentId, path: `/agents/${agentId}/skills/from-process`, body: 
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto); setCsrfToken('csrf'); sessionStorage.clear()
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
-  i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { skills: skillResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
+  i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: Object.fromEntries(['pt-BR', 'en', 'es'].map((lng) => [lng, { skills: skillResources[lng as keyof typeof skillResources], product: productResources[lng as keyof typeof productResources] }])), interpolation: { escapeValue: false } })
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); setCsrfToken() })
 async function render() { await act(async () => root.render(<I18nextProvider i18n={i18n}><SkillsPanel agent={{ ...chatAgent, id: agentId }} /></I18nextProvider>)) }
@@ -38,10 +38,18 @@ async function input(label: string, value: string) {
   await act(async () => { Object.getOwnPropertyDescriptor(prototype, 'value')!.set!.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })) })
 }
 function fetcher() {
+  let command = intent.body
   return vi.fn(async (url: string, options: RequestInit) => {
     if (url.includes('/deliveries/results/')) return Response.json({ item: source, content })
     if (url.includes('/deliveries?')) return Response.json({ ...historyPage([source]), agent_id: agentId })
-    if (options.method === 'POST') return Response.json({ ...skill, current: { ...skill.current, definition: JSON.parse(options.body as string).definition } })
+    if (options.method === 'POST') {
+      command = JSON.parse(options.body as string)
+      return Response.json({ ...skill, current: { ...skill.current, definition: command.definition } })
+    }
+    if (url.endsWith('/revisions/1/process')) {
+      const { task_id, run_id, message_id, result_sha256, review } = command
+      return Response.json({ skill_id: skill.id, version: 1, agent_id: agentId, task_id, run_id, message_id, result_sha256, review, created_at: skill.current.created_at, actor: 'user' })
+    }
     return Response.json([])
   })
 }
@@ -104,5 +112,44 @@ describe('process conversion with explicit review', () => {
     await render(); await click('Criar a partir de um processo')
     expect(container.textContent).toContain('Não há resultados completos nesta página')
     expect(container.querySelector('.skill-editor')).toBeNull()
+  })
+})
+
+for (const language of ['pt-BR', 'en', 'es']) describe(`process origin recovery in ${language}`, () => {
+  it.each(['absent', 'review', 'http404'])('retains original command after %s and reload until human verification', async (failure) => {
+    await i18n.changeLanguage(language)
+    sessionStorage.setItem(storageKey, JSON.stringify(intent))
+    let valid = false
+    const origin = { skill_id: skill.id, version: 1, agent_id: agentId, task_id: source.task_id, run_id: source.run_id, message_id: source.id, result_sha256: intent.body.result_sha256, review, created_at: skill.current.created_at, actor: 'user' }
+    const fetch = vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') return Response.json(skill)
+      if (url.endsWith('/revisions/1/process')) {
+        if (valid) return Response.json(origin)
+        if (failure === 'http404') return Response.json({ error: { code: 'not_found' } }, { status: 404 })
+        return Response.json(failure === 'absent' ? null : { ...origin, review: { ...review, pending: 'Outros limites' } })
+      }
+      return Response.json([])
+    }); vi.stubGlobal('fetch', fetch)
+    await render()
+    const label = (key: string) => i18n.t(key, { ns: 'skills' })
+    expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(0)
+    await click(label('verify'))
+    expect(container.textContent).not.toContain(label('saved'))
+    expect(button(label('create')).disabled).toBe(true)
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(intent)
+    expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
+    await act(async () => root.unmount()); root = createRoot(container)
+    await render()
+    expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
+    expect(button(label('create')).disabled).toBe(true)
+    valid = true
+    await click(label('verify'))
+    const posts = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+    expect(posts).toHaveLength(2)
+    expect(posts[0][1].body).toBe(posts[1][1].body)
+    expect(JSON.parse(posts[1][1].body as string)).toEqual(intent.body)
+    expect(sessionStorage.getItem(storageKey)).toBeNull()
+    expect(container.textContent).toContain(label('saved'))
+    expect(fetch.mock.calls.every(([url]) => !url.includes('/tasks') && !url.includes('/chat') && !url.includes('/enabled'))).toBe(true)
   })
 })

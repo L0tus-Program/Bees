@@ -16,6 +16,10 @@ function receipt(kind: keyof typeof factories): Skill {
   return { ...skill, revision: kind === 'revise' ? 2 : 1, current_version: kind === 'revise' ? 2 : 1,
     current: { ...skill.current, version: kind === 'revise' ? 2 : 1, origin: kind === 'import' ? 'import' : 'human', definition: structuredClone(definition) } }
 }
+function processOrigin(command: SkillIntent) {
+  const { task_id, run_id, message_id, result_sha256, review } = command.body
+  return { skill_id: skill.id, version: 1, agent_id: agentId, task_id, run_id, message_id, result_sha256, review, created_at: skill.current.created_at, actor: 'user' }
+}
 function sentDefinition(intent: SkillIntent) {
   return (intent.body.definition ?? (intent.body.document as { definition: typeof definition }).definition) as typeof definition
 }
@@ -23,8 +27,9 @@ for (const kind of Object.keys(factories) as (keyof typeof factories)[]) describ
   it('accepts an exact receipt with reordered object keys', async () => {
     const result = receipt(kind)
     result.current.definition = { completion: definition.completion, output: definition.output, resources: { tools: [...definition.resources.tools], environment: definition.resources.environment }, steps: structuredClone(definition.steps), inputs: structuredClone(definition.inputs), purpose: definition.purpose, name: definition.name }
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json(result)))
-    expect(await sendSkill(factories[kind]())).toEqual(result)
+    const command = factories[kind]()
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, options: RequestInit) => Response.json(options.method === 'GET' ? processOrigin(command) : result)))
+    expect(await sendSkill(command)).toEqual(result)
   })
   it.each(['name', 'input', 'step', 'resource', 'output', 'completion', 'enabled', 'origin', 'revision', 'version'])('rejects a substituted %s without retry', async (field) => {
     const result = receipt(kind)
@@ -45,7 +50,8 @@ for (const kind of Object.keys(factories) as (keyof typeof factories)[]) describ
   it.each([false, true])('captures nested content before await (altered receipt=%s)', async (altered) => {
     const intent = factories[kind]()
     let finish!: (value: Response) => void
-    const fetcher = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve })); vi.stubGlobal('fetch', fetcher)
+    const origin = processOrigin(structuredClone(intent))
+    const fetcher = vi.fn((_url: string, options: RequestInit) => options.method === 'GET' ? Promise.resolve(Response.json(origin)) : new Promise<Response>((resolve) => { finish = resolve })); vi.stubGlobal('fetch', fetcher)
     const pending = sendSkill(intent)
     sentDefinition(intent).steps[0].instruction = 'Alterado durante envio'
     sentDefinition(intent).resources.tools.push('shell.run')
@@ -54,7 +60,7 @@ for (const kind of Object.keys(factories) as (keyof typeof factories)[]) describ
     finish(Response.json(result))
     if (altered) await expect(pending).rejects.toMatchObject({ code: 'invalid_response' })
     else expect(await pending).toEqual(result)
-    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(fetcher).toHaveBeenCalledTimes(kind === 'process' && !altered ? 2 : 1)
   })
 })
 it.each(['path', 'method', 'extra', 'definition', 'revision', 'document', 'process'])('rejects malformed %s before fetch', async (field) => {
