@@ -35,15 +35,15 @@ export async function createSkillTask(raw: SkillTaskIntent, signal?: AbortSignal
   return result.task
 }
 const key = (agentId: string) => `bees.skill-task.pending.v1.${agentId}`
-export function restoreSkillTask(agentId: string): { intent: SkillTaskIntent | null; corrupt: boolean } {
+export function restoreSkillTask(agentId: string): { intent: PendingSkillTaskIntent | null; corrupt: boolean } {
   try {
     const raw = sessionStorage.getItem(key(agentId))
     if (!raw) return { intent: null, corrupt: false }
-    try { return { intent: checkedSkillTaskIntent(JSON.parse(raw), agentId), corrupt: false } }
+    try { return { intent: checkedPendingSkillTask(JSON.parse(raw), agentId), corrupt: false } }
     catch { return { intent: null, corrupt: true } }
-  } catch { return { intent: null, corrupt: false } }
+  } catch { return { intent: null, corrupt: true } }
 }
-export function preserveSkillTask(intent: SkillTaskIntent) { sessionStorage.setItem(key(intent.agentId), JSON.stringify(checkedSkillTaskIntent(intent, intent.agentId))) }
+export function preserveSkillTask(intent: PendingSkillTaskIntent) { sessionStorage.setItem(key(intent.agentId), JSON.stringify(checkedPendingSkillTask(intent, intent.agentId))) }
 export function clearSkillTask(agentId: string) { sessionStorage.removeItem(key(agentId)) }
 
 export async function getSkillContext(agentId: string, taskId: string, binding: NonNullable<TaskRecord['skill_execution']>, signal?: AbortSignal): Promise<{ definition: SkillDefinition; inputs: Record<string, string>; version: number }> {
@@ -62,8 +62,31 @@ export function agentSkill(skill: Skill) {
   return skill.enabled_version === skill.current_version && tools.length > 0 && !tools.includes('text.normalize')
 }
 export interface AgentSkillBody { client_request_id: string; skill_id: string; skill_version: number; inputs: Record<string, string>; max_calls?: number; max_active_seconds?: number }
+export interface AgentSkillTaskIntent { kind: 'agent'; agentId: string; body: AgentSkillBody & { max_calls: number; max_active_seconds: number } }
+export type PendingSkillTaskIntent = SkillTaskIntent | AgentSkillTaskIntent
+export function checkedAgentSkillTaskIntent(value: unknown, agentId: string): AgentSkillTaskIntent {
+  if (!exact(value, ['kind', 'agentId', 'body']) || value.kind !== 'agent' || value.agentId !== agentId || !record(value.body)
+    || !exact(value.body, ['client_request_id', 'skill_id', 'skill_version', 'inputs', ...('max_calls' in value.body ? ['max_calls'] : []), ...('max_active_seconds' in value.body ? ['max_active_seconds'] : [])])) throw new ApiError('invalid_request')
+  const max_calls = 'max_calls' in value.body ? value.body.max_calls : 20
+  const max_active_seconds = 'max_active_seconds' in value.body ? value.body.max_active_seconds : 900
+  if (!Number.isSafeInteger(max_calls) || Number(max_calls) < 1 || Number(max_calls) > 50
+    || !Number.isSafeInteger(max_active_seconds) || Number(max_active_seconds) < 30 || Number(max_active_seconds) > 1800) throw new ApiError('invalid_request')
+  const checked = checkedSkillTaskIntent({ agentId, body: { ...value.body, max_calls: 4, max_active_seconds: 120 } }, agentId)
+  const body = { ...checked.body, inputs: { ...checked.body.inputs }, max_calls: Number(max_calls), max_active_seconds: Number(max_active_seconds) }
+  if (new TextEncoder().encode(JSON.stringify(body)).length > 8192) throw new ApiError('invalid_request')
+  return { kind: 'agent', agentId, body }
+}
+function checkedPendingSkillTask(value: unknown, agentId: string): PendingSkillTaskIntent {
+  return record(value) && 'kind' in value ? checkedAgentSkillTaskIntent(value, agentId) : checkedSkillTaskIntent(value, agentId)
+}
 export async function createAgentSkillTask(agentId: string, body: AgentSkillBody, signal?: AbortSignal): Promise<TaskRecord> {
-  const result = await request(`/agents/${encodeURIComponent(agentId)}/agent-skill-tasks`, { body, authenticated: true, signal, timeoutMs: 20000 })
-  if (!record(result) || !isTask(result.task) || result.task.agent_id !== agentId || result.client_request_id !== body.client_request_id) throw new ApiError('invalid_response')
+  const intent = checkedAgentSkillTaskIntent({ kind: 'agent', agentId, body }, agentId)
+  const result = await request(`/agents/${intent.agentId}/agent-skill-tasks`, { body: intent.body, authenticated: true, signal, timeoutMs: 20000 })
+  if (!exact(result, ['task', 'client_request_id', 'request_hash']) || result.client_request_id !== intent.body.client_request_id || result.request_hash !== await digest(intent.body)
+    || !isTask(result.task) || result.task.agent_id !== intent.agentId || !identity(result.task.id) || !identity(result.task.conversation_id) || !identity(result.task.active_run_id)
+    || result.task.max_calls !== intent.body.max_calls || result.task.max_active_seconds !== intent.body.max_active_seconds
+    || result.task.execution_kind !== 'agent_task' || result.task.agent_approvals_available !== true || result.task.model_approvals_available !== true || result.task.tool_approvals_available !== false
+    || !exact(result.task.skill_execution, ['skill_id', 'version', 'snapshot_hash']) || result.task.skill_execution.skill_id !== intent.body.skill_id || result.task.skill_execution.version !== intent.body.skill_version
+    || typeof result.task.skill_execution.snapshot_hash !== 'string' || !/^[0-9a-f]{64}$/.test(result.task.skill_execution.snapshot_hash)) throw new ApiError('invalid_response')
   return result.task
 }

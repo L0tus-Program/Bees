@@ -193,3 +193,21 @@ o frontend usa páginas de 50. Nenhuma rota dispara execução.
 `confirmed=true` estrito). `GET /{skill_id}/revisions/{version}/process` retorna a
 origem ou `null` para uma versão existente sem conversão registrada. Escritas seguem
 sessão, Host/Origin/CSRF e replay UUID do restante da biblioteca.
+
+## Recuperação da reexecução pela interface
+
+A reexecução com ferramentas do registro usa `POST /agent-skill-tasks`, com
+20 gerações e 900 segundos por padrão; o caminho simples `/skill-tasks` conserva
+quatro gerações e 120 segundos. Os dois caminhos fixam revisão e entradas e
+reavaliam permissões no despacho de cada ação.
+
+Antes do envio, a interface guarda nesta aba o pedido completo e o tipo de
+execução. Falha de rede ou recibo incompatível conserva essa recuperação após
+recarregar. **Verificar o mesmo pedido** só ocorre por decisão humana e reutiliza
+o endpoint, UUID e corpo originais; o backend retorna a tarefa existente sem
+criá-la novamente. Nenhuma recuperação troca de executor ou reenvia automaticamente.
+A confirmação deve corresponder ao hash, à abelha, à revisão da skill, ao snapshot,
+aos limites e ao tipo de execução. A cópia local das entradas privadas fica nesta aba
+até confirmação/descarte; fechar a aba pode perder a recuperação. Armazenamento
+ilegível bloqueia novo envio até descarte explícito; se não for possível guardar
+o pedido, não ocorre POST.
