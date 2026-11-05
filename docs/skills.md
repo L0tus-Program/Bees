@@ -195,8 +195,18 @@ quando o GET retorna HTTP 4xx: isso não comprova que o POST anterior foi recusa
 Recarregar não reenvia; a pessoa usa **Verificar o mesmo pedido** com UUID/corpo
 originais. Fechar a aba pode perder a recuperação local. Uma falha de consulta não
 reverte uma skill que já tenha sido salva.
-Essas verificações não substituem a validação de origem do processo no backend
-nem comprovam o hash criptográfico da definição, execução ou qualidade com modelo real.
+O SDK também recalcula o SHA-256 da definição nas listas, no histórico e nos
+recibos de criação, edição, importação, conversão e habilitação/desabilitação.
+Usa o mesmo JSON canônico do serviço Python: chaves ordenadas, separadores compactos
+e caracteres não ASCII escapados, inclusive acentos e emojis. Ordem das listas e
+texto permanecem significativos; nenhuma normalização Unicode é aplicada.
+Uma página com revisão inconsistente é recusada inteira. Hash divergente ou falha
+da verificação criptográfica não confirma uma escrita: conserva o pedido incerto
+para verificação humana, sem reenvio automático. O hash confere consistência com o
+conteúdo recebido, não autentica o servidor nem cria uma assinatura digital.
+O documento declarativo exportado, que não contém hash, continua sujeito à revisão
+de importação. Essas verificações não substituem a validação de origem do processo
+no backend nem comprovam execução ou qualidade com modelo real.
 
 A migração `0014_skills.sql` cria `skills`, `skill_revisions`, `skill_commands` e
 `skill_events`. Revisões, pedidos e eventos são imutáveis. A ligação à abelha não pode

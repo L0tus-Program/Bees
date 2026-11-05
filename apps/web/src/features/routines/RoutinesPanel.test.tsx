@@ -31,7 +31,11 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
 async function render(node: ReactNode = <RoutinesPanel agent={agent} />) { await act(async () => root.render(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>)) }
 function button(text: string) { const value = [...container.querySelectorAll('button')].find((item) => item.textContent === text); if (!value) throw new Error('Missing button ' + text); return value }
-async function click(value: HTMLElement) { await act(async () => value.click()) }
+async function click(value: HTMLElement) {
+  // Skill selection waits for native WebCrypto to validate the received revisions.
+  await vi.waitFor(async () => { await act(async () => {}); expect(value.hasAttribute('disabled')).toBe(false) })
+  await act(async () => value.click())
+}
 async function submit() { await act(async () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))) }
 async function field(label: string, value: string) {
   const parent = [...container.querySelectorAll('label')].find((item) => item.textContent?.startsWith(label))

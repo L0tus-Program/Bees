@@ -50,12 +50,14 @@ export async function listSkills(agentId: string, offset = 0, signal?: AbortSign
   if (!Array.isArray(value) || value.length > 50) throw new ApiError('invalid_response')
   const items = value.map((item) => checkedSkill(item, agentId))
   if (new Set(items.map((item) => item.id)).size !== items.length) throw new ApiError('invalid_response')
+  await Promise.all(items.map((item) => verifyRevisionHash(item.current)))
   return items
 }
 export async function skillRevisions(agentId: string, skillId: string, offset = 0, signal?: AbortSignal): Promise<SkillRevision[]> {
   if (!uuid(skillId) || !Number.isSafeInteger(offset) || offset < 0) throw new ApiError('invalid_request')
   const value = await request(`${base(agentId)}/${skillId}/revisions?limit=50&offset=${offset}`, { authenticated: true, signal })
   if (!Array.isArray(value) || value.length > 50 || !value.every((item) => isRevision(item) && item.skill_id === skillId) || value.some((item, index) => index > 0 && item.version >= value[index - 1].version)) throw new ApiError('invalid_response')
+  await Promise.all((value as SkillRevision[]).map(verifyRevisionHash))
   return value as SkillRevision[]
 }
 export async function exportSkill(agentId: string, skillId: string, version: number): Promise<SkillDocument> {
@@ -114,6 +116,7 @@ export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Prom
     || result.current.origin !== (path.endsWith('/import') ? 'import' : 'human')
     || result.revision !== (skillId ? (snapshot.expected_revision as number) + 1 : 1)
     || (skillId ? result.current_version < 2 : result.current_version !== 1))) throw new ApiError('invalid_response')
+  await verifyRevisionHash(result.current)
   if (path === `${base(agentId)}/from-process`) {
     try {
       const origin = await getProcessOrigin(agentId, result.id, result.current_version, signal)
@@ -135,6 +138,21 @@ function canonical(value: unknown): string {
   if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
   if (record(value)) return '{' + Object.keys(value).sort().map((key) => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}'
   return JSON.stringify(value)
+}
+
+async function verifyRevisionHash(revision: SkillRevision): Promise<void> {
+  try {
+    // SkillService._canonical uses Python json.dumps with ensure_ascii=True.
+    // Escape UTF-16 units (including both halves of emoji), DEL and non-ASCII.
+    // Definition keys are fixed ASCII identifiers; list order and text stay exact.
+    const encoded = canonical(revision.definition).replace(/[\u007f-\uffff]/g, (char) => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'))
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(encoded))
+    const hash = Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('')
+    if (hash !== revision.content_hash) throw new ApiError('invalid_response')
+  } catch {
+    // Even crypto unavailability cannot establish rejection of a completed POST.
+    throw new ApiError('invalid_response')
+  }
 }
 
 function isProcessReview(value: unknown): value is ProcessReview {
