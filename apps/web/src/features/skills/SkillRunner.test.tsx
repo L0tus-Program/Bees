@@ -7,7 +7,7 @@ import { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { SkillRunner } from './SkillRunner'
-import { runnableSkill, skillTaskIntent, skillTaskReceipt } from './skillTaskFixtures'
+import { agentRunnableSkill, agentSkillTaskIntent, agentSkillTaskReceipt, runnableSkill, skillTaskIntent, skillTaskReceipt } from './skillTaskFixtures'
 import { skillResources } from '../../locales/skills'
 import { productResources } from '../../locales/product'
 import { agent } from '../chat/testFixtures'
@@ -100,4 +100,67 @@ it.each(['pt-BR', 'en', 'es'] as const)('keeps recovery for an incompatible rece
   expect(writes).toHaveLength(2); expect(writes[1]).toEqual(writes[0])
   await vi.waitFor(() => expect(container.querySelector('[data-testid=created-task]')?.textContent).toBe(skillTaskReceipt().task.id))
   expect(sessionStorage.getItem(`bees.skill-task.pending.v1.${selectedAgent.id}`)).toBeNull()
+})
+
+const agentCapabilities = { available: true, tool_calls_supported: true, recommended_installed: true, tools: [], worker: { available: true, last_seen: null }, defaults: { max_calls: 20, max_active_seconds: 900 } }
+it.each(['pt-BR', 'en', 'es'] as const)('recovers agent skill endpoint and exact body after lost/incompatible responses (%s)', async (language) => {
+  for (const lng of ['en', 'es'] as const) {
+    i18n.addResourceBundle(lng, 'skills', skillResources[lng]); i18n.addResourceBundle(lng, 'product', productResources[lng])
+  }
+  await i18n.changeLanguage(language)
+  const writes: { url: string; body: typeof agentSkillTaskIntent.body }[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method !== 'POST') return Response.json(agentCapabilities)
+    const body = JSON.parse(options.body as string); writes.push({ url, body })
+    if (writes.length === 1) throw new TypeError('Lost after commit')
+    const receipt = agentSkillTaskReceipt(body)
+    if (writes.length === 2) receipt.request_hash = 'b'.repeat(64)
+    return Response.json(receipt)
+  }))
+  await render(agentRunnableSkill)
+  expect(container.textContent).toContain(skillResources[language].agentRunHelp)
+  await submit()
+  expect(writes).toHaveLength(1)
+  const key = `bees.skill-task.pending.v1.${selectedAgent.id}`
+  expect(JSON.parse(sessionStorage.getItem(key)!)).toMatchObject({ kind: 'agent', body: { max_calls: 20, max_active_seconds: 900 } })
+  for (const attempt of [2, 3]) {
+    await act(async () => root.unmount()); root = createRoot(container); await render(null)
+    expect(writes).toHaveLength(attempt - 1)
+    expect(container.textContent).toContain('Olá')
+    expect(container.querySelector('[data-testid=created-task]')).toBeNull()
+    await act(async () => button(skillResources[language].verify).click())
+    expect(writes).toHaveLength(attempt)
+    expect(writes.at(-1)).toEqual(writes[0])
+    expect(writes[0].url).toBe(`/api/v1/agents/${selectedAgent.id}/agent-skill-tasks`)
+    if (attempt === 2) expect(sessionStorage.getItem(key)).not.toBeNull()
+  }
+  await vi.waitFor(() => expect(container.querySelector('[data-testid=created-task]')?.textContent).toBe(agentSkillTaskReceipt().task.id))
+  expect(sessionStorage.getItem(key)).toBeNull()
+})
+it('never sends agent skill when pending storage cannot be written', async () => {
+  vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => { throw new Error('Full') }, removeItem: () => {}, clear: () => {} })
+  const fetcher = vi.fn(async () => Response.json(agentCapabilities)); vi.stubGlobal('fetch', fetcher)
+  await render(agentRunnableSkill); await submit()
+  expect(container.textContent).toContain(skillResources['pt-BR'].processStorage)
+  expect(fetcher).toHaveBeenCalledOnce()
+})
+it.each(['kind', 'budget', 'agent', 'extra'])('blocks corrupt agent skill recovery (%s) without HTTP', async (field) => {
+  const intent = structuredClone(agentSkillTaskIntent)
+  if (field === 'kind') Object.assign(intent, { kind: 'other' })
+  if (field === 'budget') intent.body.max_calls = 51
+  if (field === 'agent') intent.agentId = crypto.randomUUID()
+  if (field === 'extra') Object.assign(intent.body, { approved: true })
+  sessionStorage.setItem(`bees.skill-task.pending.v1.${selectedAgent.id}`, JSON.stringify(intent))
+  const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher)
+  await render(null)
+  expect(container.textContent).toContain(skillResources['pt-BR'].processRecoveryBlocked)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+it('blocks an unreadable storage key until explicit discard', async () => {
+  vi.stubGlobal('sessionStorage', { getItem: () => { throw new Error('Unavailable') }, setItem: () => {}, removeItem: () => {}, clear: () => {} })
+  const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher)
+  await render(agentRunnableSkill)
+  expect(container.textContent).toContain(skillResources['pt-BR'].processRecoveryBlocked)
+  expect(container.querySelector('form')).toBeNull()
+  expect(fetcher).not.toHaveBeenCalled()
 })

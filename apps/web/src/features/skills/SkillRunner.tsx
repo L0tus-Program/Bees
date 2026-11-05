@@ -4,9 +4,9 @@ import { asApiError } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import type { AgentSummary } from '../../api/onboarding'
 import type { Skill } from '../../api/skills'
-import { agentSkill, checkedSkillTaskIntent, clearSkillTask, createAgentSkillTask, createSkillTask, executableSkill, preserveSkillTask, restoreSkillTask } from '../../api/skillTasks'
+import { agentSkill, checkedAgentSkillTaskIntent, checkedSkillTaskIntent, clearSkillTask, createAgentSkillTask, createSkillTask, executableSkill, preserveSkillTask, restoreSkillTask } from '../../api/skillTasks'
 import { getAgentCapabilities } from '../../api/agent'
-import type { SkillTaskIntent } from '../../api/skillTasks'
+import type { PendingSkillTaskIntent, SkillTaskIntent } from '../../api/skillTasks'
 import type { TaskRecord } from '../../api/tasks'
 import { getToolTaskCapabilities } from '../../api/toolTasks'
 import { ErrorNotice } from '../../components/Feedback'
@@ -16,7 +16,7 @@ import { SkillDescription } from './SkillContent'
 export function SkillRunner({ agent, selected, onClose, onLock }: { agent: AgentSummary; selected: Skill | null; onClose: () => void; onLock: (locked: boolean) => void }) {
   const { t } = useTranslation('skills')
   const [recovery] = useState(() => restoreSkillTask(agent.id))
-  const [pending, setPending] = useState<SkillTaskIntent | null>(recovery.intent)
+  const [pending, setPending] = useState<PendingSkillTaskIntent | null>(recovery.intent)
   const [corrupt, setCorrupt] = useState(recovery.corrupt)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ApiError | null>(null)
@@ -26,27 +26,22 @@ export function SkillRunner({ agent, selected, onClose, onLock }: { agent: Agent
   const operation = useRef<AbortController | null>(null)
   useEffect(() => { onLock(pending !== null || corrupt || busy); return () => onLock(false) }, [pending, corrupt, busy, onLock])
   useEffect(() => () => operation.current?.abort(), [])
-  async function send(intent: SkillTaskIntent) {
+  async function send(intent: PendingSkillTaskIntent) {
     if (locked.current) return
     try { preserveSkillTask(intent); setStorageError(false) } catch { setStorageError(true); return }
     locked.current = true; setBusy(true); setPending(intent); setError(null)
     const controller = new AbortController(); operation.current = controller
     try {
-      const task = await createSkillTask(intent, controller.signal)
+      const task = 'kind' in intent ? await createAgentSkillTask(intent.agentId, intent.body, controller.signal) : await createSkillTask(intent, controller.signal)
       if (controller.signal.aborted) return
       clearSkillTask(agent.id); setPending(null); setCreated(task); onClose()
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
     finally { if (!controller.signal.aborted) { locked.current = false; setBusy(false) } }
   }
   async function sendAgent(skill: Skill, inputs: Record<string, string>, requestId: string) {
-    if (locked.current) return
-    locked.current = true; setBusy(true); setError(null)
-    const controller = new AbortController(); operation.current = controller
     try {
-      const task = await createAgentSkillTask(agent.id, { client_request_id: requestId, skill_id: skill.id, skill_version: skill.current_version, inputs }, controller.signal)
-      if (!controller.signal.aborted) { setCreated(task); onClose() }
-    } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
-    finally { if (!controller.signal.aborted) { locked.current = false; setBusy(false) } }
+      await send(checkedAgentSkillTaskIntent({ kind: 'agent', agentId: agent.id, body: { client_request_id: requestId, skill_id: skill.id, skill_version: skill.current_version, inputs } }, agent.id))
+    } catch (failure) { setError(asApiError(failure)) }
   }
   function discard() {
     try { clearSkillTask(agent.id); setPending(null); setCorrupt(false); setError(null); onClose() }
@@ -92,7 +87,7 @@ function SkillRunForm({ agentId, skill, onSend, onAgent, onClose }: { agentId: s
     } catch (failure) { setError(asApiError(failure)) }
   }}>
     <h4 tabIndex={-1} ref={heading}>{skill.current.definition.name} · {t('version', { version: skill.current_version })}</h4><SkillDescription definition={skill.current.definition} />
-    <p>{t('runHelp')}</p>{!available && <p role="status">{t('runUnavailable')}</p>}{error && <ErrorNotice error={error} />}
+    <p>{t(isAgent ? 'agentRunHelp' : 'runHelp')}</p>{!available && <p role="status">{t(isAgent ? 'agentRunUnavailable' : 'runUnavailable')}</p>}{error && <ErrorNotice error={error} />}
     {skill.current.definition.inputs.map((item) => <label key={item.name} className="field"><span>{item.description} · {t(item.required ? 'required' : 'optional')}</span><textarea required={item.required} maxLength={2048} value={inputs[item.name] ?? ''} onChange={(event) => setInputs((old) => ({ ...old, [item.name]: event.target.value }))} /></label>)}
     <div className="skill-actions"><button type="button" className="text-button" onClick={onClose}>{t('cancel')}</button><button type="submit" className="button primary" disabled={!available || !(isAgent || executableSkill(skill))}>{t('runConfirm')}</button></div>
   </form>

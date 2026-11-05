@@ -14,3 +14,10 @@ export function skillTaskReceipt(body: SkillTaskBody = skillTaskIntent.body) {
   const base = toolTaskReceipt()
   return { task: { ...base.task, agent_id: skill.agent_id, title: runnableSkill.current.definition.name, skill_execution: { skill_id: body.skill_id, version: body.skill_version, snapshot_hash: 'a'.repeat(64) } }, client_request_id: body.client_request_id, request_hash: createHash('sha256').update(canonical(body)).digest('hex') }
 }
+
+export const agentRunnableSkill = { ...runnableSkill, current: { ...runnableSkill.current, definition: { ...runnableSkill.current.definition, resources: { environment: 'own' as const, tools: ['computer.files.read'] } } } }
+export const agentSkillTaskIntent = { kind: 'agent' as const, agentId: skillTaskIntent.agentId, body: { ...skillTaskIntent.body, inputs: { ...skillTaskIntent.body.inputs }, max_calls: 20, max_active_seconds: 900 } }
+export function agentSkillTaskReceipt(body = agentSkillTaskIntent.body) {
+  const base = skillTaskReceipt()
+  return { ...base, client_request_id: body.client_request_id, request_hash: createHash('sha256').update(canonical(body)).digest('hex'), task: { ...base.task, max_calls: body.max_calls, max_active_seconds: body.max_active_seconds, execution_kind: 'agent_task', agent_approvals_available: true, tool_approvals_available: false, skill_execution: { ...base.task.skill_execution, skill_id: body.skill_id, version: body.skill_version } } }
+}
