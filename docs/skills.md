@@ -260,3 +260,14 @@ aos limites e ao tipo de execução. A cópia local das entradas privadas fica n
 até confirmação/descarte; fechar a aba pode perder a recuperação. Armazenamento
 ilegível bloqueia novo envio até descarte explícito; se não for possível guardar
 o pedido, não ocorre POST.
+
+## Consultas na biblioteca
+
+Histórico, origem do processo e exportação compartilham uma trava imediata com as
+escritas do painel. Cliques simultâneos iniciam uma única operação; atualizar a lista
+não interrompe uma consulta de origem em andamento. Sair ou trocar de abelha cancela
+a consulta e ignora respostas tardias mesmo se o transporte não respeitar o sinal.
+Uma exportação encerrada assim não inicia download. Falhas liberam os controles,
+e uma nova consulta limpa o erro anterior. Essas leituras não executam a skill nem
+alteram suas permissões; cancelar o download após seu início continua sendo ação
+do navegador.

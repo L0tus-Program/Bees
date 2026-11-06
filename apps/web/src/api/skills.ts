@@ -60,9 +60,9 @@ export async function skillRevisions(agentId: string, skillId: string, offset = 
   await Promise.all((value as SkillRevision[]).map(verifyRevisionHash))
   return value as SkillRevision[]
 }
-export async function exportSkill(agentId: string, skillId: string, version: number): Promise<SkillDocument> {
+export async function exportSkill(agentId: string, skillId: string, version: number, signal?: AbortSignal): Promise<SkillDocument> {
   if (!uuid(skillId) || !positive(version)) throw new ApiError('invalid_request')
-  const value = await request(`${base(agentId)}/${skillId}/revisions/${version}/export`, { authenticated: true })
+  const value = await request(`${base(agentId)}/${skillId}/revisions/${version}/export`, { authenticated: true, signal })
   try { return checkedDocument(value) } catch { throw new ApiError('invalid_response') }
 }
 export function skillIntent(agentId: string, definition: SkillDefinition, previous?: Skill): SkillIntent {

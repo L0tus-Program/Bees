@@ -41,9 +41,11 @@ function SkillLibrary({ agent }: { agent: AgentSummary }) {
   const [origin, setOrigin] = useState<SkillProcessOrigin | null>(null)
   const reading = useRef<AbortController | null>(null)
   const writing = useRef<AbortController | null>(null)
+  const inspecting = useRef<AbortController | null>(null)
   const locked = useRef(false)
   const importGeneration = useRef(Symbol())
   const load = useCallback(async (offset = 0) => {
+    if (inspecting.current) return
     reading.current?.abort()
     const controller = new AbortController(); reading.current = controller
     setLoading(true)
@@ -55,7 +57,7 @@ function SkillLibrary({ agent }: { agent: AgentSummary }) {
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
     finally { if (!controller.signal.aborted) setLoading(false) }
   }, [agent.id])
-  useEffect(() => { void load(); return () => { reading.current?.abort(); writing.current?.abort(); importGeneration.current = Symbol() } }, [load])
+  useEffect(() => { void load(); return () => { reading.current?.abort(); writing.current?.abort(); inspecting.current?.abort(); importGeneration.current = Symbol() } }, [load])
 
   async function send(intent: SkillIntent) {
     if (locked.current || recovery.corrupt) return
@@ -99,33 +101,42 @@ function SkillLibrary({ agent }: { agent: AgentSummary }) {
       setEditor({ definition: document.definition, imported: true }); setReview(null); setHistory(null); setError(null)
     } catch { if (generation === importGeneration.current) setError(new ApiError('invalid_request')) }
   }
+  async function inspect(read: (controller: AbortController) => Promise<void>) {
+    if (locked.current) return
+    locked.current = true
+    const controller = new AbortController(); inspecting.current = controller
+    reading.current?.abort()
+    setLoading(false); setBusy(true); setError(null)
+    try { await read(controller) }
+    catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
+    finally {
+      if (!controller.signal.aborted && inspecting.current === controller) {
+        inspecting.current = null; locked.current = false; setBusy(false)
+      }
+    }
+  }
   async function download(skill: Skill, version: number) {
-    setBusy(true)
-    try {
-      const document = await exportSkill(agent.id, skill.id, version)
+    await inspect(async (controller) => {
+      const document = await exportSkill(agent.id, skill.id, version, controller.signal)
+      if (controller.signal.aborted) return
       const url = URL.createObjectURL(new Blob([JSON.stringify(document, null, 2)], { type: 'application/json' }))
-      const link = documentLink(url, skill.id, version)
-      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (failure) { setError(asApiError(failure)) }
-    finally { setBusy(false) }
+      try { documentLink(url, skill.id, version).click() }
+      finally { setTimeout(() => URL.revokeObjectURL(url), 1000) }
+    })
   }
   async function showHistory(skill: Skill, offset = 0) {
-    setBusy(true)
-    try {
-      const page = await skillRevisions(agent.id, skill.id, offset)
+    await inspect(async (controller) => {
+      const page = await skillRevisions(agent.id, skill.id, offset, controller.signal)
+      if (controller.signal.aborted) return
       setHistory((old) => ({ skill, items: offset && old?.skill.id === skill.id ? [...old.items, ...page] : page, more: page.length === 50 }))
-    } catch (failure) { setError(asApiError(failure)) }
-    finally { setBusy(false) }
+    })
   }
   async function showOrigin(skill: Skill, version: number) {
-    setBusy(true)
-    const controller = new AbortController(); reading.current?.abort(); reading.current = controller
-    try {
+    await inspect(async (controller) => {
       const value = await getProcessOrigin(agent.id, skill.id, version, controller.signal)
       if (controller.signal.aborted) return
       setOrigin(value); setNotice(value === null ? 'processNoOrigin' : null)
-    } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
-    finally { if (!controller.signal.aborted) setBusy(false) }
+    })
   }
   const pendingDefinition = pending && (pending.path.endsWith('/import') ? checkedDocument(pending.body.document).definition : pending.body.definition as SkillDefinition | undefined)
   const disabled = loading || busy || pending !== null || recovery.corrupt || processLocked || runLocked
