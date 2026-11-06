@@ -18,6 +18,7 @@ let root: Root
 let container: HTMLDivElement
 let wrapper: (node: ReactNode) => ReactNode
 beforeEach(async () => {
+  sessionStorage.clear()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto); setCsrfToken('csrf')
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   const i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { skills: skillResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })

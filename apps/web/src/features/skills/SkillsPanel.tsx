@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ApiError, asApiError } from '../../api/client'
 import type { AgentSummary } from '../../api/onboarding'
-import { checkedDocument, enableIntent, exportSkill, getProcessOrigin, importIntent, listSkills, sendSkill, skillIntent, skillRevisions } from '../../api/skills'
+import { checkedDocument, checkedSkillIntent, enableIntent, exportSkill, getProcessOrigin, importIntent, listSkills, sendSkill, skillIntent, skillRevisions } from '../../api/skills'
+import { clearSkillMutation, preserveSkillMutation, restoreSkillMutation } from '../../api/skillRecovery'
 import type { Skill, SkillDefinition, SkillIntent, SkillProcessOrigin, SkillRevision } from '../../api/skills'
 import { ErrorNotice } from '../../components/Feedback'
 import { TaskTime } from '../tasks/TaskTime'
@@ -17,6 +18,10 @@ const empty = (): SkillDefinition => ({ name: '', purpose: '', inputs: [], steps
 export { SkillDescription, SkillEditor } from './SkillContent'
 
 export function SkillsPanel({ agent }: { agent: AgentSummary }) {
+  return <SkillLibrary key={agent.id} agent={agent} />
+}
+
+function SkillLibrary({ agent }: { agent: AgentSummary }) {
   const { t } = useTranslation('skills')
   const [items, setItems] = useState<Skill[]>([])
   const [more, setMore] = useState(false)
@@ -25,7 +30,9 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
   const [error, setError] = useState<ApiError | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editor, setEditor] = useState<Editor | null>(null)
-  const [pending, setPending] = useState<SkillIntent | null>(null)
+  const [recovery] = useState(() => restoreSkillMutation(agent.id))
+  const [pending, setPending] = useState<SkillIntent | null>(recovery.intent)
+  const [storageError, setStorageError] = useState(false)
   const [review, setReview] = useState<Skill | null>(null)
   const [history, setHistory] = useState<{ skill: Skill; items: SkillRevision[]; more: boolean } | null>(null)
   const [processLocked, setProcessLocked] = useState(false)
@@ -51,20 +58,29 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
   useEffect(() => { void load(); return () => { reading.current?.abort(); writing.current?.abort(); importGeneration.current = Symbol() } }, [load])
 
   async function send(intent: SkillIntent) {
-    if (locked.current) return
+    if (locked.current || recovery.corrupt) return
+    let snapshot: SkillIntent
+    try { snapshot = checkedSkillIntent(intent, agent.id) }
+    catch (failure) { setError(asApiError(failure)); return }
+    try { snapshot = preserveSkillMutation(snapshot); setStorageError(false) }
+    catch { setStorageError(true); return }
+    const wasPending = pending !== null
+    importGeneration.current = Symbol()
     locked.current = true
     reading.current?.abort()
     const controller = new AbortController(); writing.current = controller
-    setBusy(true); setLoading(false); setPending(intent); setError(null); setNotice(null)
+    setBusy(true); setLoading(false); setPending(snapshot); setError(null); setNotice(null)
     try {
-      await sendSkill(intent, controller.signal)
+      await sendSkill(snapshot, controller.signal)
       if (controller.signal.aborted) return
+      try { clearSkillMutation(agent.id) } catch { setStorageError(true); return }
       setPending(null); setEditor(null); setReview(null); setHistory(null); setNotice('saved'); await load()
     } catch (failure) {
       if (controller.signal.aborted) return
       const problem = asApiError(failure)
       setError(problem)
-      if (problem.status >= 400 && problem.status < 500) {
+      if (!wasPending && problem.status >= 400 && problem.status < 500 && problem.status !== 408 && problem.code !== 'invalid_response') {
+        try { clearSkillMutation(agent.id) } catch { setStorageError(true); return }
         setPending(null)
         if (problem.status === 409) { setEditor(null); setReview(null); setNotice('conflict'); await load() }
       }
@@ -111,16 +127,24 @@ export function SkillsPanel({ agent }: { agent: AgentSummary }) {
     } catch (failure) { if (!controller.signal.aborted) setError(asApiError(failure)) }
     finally { if (!controller.signal.aborted) setBusy(false) }
   }
-  const disabled = loading || busy || pending !== null || processLocked || runLocked
+  const pendingDefinition = pending && (pending.path.endsWith('/import') ? checkedDocument(pending.body.document).definition : pending.body.definition as SkillDefinition | undefined)
+  const disabled = loading || busy || pending !== null || recovery.corrupt || processLocked || runLocked
   return <section className="surface skills-panel" aria-labelledby="skills-heading" aria-busy={loading || busy}>
     <div className="form-heading"><h2 id="skills-heading">{t('title')}</h2><button type="button" className="text-button" disabled={busy || loading} onClick={() => { void load() }}>{t('refresh')}</button></div>
     <p>{t('description')}</p><p className="quiet-note">{t('executionScope')}</p>
     {loading && <p role="status">{t('loading')}</p>}
     {error && <ErrorNotice error={error} />}
+    {storageError && <p role="alert">{t('processStorage')}</p>}
+    {recovery.corrupt && <p role="alert">{t('processRecoveryBlocked')}</p>}
+    <p className="quiet-note">{t('libraryPrivate')}</p>
     {notice && <p role="status">{t(notice)}</p>}
-    {pending && !busy && <div className="transfer-notice" role="status"><p>{t('lost')}</p><button type="button" className="button secondary" onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
+    {pending && !busy && <div className="transfer-notice" role="status"><p>{t('lost')}</p>
+      <h3>{t(pending.method === 'PUT' ? pending.body.enabled ? 'enable' : 'disable' : pending.path.endsWith('/import') ? 'reviewImport' : pending.skillId ? 'edit' : 'create')}</h3>
+      {pending.skillId && <p>{pending.skillId}</p>}
+      {pendingDefinition ? <SkillDescription definition={pendingDefinition} /> : <p>{t('version', { version: pending.body.version })}</p>}
+      <button type="button" className="button secondary" onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
     <div className="skill-actions"><button type="button" className="button secondary" disabled={disabled || !!error} onClick={() => { importGeneration.current = Symbol(); setEditor({ definition: empty() }); setReview(null); setHistory(null) }}>{t('create')}</button><label className="field">{t('import')}<input type="file" accept="application/json,.json" disabled={disabled} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} /></label></div>
-    <ProcessDrafts key={agent.id} agentId={agent.id} disabled={loading || busy || runLocked || runSkill !== null || pending !== null || editor !== null || review !== null} onLock={setProcessLocked} onSaved={() => { setNotice('saved'); void load() }} />
+    <ProcessDrafts key={agent.id} agentId={agent.id} disabled={recovery.corrupt || loading || busy || runLocked || runSkill !== null || pending !== null || editor !== null || review !== null} onLock={setProcessLocked} onSaved={() => { setNotice('saved'); void load() }} />
     <SkillRunner key={`run:${agent.id}`} agent={agent} selected={runSkill} onClose={() => setRunSkill(null)} onLock={setRunLocked} />
     {editor && <SkillEditor key={JSON.stringify(editor.definition)} initial={editor} disabled={disabled} onSave={save} onCancel={() => { setEditor(null); setError(null) }} />}
     {review && <section className="skill-review"><h3>{t('reviewEnable', { version: review.current_version })}</h3><h4>{review.current.definition.name}</h4><SkillDescription definition={review.current.definition} /><p>{t('enableHelp')}</p><div className="skill-actions"><button type="button" className="button primary" disabled={disabled} onClick={() => { void send(enableIntent(review)) }}>{t('confirmEnable')}</button><button type="button" className="button secondary" disabled={disabled} onClick={() => setReview(null)}>{t('cancel')}</button></div></section>}

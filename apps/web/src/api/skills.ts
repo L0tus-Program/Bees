@@ -77,9 +77,14 @@ export function enableIntent(skill: Skill): SkillIntent {
 export function importIntent(agentId: string, document: unknown): SkillIntent {
   return { agentId, path: `${base(agentId)}/import`, body: { client_request_id: crypto.randomUUID(), document: checkedDocument(document) } }
 }
-export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Promise<Skill> {
+// The same closed command validation protects transport and tab recovery.
+export function checkedSkillIntent(value: unknown, agentId: string): SkillIntent {
+  if (!record(value) || value.agentId !== agentId || !exact(value, ['agentId', 'path', 'body',
+    ...('skillId' in value ? ['skillId'] : []), ...('method' in value ? ['method'] : [])])
+    || typeof value.path !== 'string') throw new ApiError('invalid_request')
+  const intent = value as unknown as SkillIntent
   if (!record(intent.body) || !uuid(intent.body.client_request_id)) throw new ApiError('invalid_request')
-  const { agentId, skillId, path, method } = intent
+  const { skillId, path, method } = intent
   // Capture identity and the complete declarative command before any await.
   const body = { ...intent.body }
   const enabling = method === 'PUT' || path.endsWith('/enabled')
@@ -107,6 +112,14 @@ export async function sendSkill(intent: SkillIntent, signal?: AbortSignal): Prom
     } else throw new ApiError('invalid_request')
     if (!isDefinition(definition)) throw new ApiError('invalid_request')
   }
+  return JSON.parse(JSON.stringify(intent)) as SkillIntent
+}
+
+export async function sendSkill(raw: SkillIntent, signal?: AbortSignal): Promise<Skill> {
+  const intent = checkedSkillIntent(raw, raw.agentId)
+  const { agentId, skillId, path, method, body } = intent
+  const enabling = method === 'PUT'
+  const definition = enabling ? undefined : path.endsWith('/import') ? (body.document as SkillDocument).definition : body.definition as SkillDefinition
   const snapshot = JSON.parse(JSON.stringify(body)) as Record<string, unknown>
   const expectedDefinition = definition ? canonical(definition) : undefined
   const result = checkedSkill(await request(path, { body: snapshot, method, authenticated: true, signal }), agentId, skillId)
