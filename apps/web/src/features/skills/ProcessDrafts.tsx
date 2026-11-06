@@ -3,17 +3,16 @@ import { useTranslation } from 'react-i18next'
 import { ApiError, asApiError } from '../../api/client'
 import { getDeliveries, getDelivery } from '../../api/deliveryHistory'
 import type { DeliveryItem, DeliveryPage } from '../../api/deliveryHistory'
-import { checkedProcessIntent, processSkillIntent, sendSkill } from '../../api/skills'
-import type { ProcessReference, SkillDefinition, SkillIntent } from '../../api/skills'
+import { checkedProcessIntent, checkedSkillIntent, processSkillIntent, sendSkill } from '../../api/skills'
+import type { ProcessReference, ProcessReview, SkillDefinition, SkillIntent } from '../../api/skills'
 import { ErrorNotice } from '../../components/Feedback'
-import { SkillEditor } from './SkillContent'
+import { SkillDescription, SkillEditor } from './SkillContent'
 
 const storageKey = (agentId: string) => `bees.skill-process-pending.v1.${agentId}`
 function remembered(agentId: string): { intent: SkillIntent | null; corrupt: boolean } {
-  let raw: string | null
-  try { raw = sessionStorage.getItem(storageKey(agentId)) } catch { return { intent: null, corrupt: false } }
   try {
-    return { intent: raw ? checkedProcessIntent(JSON.parse(raw), agentId) : null, corrupt: false }
+    const raw = sessionStorage.getItem(storageKey(agentId))
+    return { intent: raw === null ? null : checkedSkillIntent(checkedProcessIntent(JSON.parse(raw), agentId), agentId), corrupt: false }
   } catch { return { intent: null, corrupt: true } }
 }
 const template = (): SkillDefinition => ({ name: '', purpose: '', inputs: [], steps: [{ title: '', instruction: '' }], resources: { environment: 'none', tools: [] }, output: '', completion: '' })
@@ -71,20 +70,25 @@ export function ProcessDrafts({ agentId, disabled, onLock, onSaved }: { agentId:
     finally { if (!request.signal.aborted) { lock.current = false; setBusy(false) } }
   }
   async function send(intent: SkillIntent) {
-    if (lock.current) return
+    if (lock.current || recovery.corrupt) return
+    let snapshot: SkillIntent
+    try { snapshot = checkedSkillIntent(checkedProcessIntent(intent, agentId), agentId) }
+    catch (failure) { setError(asApiError(failure)); return }
+    const wasPending = pending !== null
     // Preserve the exact UUID before the first write; reload cannot replace an uncertain request.
-    try { sessionStorage.setItem(storageKey(agentId), JSON.stringify(checkedProcessIntent(intent, agentId))); setStorageError(false) }
+    try { sessionStorage.setItem(storageKey(agentId), JSON.stringify(snapshot)); setStorageError(false) }
     catch { setStorageError(true); return }
-    lock.current = true; setBusy(true); setPending(intent); setError(null)
+    lock.current = true; setBusy(true); setPending(snapshot); setError(null)
     const request = new AbortController(); controller.current = request
     try {
-      await sendSkill(intent, request.signal)
+      await sendSkill(snapshot, request.signal)
       if (request.signal.aborted) return
-      sessionStorage.removeItem(storageKey(agentId)); setPending(null); setSource(null); setOpen(false); onSaved()
+      try { sessionStorage.removeItem(storageKey(agentId)) } catch { setStorageError(true); return }
+      setPending(null); setSource(null); setOpen(false); onSaved()
     } catch (failure) {
       if (request.signal.aborted) return
       const problem = asApiError(failure); setError(problem)
-      if (problem.status >= 400 && problem.status < 500 && problem.status !== 408) {
+      if (!wasPending && problem.status >= 400 && problem.status < 500 && problem.status !== 408 && problem.code !== 'invalid_response') {
         try { sessionStorage.removeItem(storageKey(agentId)); setPending(null) } catch { setStorageError(true) }
       }
     } finally { if (!request.signal.aborted) { lock.current = false; setBusy(false) } }
@@ -104,7 +108,7 @@ export function ProcessDrafts({ agentId, disabled, onLock, onSaved }: { agentId:
     {error && <ErrorNotice error={error} />}
     {storageError && <p role="alert">{t('processStorage')}</p>}
     {recovery.corrupt && <p role="alert">{t('processRecoveryBlocked')}</p>}
-    {pending && <div role="status"><p>{t('lost')}</p><button type="button" className="button secondary" disabled={disabled || busy} onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
+    {pending && <div role="status"><p>{t('lost')}</p><PendingProcess intent={pending} /><button type="button" className="button secondary" disabled={disabled || busy} onClick={() => { void send(pending) }}>{t('verify')}</button></div>}
     {!source && !pending && !recovery.corrupt && <>
       <form onSubmit={(event) => { event.preventDefault(); void load() }}><label className="field">{t('processSearch')}<input maxLength={200} value={query} disabled={blocked} onChange={(event) => setQuery(event.target.value)} /></label><button type="submit" className="button secondary" disabled={blocked}>{t('processFind')}</button></form>
       {page && <ul>{page.items.filter((item) => item.kind === 'result' && !item.partial).map((item) => <li key={item.id}><button type="button" className="text-button" disabled={blocked} onClick={() => { void select(item) }}>{item.title}</button><small> · {item.run_id}</small></li>)}</ul>}
@@ -126,4 +130,20 @@ export function ProcessDrafts({ agentId, disabled, onLock, onSaved }: { agentId:
     </>}
     <button type="button" className="button secondary" disabled={blocked} onClick={() => { setOpen(false); setSource(null) }}>{t('cancel')}</button>
   </section>
+}
+
+function PendingProcess({ intent }: { intent: SkillIntent }) {
+  const { t } = useTranslation('skills')
+  const definition = intent.body.definition as SkillDefinition
+  const review = intent.body.review as ProcessReview
+  return <div className="skill-process-pending">
+    <h4>{definition.name}</h4><SkillDescription definition={definition} />
+    <dl><dt>{t('processTask')}</dt><dd>{String(intent.body.task_id)}</dd>
+      <dt>{t('processRun')}</dt><dd>{String(intent.body.run_id)}</dd>
+      <dt>{t('processMessage')}</dt><dd>{String(intent.body.message_id)}</dd>
+      <dt>SHA-256</dt><dd>{String(intent.body.result_sha256)}</dd>
+      <dt>{t('processReview')}</dt><dd>{review.review_note}</dd>
+      <dt>{t('processPending')}</dt><dd>{review.pending}</dd></dl>
+    <h4>{t('processSources')}</h4><ul>{review.sources.map((source) => <li key={source}>{source}</li>)}</ul>
+  </div>
 }

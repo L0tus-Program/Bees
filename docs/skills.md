@@ -127,9 +127,17 @@ tarefa, geração ou efeito é criado pela conversão.
 A interface preserva o UUID e o conteúdo do pedido em sessionStorage antes de enviar.
 Se a resposta se perde, inclusive após reload, **Verificar o mesmo pedido** reconcilia
 a intenção original; não há reenvio automático nem outro UUID. Uma resposta 2xx
-inválida também continua incerta. Sem armazenamento de aba disponível, o envio
-não começa. O armazenamento contém o template e as referências revisados, sem o
-resultado original. Não compartilhe dados locais da aba como diagnóstico público.
+inválida também continua incerta. Uma recusa na verificação posterior não apaga um
+pedido já incerto. Antes de verificar, a recuperação mostra o template preservado,
+a tarefa/execução/mensagem, o hash, as fontes e a revisão humana, inclusive após
+recarregar. Só a confirmação válida do pedido e da origem libera novas alterações.
+
+Sem armazenamento de aba disponível, o envio não começa. Leitura indisponível ou
+conteúdo ilegível bloqueiam a conversão; falha ao remover um pedido confirmado
+mostra aviso de armazenamento e conserva a recuperação para conferir novamente.
+Recusa definitiva do primeiro envio permite corrigir o rascunho. O armazenamento
+contém o template e as referências revisados, sem o resultado original. Não
+compartilhe dados locais da aba como diagnóstico público.
 
 A migração `0018_skill_process_origins.sql` acrescenta a origem imutável e protege
 o vínculo também com FKs/gatilhos. Antes do upgrade, pare os escritores e preserve

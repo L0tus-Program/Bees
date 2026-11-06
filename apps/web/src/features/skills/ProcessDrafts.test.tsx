@@ -154,3 +154,146 @@ for (const language of ['pt-BR', 'en', 'es']) describe(`process origin recovery 
     expect(fetch.mock.calls.every(([url]) => !url.includes('/tasks') && !url.includes('/chat') && !url.includes('/enabled'))).toBe(true)
   })
 })
+
+async function prepareDraft() {
+  await render(); await click('Criar a partir de um processo'); await click(source.title)
+  await input('URLs presentes no resultado, uma por linha', review.sources[0]); await input('O que você conferiu no processo', review.review_note); await input('Pendências e limites do procedimento', review.pending)
+  await act(async () => (container.querySelector('.skill-process > fieldset input[type=checkbox]') as HTMLInputElement).click())
+  await input('Nome', definition.name); await input('Objetivo', definition.purpose); await input('Título do passo', definition.steps[0].title); await input('Instrução', definition.steps[0].instruction); await input('Entrega esperada', definition.output); await input('Como conferir a conclusão', definition.completion)
+}
+async function submitDraft() { await act(async () => container.querySelector('.skill-editor')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))); await settled() }
+async function remount() { await act(async () => root.unmount()); root = createRoot(container); await render() }
+
+describe.each(['pt-BR', 'en', 'es'] as const)('uncertain process recovery in %s', (language) => {
+  const labels = skillResources[language]
+  it.each([400, 403, 404, 409])('retains a restored command after HTTP %s and confirms only the original request', async (status) => {
+    await i18n.changeLanguage(language)
+    sessionStorage.setItem(storageKey, JSON.stringify(intent))
+    let refuse = true
+    const validFetch = fetcher()
+    const fetch = vi.fn(async (url: string, options: RequestInit) => options.method === 'POST' && refuse ? Response.json({ error: { code: 'not_found' } }, { status }) : validFetch(url, options))
+    vi.stubGlobal('fetch', fetch); await render()
+    await click(labels.verify)
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(intent)
+    expect(button(labels.create).disabled).toBe(true)
+    expect(container.textContent).not.toContain(labels.saved)
+    await remount()
+    expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
+    expect(button(labels.create).disabled).toBe(true)
+    refuse = false; await click(labels.verify)
+    const posts = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+    expect(posts).toHaveLength(2); expect(posts[0][1].body).toBe(posts[1][1].body)
+    expect(JSON.parse(posts[1][1].body as string)).toEqual(intent.body)
+    expect(sessionStorage.getItem(storageKey)).toBeNull(); expect(container.textContent).toContain(labels.saved)
+    expect(fetch.mock.calls.every(([url]) => !url.includes('/tasks') && !url.includes('/chat') && !url.includes('/enabled'))).toBe(true)
+  })
+  it('shows the preserved template, reference and human review before verification', async () => {
+    await i18n.changeLanguage(language); sessionStorage.setItem(storageKey, JSON.stringify(intent))
+    const fetch = fetcher(); vi.stubGlobal('fetch', fetch); await render()
+    const panel = container.querySelector('.skill-process')!
+    for (const text of [definition.name, definition.purpose, definition.steps[0].instruction, definition.output, definition.completion, source.task_id!, source.run_id!, source.id, intent.body.result_sha256, review.sources[0], review.review_note, review.pending]) expect(panel.textContent).toContain(text)
+    expect(panel.querySelector('.skill-description')).not.toBeNull(); expect(panel.querySelector('.skill-editor')).toBeNull()
+    expect(fetch.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+  })
+  it('keeps storage and the lock with a specific notice when clearing a valid receipt fails', async () => {
+    await i18n.changeLanguage(language); sessionStorage.setItem(storageKey, JSON.stringify(intent))
+    const fetch = fetcher(); vi.stubGlobal('fetch', fetch); await render()
+    const storage = sessionStorage
+    vi.stubGlobal('sessionStorage', { getItem: storage.getItem.bind(storage), setItem: storage.setItem.bind(storage), clear: storage.clear.bind(storage), removeItem: () => { throw new Error('private storage diagnostic') } })
+    await click(labels.verify)
+    expect(container.textContent).toContain(labels.processStorage); expect(container.textContent).not.toContain(labels.saved)
+    expect(button(labels.create).disabled).toBe(true); expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(intent)
+    vi.stubGlobal('sessionStorage', storage); await click(labels.verify)
+    const posts = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+    expect(posts).toHaveLength(2); expect(posts[0][1].body).toBe(posts[1][1].body)
+    expect(sessionStorage.getItem(storageKey)).toBeNull(); expect(container.textContent).toContain(labels.saved)
+  })
+})
+
+it('keeps an uncertain first submission through a later refusal and reload', async () => {
+  const validFetch = fetcher(); let posts = 0
+  const fetch = vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { posts++; if (posts === 1) throw new TypeError('response lost'); return Response.json({ error: { code: 'revision_conflict' } }, { status: 409 }) }
+    return validFetch(url, options)
+  }); vi.stubGlobal('fetch', fetch)
+  await prepareDraft(); await submitDraft()
+  const original = sessionStorage.getItem(storageKey)
+  expect(original).not.toBeNull()
+  await click('Verificar o mesmo pedido')
+  expect(sessionStorage.getItem(storageKey)).toBe(original)
+  expect(button('Novo procedimento').disabled).toBe(true)
+  await remount(); expect(posts).toBe(2)
+  expect(sessionStorage.getItem(storageKey)).toBe(original)
+  const writes = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+  expect(writes[0][1].body).toBe(writes[1][1].body)
+})
+
+it('allows correcting a definitive refusal on the first submission', async () => {
+  const validFetch = fetcher(); let refuse = true
+  const fetch = vi.fn(async (url: string, options: RequestInit) => options.method === 'POST' && refuse ? Response.json({ error: { code: 'invalid_request' } }, { status: 422 }) : validFetch(url, options))
+  vi.stubGlobal('fetch', fetch); await prepareDraft(); await submitDraft()
+  expect(sessionStorage.getItem(storageKey)).toBeNull(); expect(button('Salvar versão desabilitada').disabled).toBe(false)
+  await input('Nome', 'Procedimento corrigido'); refuse = false; await submitDraft()
+  const writes = fetch.mock.calls.filter(([, options]) => options.method === 'POST').map(([, options]) => JSON.parse(options.body as string))
+  expect(writes).toHaveLength(2); expect(writes[1].client_request_id).not.toBe(writes[0].client_request_id)
+  expect(writes[1].definition.name).toBe('Procedimento corrigido')
+  expect(container.textContent).toContain('Versão salva')
+})
+
+it('does not submit a new conversion when preserving storage fails', async () => {
+  const fetch = fetcher(); vi.stubGlobal('fetch', fetch); await prepareDraft()
+  const storage = sessionStorage
+  vi.stubGlobal('sessionStorage', { getItem: storage.getItem.bind(storage), removeItem: storage.removeItem.bind(storage), clear: storage.clear.bind(storage), setItem: () => { throw new Error('private storage diagnostic') } })
+  await submitDraft()
+  expect(container.textContent).toContain(skillResources['pt-BR'].processStorage)
+  expect(fetch.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+  vi.stubGlobal('sessionStorage', storage); await submitDraft()
+  expect(container.textContent).toContain('Versão salva')
+})
+
+describe.each(['pt-BR', 'en', 'es'] as const)('blocked process recovery in %s', (language) => {
+  it.each(['unavailable', 'empty', 'foreign'] as const)('blocks %s recovery without sending or silently replacing it', async (failure) => {
+    await i18n.changeLanguage(language)
+    if (failure === 'empty') sessionStorage.setItem(storageKey, '')
+    if (failure === 'foreign') sessionStorage.setItem(storageKey, JSON.stringify({ ...intent, agentId: skill.id }))
+    const storage = sessionStorage
+    if (failure === 'unavailable') vi.stubGlobal('sessionStorage', { getItem: (key: string) => { if (key === storageKey) throw new Error('private diagnostic'); return storage.getItem(key) }, clear: storage.clear.bind(storage) })
+    const fetch = fetcher(); vi.stubGlobal('fetch', fetch); await render()
+    const labels = skillResources[language]
+    expect(container.textContent).toContain(labels.processRecoveryBlocked)
+    expect(container.textContent).not.toContain('private diagnostic')
+    expect(button(labels.create).disabled).toBe(true)
+    expect([...container.querySelectorAll('button')].some((item) => item.textContent === labels.verify)).toBe(false)
+    expect(fetch.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true)
+    vi.stubGlobal('sessionStorage', storage)
+  })
+})
+
+it('keeps malformed HTTP 4xx responses uncertain on the first submission', async () => {
+  const validFetch = fetcher()
+  const fetch = vi.fn(async (url: string, options: RequestInit) => options.method === 'POST' ? new Response('invalid JSON', { status: 400 }) : validFetch(url, options))
+  vi.stubGlobal('fetch', fetch); await prepareDraft(); await submitDraft()
+  expect(sessionStorage.getItem(storageKey)).not.toBeNull()
+  expect(button('Novo procedimento').disabled).toBe(true)
+  expect(container.textContent).not.toContain('Versão salva')
+})
+
+it('serializes duplicate verification and ignores late receipts after switching bee', async () => {
+  sessionStorage.setItem(storageKey, JSON.stringify(intent))
+  let resolve!: (value: Response) => void
+  const response = new Promise<Response>((yes) => { resolve = yes })
+  let signal: AbortSignal | undefined
+  const fetch = vi.fn(async (_url: string, options: RequestInit) => {
+    if (options.method === 'POST') { signal = options.signal as AbortSignal; return response }
+    return Response.json([])
+  }); vi.stubGlobal('fetch', fetch); await render()
+  const verify = button('Verificar o mesmo pedido')
+  await act(async () => { verify.click(); verify.click() })
+  expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
+  await act(async () => root.render(<I18nextProvider i18n={i18n}><SkillsPanel agent={{ ...chatAgent, id: skill.id }} /></I18nextProvider>)); await settled()
+  expect(signal?.aborted).toBe(true)
+  await act(async () => resolve(Response.json(skill)))
+  expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(intent)
+  expect(container.textContent).not.toContain('Versão salva')
+  expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1)
+})
