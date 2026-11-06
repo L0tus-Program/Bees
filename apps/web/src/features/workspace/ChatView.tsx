@@ -172,7 +172,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   }
 
   async function attach(chosen: FileList | File[] | null) {
-    if (!chosen?.length || !canAttach || sendController.current) return
+    if (!chosen?.length || !canAttach || sendController.current || clearController.current) return
     // A fila mantém a ordem e os limites mesmo com várias colagens durante um upload.
     uploadQueue.current.push(...Array.from(chosen))
     if (uploadRunning.current) return
@@ -205,7 +205,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     event?.preventDefault()
     const sentDraft = draft
     const content = sentDraft.trim()
-    if (!capabilities || sendController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    if (!capabilities || sendController.current || clearController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
     const operation = new AbortController(); sendController.current = operation
     setBusy(true); setError(null); follow.current = true
     try {
@@ -234,7 +234,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   }
 
   async function clear() {
-    if (sendController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
+    if (sendController.current || clearController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
     const operation = new AbortController()
     clearController.current = operation
     setClearing(true); setError(null)
@@ -251,7 +251,12 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
         setError(error); reload(); monitor.refresh()
         if (['mutation_network', 'mutation_timeout', 'invalid_response'].includes(error.code)) onCleared()
       }
-    } finally { if (!operation.signal.aborted && !confirmed) setClearing(false) }
+    } finally {
+      if (!operation.signal.aborted && !confirmed) {
+        clearController.current = null
+        setClearing(false)
+      }
+    }
   }
 
   const empty = resource.state === 'ready' && list.length === 0 && delegations.length === 0

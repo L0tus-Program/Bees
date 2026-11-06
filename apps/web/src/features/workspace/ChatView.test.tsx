@@ -18,6 +18,8 @@ import { agent as baseAgent, task as baseTask } from '../chat/testFixtures'
 import { agentId, artifact, conversationId, page, taskId } from '../artifacts/fixtures'
 import { publishArtifact } from '../artifacts/api'
 import { ChatView } from './ChatView'
+import { registerConfirmHost } from '../../components/confirmAction'
+import type { ConfirmRequest } from '../../components/confirmAction'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 vi.mock('../tasks/useTaskPolling', () => ({ useTaskPolling: vi.fn() }))
@@ -60,7 +62,7 @@ beforeEach(() => {
   })
   vi.stubGlobal('fetch', fetcher)
 })
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); registerConfirmHost(null); vi.unstubAllGlobals(); vi.resetAllMocks(); setCsrfToken() })
 
 async function show(onCleared?: () => void) {
   const i18n = createInstance()
@@ -434,5 +436,90 @@ for (const mode of ['agent', 'chat'] as const) describe(`pending ${mode} message
     await act(async () => { if (outcome === 'success') finish(receipt()); else fail(new TypeError('offline')) })
     expect(reload).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled(); expect(focus).not.toHaveBeenCalled()
     expect(calls(endpoint)).toHaveLength(1)
+  })
+})
+
+
+describe('conversation clear exclusivity', () => {
+  let confirmations: ConfirmRequest[]
+  let cleared: ReturnType<typeof vi.fn<() => void>>
+  const clearButton = () => [...container.querySelectorAll('button')].find((item) => /Limpar conversa|Limpando/.test(item.textContent ?? ''))!
+  const send = () => container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+  async function prepare() {
+    messages = [user, reply]; confirmations = []; cleared = vi.fn()
+    registerConfirmHost((request) => { confirmations.push(request) })
+    await show(cleared)
+    const input = container.querySelector('#chat-input')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Rascunho')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  for (const action of ['clear', 'send', 'paste', 'drop'] as const) it(`blocks concurrent ${action} before React commits the confirmation state`, async () => {
+    await prepare()
+    await act(async () => {
+      clearButton().click()
+      if (action === 'clear') clearButton().click()
+      else if (action === 'send') send()
+      else container.querySelector('#chat-input')!.dispatchEvent(transferEvent(action, [new File(['a'], 'um.txt')]))
+    })
+    await flushUploads()
+    expect(confirmations).toHaveLength(1)
+    expect(calls('/agent-messages')).toHaveLength(0)
+    expect(publishArtifact).not.toHaveBeenCalled()
+    expect(calls('/clear')).toHaveLength(0)
+    await act(async () => confirmations[0].resolve(false))
+    expect((container.querySelector('#chat-input') as HTMLTextAreaElement).value).toBe('Rascunho')
+    await act(async () => send())
+    expect(calls('/agent-messages')).toHaveLength(1)
+  })
+  it('allows another confirmation after cancellation', async () => {
+    await prepare()
+    await act(async () => clearButton().click())
+    await act(async () => confirmations[0].resolve(false))
+    await act(async () => clearButton().click())
+    expect(confirmations).toHaveLength(2)
+    await act(async () => confirmations[1].resolve(false))
+  })
+  it('releases the lock after a definitive clear failure', async () => {
+    await prepare()
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    fetcher.mockImplementation((...args) => String(args[0]).endsWith('/clear') ? Promise.resolve(Response.json({ error: { code: 'conversation_has_pending_work' } }, { status: 409 })) : previous(...args))
+    await act(async () => clearButton().click())
+    await act(async () => confirmations[0].resolve(true))
+    expect(cleared).not.toHaveBeenCalled()
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => clearButton().click())
+    expect(confirmations).toHaveLength(2)
+    await act(async () => confirmations[1].resolve(false))
+  })
+  it('ignores confirmation resolved after leaving', async () => {
+    await prepare()
+    await act(async () => clearButton().click())
+    await act(async () => root.unmount()); root = createRoot(container)
+    await act(async () => confirmations[0].resolve(true))
+    expect(calls('/clear')).toHaveLength(0)
+    expect(cleared).not.toHaveBeenCalled()
+  })
+  for (const outcome of ['success', 'failure'] as const) it(`ignores late clear ${outcome} after leaving`, async () => {
+    await prepare()
+    let finish!: (response: Response) => void
+    let fail!: (error: Error) => void
+    const pending = new Promise<Response>((resolve, reject) => { finish = resolve; fail = reject })
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    fetcher.mockImplementation((...args) => String(args[0]).endsWith('/clear') ? pending : previous(...args))
+    await act(async () => clearButton().click())
+    await act(async () => confirmations[0].resolve(true))
+    const signal = calls('/clear')[0][1].signal as AbortSignal
+    const refresh = vi.mocked(useTaskPolling).mock.results.at(-1)!.value.refresh
+    reload.mockClear(); refresh.mockClear()
+    await act(async () => root.unmount()); root = createRoot(container)
+    expect(signal.aborted).toBe(true)
+    await act(async () => {
+      if (outcome === 'success') finish(Response.json({ conversation_id: '99999999-9999-4999-8999-999999999999' }))
+      else fail(new TypeError('offline'))
+    })
+    expect(cleared).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled()
   })
 })
