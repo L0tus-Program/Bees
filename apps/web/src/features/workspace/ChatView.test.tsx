@@ -137,8 +137,9 @@ describe('chat as an assistant conversation', () => {
     const text = container.textContent ?? ''
     expect(text.indexOf('Gere um relatório')).toBeLessThan(text.indexOf('Usou 1 ferramenta'))
     expect(text.indexOf('Usou 1 ferramenta')).toBeLessThan(text.indexOf('relatório gerado'))
-    const link = container.querySelector('a[download]') as HTMLAnchorElement
-    expect(link.getAttribute('href')).toBe(`/api/v1/agents/${agentId}/artifacts/${artifact.id}/download`)
+    const link = container.querySelector(`button[aria-label="Baixar ${artifact.name}"]`)!
+    expect(link.tagName).toBe('BUTTON')
+    expect(link.getAttribute('href')).toBeNull()
     expect(text.indexOf('relatório gerado')).toBeLessThan(text.indexOf(artifact.name))
     expect(container.querySelector('strong')?.textContent).toBe('relatório')
     expect(text).not.toMatch(/Tarefa|tarefa do agente/)

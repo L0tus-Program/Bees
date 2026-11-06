@@ -9,6 +9,7 @@ import { AgentApprovals } from '../agent/AgentApprovals'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { TurnFileDownloads } from './TurnFileDownloads'
 
 type Step = NonNullable<TaskRecord['agent_steps']>[number]
 const LIVE = new Set(['queued', 'running'])
@@ -20,16 +21,9 @@ function StepIcon({ tool }: { tool: string }) {
   return <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 }
 
-function size(bytes: number, language: string) {
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes; let unit = 0
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1 }
-  return `${new Intl.NumberFormat(language, { maximumFractionDigits: unit ? 1 : 0 }).format(value)} ${units[unit]}`
-}
-
 /** Arquivos publicados pela tarefa, como anexos da resposta. */
 export function TurnFiles({ task }: { task: TaskRecord }) {
-  const { t, i18n } = useTranslation('workspace')
+  const { t } = useTranslation('workspace')
   const [attempt, setAttempt] = useState(0)
   const key = `${task.agent_id}:${task.id}:${task.revision}:${task.status}:${attempt}`
   const [result, setResult] = useState<{ key: string; files: ArtifactRecord[]; failed: boolean } | null>(null)
@@ -50,15 +44,7 @@ export function TurnFiles({ task }: { task: TaskRecord }) {
   if (current.failed) return <div className="flex flex-col items-start gap-2"><p className="text-sm text-destructive" role="alert">{t('filesLoadError')}</p><Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>{t('retry')}</Button></div>
   const files = current.files
   if (!files.length) return null
-  return <ul className="mt-2 flex flex-wrap gap-2">
-    {files.map((file) => <li key={file.id}>
-      <a className="flex max-w-xs items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm text-foreground no-underline shadow-xs hover:bg-muted" href={`/api/v1/agents/${encodeURIComponent(task.agent_id)}/artifacts/${encodeURIComponent(file.id)}/download`} download={file.name} aria-label={t('download', { name: file.name })}>
-        <FileText className="size-4 shrink-0 text-primary" aria-hidden="true" />
-        <span className="min-w-0 truncate font-medium">{file.name}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{size(file.size_bytes, i18n.resolvedLanguage ?? 'pt-BR')}</span>
-      </a>
-    </li>)}
-  </ul>
+  return <TurnFileDownloads key={key} agentId={task.agent_id} taskId={task.id} files={files} />
 }
 
 /** Turno da abelha no modo agente: passos ao vivo, decisões, estado e arquivos — sem jargão de tarefa. */

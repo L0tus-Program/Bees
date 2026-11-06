@@ -37,12 +37,12 @@ beforeEach(async () => {
 })
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.resetAllMocks() })
 
-it('shows only ready files with the current download URL', async () => {
+it('shows only ready files as verified download actions', async () => {
   vi.mocked(getArtifacts).mockResolvedValue({ ...page(), items: [artifact, { ...artifact, id: 'draft', name: 'rascunho.txt', status: 'draft' }] })
   await show()
-  const link = container.querySelector('a')!
-  expect(link.getAttribute('href')).toBe(`/api/v1/agents/${agentId}/artifacts/${artifact.id}/download`)
-  expect(link.getAttribute('download')).toBe(artifact.name)
+  const button = container.querySelector('button')!
+  expect(button.getAttribute('aria-label')).toBe(`Baixar ${artifact.name}`)
+  expect(container.querySelector('a')).toBeNull()
   expect(container.textContent).not.toContain('rascunho.txt')
 })
 for (const field of ['id', 'agent_id', 'revision'] as const) {
@@ -51,7 +51,7 @@ for (const field of ['id', 'agent_id', 'revision'] as const) {
     await show()
     const next = pending(); vi.mocked(getArtifacts).mockReturnValueOnce(next.promise)
     await show(changed())
-    expect(container.querySelector('a')).toBeNull()
+    expect(container.querySelector('button')).toBeNull()
     expect(getArtifacts).toHaveBeenCalledTimes(2)
     await act(async () => next.resolve(page('novo.txt')))
     expect(container.textContent).toContain('novo.txt')
@@ -76,7 +76,7 @@ for (const status of ['running', 'failed', 'cancelled', 'waiting_approval'] as c
   await show({ ...task, id: 'other', status })
   expect(signal.aborted).toBe(true)
   await act(async () => old.resolve(page('antigo.txt')))
-  expect(container.querySelector('a')).toBeNull()
+  expect(container.querySelector('button')).toBeNull()
   expect(getArtifacts).toHaveBeenCalledTimes(2)
 })
 it('refreshes on completed/paused and revisions without refetching identical renders', async () => {
@@ -103,7 +103,7 @@ for (const lng of ['pt-BR', 'en', 'es'] as const) it(`offers translated human re
   expect(container.querySelector('[role="status"]')?.textContent).toBe(workspaceResources[lng].loadingFiles)
   await act(async () => next.resolve(page()))
   expect(container.querySelector('[role="alert"]')).toBeNull()
-  expect(container.querySelector('a')).not.toBeNull()
+  expect(container.querySelector('button')).not.toBeNull()
   expect(getArtifacts).toHaveBeenCalledTimes(2)
 })
 for (const outcome of ['success', 'failure'] as const) it(`aborts on unmount and ignores late ${outcome}`, async () => {
@@ -125,5 +125,5 @@ it('hides a previous failure when switching to a new pending task', async () => 
   await show({ ...task, id: 'other' })
   expect(container.querySelector('[role="alert"]')).toBeNull()
   await act(async () => next.resolve(page()))
-  expect(container.querySelector('a')).not.toBeNull()
+  expect(container.querySelector('button')).not.toBeNull()
 })
