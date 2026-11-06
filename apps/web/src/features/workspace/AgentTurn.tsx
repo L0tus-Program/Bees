@@ -30,14 +30,25 @@ function size(bytes: number, language: string) {
 /** Arquivos publicados pela tarefa, como anexos da resposta. */
 export function TurnFiles({ task }: { task: TaskRecord }) {
   const { t, i18n } = useTranslation('workspace')
-  const [files, setFiles] = useState<ArtifactRecord[]>([])
+  const [attempt, setAttempt] = useState(0)
+  const key = `${task.agent_id}:${task.id}:${task.revision}:${task.status}:${attempt}`
+  const [result, setResult] = useState<{ key: string; files: ArtifactRecord[]; failed: boolean } | null>(null)
   const done = task.status === 'completed' || task.status === 'paused'
   useEffect(() => {
     if (!done) return
     const controller = new AbortController()
-    getArtifacts(task.agent_id, task.id, 0, controller.signal).then((page) => setFiles(page.items.filter((item) => item.status === 'ready')), () => setFiles([]))
+    getArtifacts(task.agent_id, task.id, 0, controller.signal).then(
+      (page) => { if (!controller.signal.aborted) setResult({ key, files: page.items.filter((item) => item.status === 'ready'), failed: false }) },
+      () => { if (!controller.signal.aborted) setResult({ key, files: [], failed: true }) },
+    )
     return () => controller.abort()
-  }, [done, task.agent_id, task.id])
+  }, [done, key, task.agent_id, task.id])
+  // A resposta pertence ao snapshot consultado, inclusive antes do cleanup do efeito.
+  if (!done) return null
+  const current = result?.key === key ? result : null
+  if (!current) return <p className="text-xs text-muted-foreground" role="status">{t('loadingFiles')}</p>
+  if (current.failed) return <div className="flex flex-col items-start gap-2"><p className="text-sm text-destructive" role="alert">{t('filesLoadError')}</p><Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>{t('retry')}</Button></div>
+  const files = current.files
   if (!files.length) return null
   return <ul className="mt-2 flex flex-wrap gap-2">
     {files.map((file) => <li key={file.id}>
