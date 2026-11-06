@@ -12,6 +12,23 @@ as versões anteriores e também desabilita a nova versão. Para habilitar, esco
 **Revisar e habilitar**, confira o procedimento completo e confirme **Habilitar esta
 versão**. Desabilitar conserva o histórico.
 
+Criação, edição, importação e habilitação/desabilitação guardam o comando confirmado
+na sessão da aba **antes** de enviar. Depois de resposta perdida, timeout ou recibo
+incompatível, recarregar ou voltar à mesma abelha recupera o pedido e bloqueia novas
+alterações. Atualizar a lista não resolve nem repete a gravação. **Verificar o mesmo
+pedido** mostra a operação e o conteúdo/versão e só por clique humano reenvia o mesmo
+endpoint, UUID e corpo; o core devolve o recibo original por idempotência. Uma recusa
+posterior não apaga um resultado já incerto. Uma recusa definitiva no primeiro envio
+permite corrigir o rascunho.
+
+Armazenamento indisponível impede o envio. Pedido ilegível ou pertencente a outra
+abelha fica bloqueado sem reenvio. Falha ao remover a recuperação após um recibo
+válido permanece visível e conserva o pedido. Não inclua credenciais: a definição
+fica na sessão desta aba até a confirmação; fechar a aba pode apagar a recuperação.
+Isso não substitui o histórico persistente do core nem sincroniza alterações entre
+abas. Reexecução e conversão de processos mantêm suas recuperações próprias.
+
+
 Essa biblioteca cobre BEES-020.1 (#65), a conversão humana de BEES-020.2 (#66) e a
 reexecução limitada de BEES-020.3 (#67), descrita abaixo. Habilitar uma versão não
 inicia uma tarefa, altera memória, concede uma ferramenta ou autoriza acesso ao

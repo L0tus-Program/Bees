@@ -16,6 +16,7 @@ import { agentId, skill } from './fixtures'
 let root: Root
 let container: HTMLDivElement
 beforeEach(() => {
+  sessionStorage.clear()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto); setCsrfToken('csrf')
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
 })
