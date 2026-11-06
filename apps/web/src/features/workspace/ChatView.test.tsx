@@ -370,3 +370,69 @@ it('keeps the conversation and explains why pending work prevents clearing', asy
   expect(container.textContent).toContain('Abra Atividade')
   confirm.mockRestore()
 })
+
+for (const mode of ['agent', 'chat'] as const) describe(`pending ${mode} message`, () => {
+  let finish: (response: Response) => void
+  let fail: (error: Error) => void
+  let pending: Promise<Response>
+  const endpoint = mode === 'agent' ? '/agent-messages' : '/chat'
+  async function type(text: string) {
+    const input = container.querySelector('#chat-input')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, text)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  async function prepare() {
+    if (mode === 'chat') capabilities = { ...capabilities, available: false, tool_calls_supported: false }
+    pending = new Promise<Response>((resolve, reject) => { finish = resolve; fail = reject })
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    fetcher.mockImplementation((...args: unknown[]) => String(args[0]).includes(endpoint) ? pending : previous(...args))
+    await show(); await type('Primeira mensagem')
+  }
+  function send() { container.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }
+  const receipt = () => Response.json({ task_id: taskId, message_id: 'm', status: 'queued' })
+
+  it('serializes form and Enter submissions in the same turn', async () => {
+    await prepare()
+    await act(async () => {
+      send()
+      container.querySelector('#chat-input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+      send()
+    })
+    expect(calls(endpoint)).toHaveLength(1)
+    await act(async () => finish(receipt()))
+    expect((container.querySelector('#chat-input') as HTMLTextAreaElement).value).toBe('')
+  })
+  it('preserves text typed while the original message is pending', async () => {
+    await prepare(); await act(async () => send()); await type('Próxima mensagem')
+    await act(async () => finish(receipt()))
+    expect((container.querySelector('#chat-input') as HTMLTextAreaElement).value).toBe('Próxima mensagem')
+    expect(calls(endpoint)).toHaveLength(1)
+    expect(JSON.parse(calls(endpoint)[0][1].body)).toMatchObject({ content: 'Primeira mensagem' })
+    await act(async () => send())
+    expect(calls(endpoint)).toHaveLength(2)
+    expect(JSON.parse(calls(endpoint)[1][1].body)).toMatchObject({ content: 'Próxima mensagem' })
+  })
+  it('retains the draft and request identity on failure until human retry', async () => {
+    await prepare(); await act(async () => send()); await act(async () => fail(new TypeError('offline')))
+    expect(calls(endpoint)).toHaveLength(1)
+    expect((container.querySelector('#chat-input') as HTMLTextAreaElement).value).toBe('Primeira mensagem')
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    pending = Promise.resolve(receipt()); await act(async () => send())
+    expect(calls(endpoint)).toHaveLength(2)
+    expect(calls(endpoint)[1][1].body).toBe(calls(endpoint)[0][1].body)
+  })
+  for (const outcome of ['success', 'failure'] as const) it(`aborts on leaving and ignores late ${outcome}`, async () => {
+    await prepare(); await act(async () => send())
+    const signal = calls(endpoint)[0][1].signal as AbortSignal
+    const refresh = vi.mocked(useTaskPolling).mock.results.at(-1)!.value.refresh
+    const focus = vi.spyOn(container.querySelector('#chat-input') as HTMLTextAreaElement, 'focus')
+    reload.mockClear(); refresh.mockClear()
+    await act(async () => root.unmount()); root = createRoot(container)
+    expect(signal?.aborted).toBe(true)
+    await act(async () => { if (outcome === 'success') finish(receipt()); else fail(new TypeError('offline')) })
+    expect(reload).not.toHaveBeenCalled(); expect(refresh).not.toHaveBeenCalled(); expect(focus).not.toHaveBeenCalled()
+    expect(calls(endpoint)).toHaveLength(1)
+  })
+})

@@ -118,6 +118,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   useEffect(() => () => { uploadQueue.current = []; uploadController.current?.abort() }, [])
   const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const sendController = useRef<AbortController | null>(null)
+  useEffect(() => () => sendController.current?.abort(), [])
   const [clearing, setClearing] = useState(false)
   const clearController = useRef<AbortController | null>(null)
   const clearIdentity = useRef(commandIdentity())
@@ -170,7 +172,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   }
 
   async function attach(chosen: FileList | File[] | null) {
-    if (!chosen?.length || !canAttach) return
+    if (!chosen?.length || !canAttach || sendController.current) return
     // A fila mantém a ordem e os limites mesmo com várias colagens durante um upload.
     uploadQueue.current.push(...Array.from(chosen))
     if (uploadRunning.current) return
@@ -201,8 +203,10 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
 
   async function submit(event?: FormEvent) {
     event?.preventDefault()
-    const content = draft.trim()
-    if (!capabilities || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    const sentDraft = draft
+    const content = sentDraft.trim()
+    if (!capabilities || sendController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    const operation = new AbortController(); sendController.current = operation
     setBusy(true); setError(null); follow.current = true
     try {
       if (useAgent) {
@@ -210,22 +214,27 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
         const key = `${content}\u0000${files.map((file) => file.id).join(',')}`
         if (agentIdentity.current?.content !== key) agentIdentity.current = { content: key, id: crypto.randomUUID() }
         const attachments = files.length ? { attachments: files.map((file) => ({ artifact_id: file.id, revision: file.revision, sha256: file.sha256! })), attachment_consent: { expected_agent_revision: agent.revision } } : undefined
-        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, undefined, 'agent', attachments)
+        await sendAgentMessage(agent.id, resource.data.conversation_id, content, agentIdentity.current.id, operation.signal, 'agent', attachments)
+        if (operation.signal.aborted) return
         agentIdentity.current = null
         selectedFiles.current = []; setFiles([])
       } else {
         const requestId = identity.forPayload({ conversation_id: resource.data.conversation_id, content, allow_delegation: false })
-        await sendChat(agent.id, resource.data.conversation_id, content, undefined, false, requestId)
+        await sendChat(agent.id, resource.data.conversation_id, content, operation.signal, false, requestId)
+        if (operation.signal.aborted) return
         identity.reset()
       }
-      setDraft('')
-    } catch (failure) { setError(asApiError(failure)) } finally {
-      setBusy(false); reload(); monitor.refresh(); inputRef.current?.focus()
+      setDraft((current) => current === sentDraft ? '' : current)
+    } catch (failure) { if (!operation.signal.aborted) setError(asApiError(failure)) } finally {
+      if (!operation.signal.aborted) {
+        sendController.current = null
+        setBusy(false); reload(); monitor.refresh(); inputRef.current?.focus()
+      }
     }
   }
 
   async function clear() {
-    if (busy || clearing || uploadRunning.current || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
+    if (sendController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
     const operation = new AbortController()
     clearController.current = operation
     setClearing(true); setError(null)
