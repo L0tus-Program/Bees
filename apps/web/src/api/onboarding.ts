@@ -47,7 +47,7 @@ export interface Diagnostic { status: 'ok'; code: string; capabilities: ModelCon
 export interface DelegationOutcome { tool_call_id: string; status: 'created' | 'rejected'; code: string | null; task_id: string | null }
 export interface MessageAttachment { artifact_id: string; revision: number; sha256: string; name: string; media_type: string; size_bytes: number; source: ArtifactRecord['source'] }
 export interface AttachmentUse { attachments: { artifact_id: string; revision: number; sha256: string }[]; attachment_consent: { expected_agent_revision: number } }
-export interface Message { id: string; role: string; content: string | null; created_at: string; delegation_results?: DelegationOutcome[]; attachments?: MessageAttachment[] }
+export interface Message { id: string; role: string; content: string | null; created_at: string; agent_task_id?: string | null; delegation_results?: DelegationOutcome[]; attachments?: MessageAttachment[] }
 export interface Conversation { revision?: number; conversation_id: string; messages: Message[]; has_more?: boolean }
 
 export function isModelConfig(value: unknown): value is ModelConfig {
@@ -121,6 +121,7 @@ export async function messages(id: string, conversationId: string, signal?: Abor
   if (!record(value) || value.conversation_id !== conversationId || (value.revision !== undefined && (!Number.isSafeInteger(value.revision) || Number(value.revision) < 1)) || !Array.isArray(value.messages)
     || !value.messages.every((item) => record(item) && ['id', 'role', 'created_at'].every((key) => typeof item[key] === 'string')
       && (item.content === null || typeof item.content === 'string')
+      && (item.agent_task_id == null || (item.role === 'assistant' && uuid(item.agent_task_id)))
       && (item.attachments === undefined || checkedMessageAttachments(item.attachments))
       && (item.delegation_results === undefined || Array.isArray(item.delegation_results) && item.delegation_results.every((result) => record(result)
         && typeof result.tool_call_id === 'string' && result.tool_call_id.length > 0 && ['created', 'rejected'].includes(String(result.status))
