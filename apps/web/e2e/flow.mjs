@@ -1,7 +1,7 @@
 // Fluxo ponta a ponta com interface compilada, API, worker e modelo simulado por HTTP.
 // Primeiro acesso → criar abelha → conversar; axe-core em cada tela (390 e 1280 px,
 // pt-BR/en/es). Uso: npm run build && node e2e/flow.mjs [pasta-de-evidências]
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -81,8 +81,8 @@ const modelServer = createServer((request, response) => {
       complete({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [call] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
       return
     }
-    const last = messages.filter((item) => item.role === 'user').at(-1)?.content ?? ''
-    complete({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${String(last).slice(0, 40)}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
+    const last = messages.filter((item) => item.role === 'user').at(-1)
+    complete({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${last ? textOf(last).slice(0, 40) : ''}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
   })
 })
 
@@ -342,7 +342,7 @@ try {
   }
   await page.locator('.language-select select').first().selectOption('pt-BR')
   await auditLongConversation(page, input)
-  // Modo agente: abelha com ferramentas publica um arquivo, que aparece na resposta para baixar.
+  // Modo agente: a pessoa autoriza a publicação e baixa o arquivo no próprio turno.
   const before = model.requests
   await page.getByRole('button', { name: 'Nova abelha' }).click()
   await page.getByRole('heading', { name: 'Crie sua abelha.' }).waitFor()
@@ -356,9 +356,23 @@ try {
   await page.getByLabel(/^Este modelo aceita imagens/).evaluate((element) => { if (!element.checked) element.click() })
   await page.getByLabel('Nome da abelha').fill('Abelha Agente')
   await page.getByRole('textbox', { name: 'Propósito' }).fill('Gerar relatórios de teste.')
-  await page.getByRole('button', { name: 'Criar abelha' }).click()
+  const [createdAgent] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/agents'),
+    page.getByRole('button', { name: 'Criar abelha' }).click(),
+  ])
+  if (createdAgent.status() !== 201) throw new Error(`Criação da abelha agente falhou: HTTP ${createdAgent.status()}.`)
+  const agent = await createdAgent.json()
   await page.locator('#chat-input').waitFor({ timeout: 30_000 })
   await page.getByText('Pesquise as novidades', { exact: false }).first().waitFor({ timeout: 30_000 })
+  // Prepara a regra pela API real. A decisão será tomada somente na conversa.
+  const agentUrl = `${origin}/api/v1/agents/${agent.id}`
+  const authStatus = await page.request.get(`${origin}/api/v1/auth/status`)
+  const { csrf_token: csrfToken } = await authStatus.json()
+  const policy = await page.request.post(`${agentUrl}/policies`, {
+    headers: { Origin: origin, 'X-Bees-CSRF': csrfToken },
+    data: { client_request_id: randomUUID(), name: 'Confirmar publicação E2E', effect: 'ask', scope: { tool_name: 'deliverable.publish', action: 'publish' } },
+  })
+  if (policy.status() !== 201) throw new Error(`Regra de publicação não criada: HTTP ${policy.status()}.`)
   // Eventos reais de DOM com arquivos de DataTransfer: colagem e drop na lista, com upload pela API.
   await page.locator('#chat-input').evaluate((input) => {
     const clipboardData = new DataTransfer()
@@ -393,15 +407,40 @@ try {
   await page.getByRole('button', { name: 'Remover arrastado.jpg', exact: true }).waitFor()
   await page.getByText('As imagens serão enviadas ao modelo configurado com esta mensagem.', { exact: true }).waitFor()
   await page.locator('#chat-input').fill('Gere um relatório de teste')
-  await page.locator('#chat-input').press('Enter')
-  const inlineDownload = page.getByRole('button', { name: /Baixar relatorio-e2e/ })
+  const [submitted] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && response.url() === `${agentUrl}/conversations/${agent.conversation_id}/agent-messages`),
+    page.locator('#chat-input').press('Enter'),
+  ])
+  if (!submitted.ok()) throw new Error(`Envio ao agente falhou: HTTP ${submitted.status()}.`)
+  const { task_id: taskId } = await submitted.json()
+  const agentLog = page.getByRole('log', { name: 'Abelha Agente' })
+  const decision = agentLog.getByRole('region', { name: 'Decisões pendentes' })
+  const inlineDownload = agentLog.getByRole('button', { name: /Baixar relatorio-e2e/ })
+  await decision.getByRole('heading', { name: 'Publicar arquivo de entrega' }).waitFor({ timeout: 90_000 })
+  await agentLog.getByText('Gere um relatório de teste', { exact: true }).waitFor()
+  const unpublished = await page.request.get(`${agentUrl}/tasks/${taskId}/artifacts`)
+  if (!unpublished.ok() || (await unpublished.json()).artifacts.length !== 0 || model.requests !== before + 1) {
+    throw new Error('A publicação ou a continuação do modelo avançou antes da decisão.')
+  }
+  await auditWidths(page, '6b-aprovacao-pendente')
+  const [decided] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === 'POST' && response.url().startsWith(`${agentUrl}/agent-tool-approvals/`) && response.url().endsWith('/decision')),
+    decision.getByRole('button', { name: 'Permitir uma vez', exact: true }).click(),
+  ])
+  if (!decided.ok()) throw new Error(`Decisão de publicação falhou: HTTP ${decided.status()}.`)
+  const { approval, receipt } = await decided.json()
+  if (receipt.confirmed !== true || approval.task_id !== taskId || approval.decision !== 'allow_once') {
+    throw new Error('A API não confirmou a decisão pontual da tarefa enviada.')
+  }
   await inlineDownload.waitFor({ timeout: 90_000 })
+  const stored = await page.request.get(`${agentUrl}/agent-tool-approvals/${approval.id}`)
+  if (!stored.ok() || !(await stored.json()).consumed_at) throw new Error('O worker não consumiu a autorização pontual.')
   const [downloaded] = await Promise.all([page.waitForEvent('download'), inlineDownload.click()])
   const downloadedPath = await downloaded.path()
   if (!downloadedPath || readFileSync(downloadedPath, 'utf8') !== '# Relatório\n\nConteúdo de teste.') throw new Error('Download inline não preservou os bytes da versão publicada.')
   if (!downloaded.suggestedFilename().startsWith('relatorio-e2e')) throw new Error('Download inline perdeu o nome registrado.')
   await page.getByRole('status').filter({ hasText: 'Download enviado ao navegador.' }).waitFor()
-  await page.getByText(marker).last().waitFor({ timeout: 60_000 })
+  await agentLog.getByText(new RegExp(`${marker}.*Gere um relatório de teste`)).waitFor({ timeout: 60_000 })
   await page.getByText('Usou 1 ferramenta').waitFor()
   if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
   if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')
