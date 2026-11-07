@@ -85,6 +85,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const [panel, setPanel] = useState<Panel | null>(null)
   const panelOpener = useRef<HTMLButtonElement>(null)
   const [files, setFiles] = useState(false)
+  const filesButton = useRef<HTMLButtonElement>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
   const wide = useWide()
   useEffect(() => { rememberWorkspace(selectedId, 'conversation') }, [selectedId])
@@ -140,7 +141,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
             {selected.provider_config && <p className="truncate text-xs text-muted-foreground">{selected.provider_config.model}</p>}</div>
           {selected.status !== 'active' && <Badge variant="warning">{selected.status}</Badge>}
           {settings ? <Button variant="outline" size="sm" onClick={() => setSettings(null)}><MessageSquare />{t('backToChat')}</Button> : <>
-            <Tooltip label={t('files')}><Button variant="ghost" size="icon-sm" aria-label={t('files')} aria-pressed={files} onClick={() => setFiles(true)}><FolderOpen /></Button></Tooltip>
+            <Tooltip label={t('files')}><Button variant="ghost" size="icon-sm" ref={filesButton} aria-label={t('files')} aria-haspopup="dialog" aria-expanded={files} onClick={() => setFiles(true)}><FolderOpen /></Button></Tooltip>
             <Tooltip label={activity.active ? t('activityCount', { count: activity.active }) : t('activity')}><Button variant={panel === 'activity' ? 'secondary' : 'ghost'} size={activity.active || activity.attention ? 'sm' : 'icon-sm'} aria-label={t('activity')} aria-pressed={panel === 'activity'} onClick={(event) => toggle('activity', event.currentTarget)}>
               <ListTodo />{(activity.active > 0 || activity.attention > 0) && <span className={cn('rounded-full px-1.5 text-xs leading-5 tabular-nums', activity.attention ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground')}>{activity.attention || activity.active}</span>}
             </Button></Tooltip>
@@ -166,7 +167,13 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
         }}>
         {panel && <SidePanel panel={panel} onPanel={setPanel}>{sideContent}</SidePanel>}
       </Sheet>}
-      <Sheet open={files} onOpenChange={setFiles} title={t('files')} closeLabel={t('closePanel')}>
+      <Sheet open={files} onOpenChange={setFiles} title={t('files')} closeLabel={t('closePanel')}
+        onCloseAutoFocus={(event) => {
+          const trigger = filesButton.current
+          if (!trigger?.isConnected) return
+          event.preventDefault()
+          trigger.focus()
+        }}>
         {conversation && <div className="legacy-scope"><ConversationArtifacts agentId={selected.id} conversationId={selected.conversation_id!} selected={[]} onSelected={() => undefined} onReady={() => undefined} blocked={conversationUnverified} /></div>}
       </Sheet>
       <Sheet open={taskId !== null} onOpenChange={(open) => { if (!open) setTaskId(null) }} title={t('activity')} closeLabel={t('closePanel')} className="max-w-2xl">

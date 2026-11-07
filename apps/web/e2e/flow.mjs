@@ -534,7 +534,20 @@ try {
   await mobilePanel.getByRole('button', { name: 'Fechar painel' }).press('Enter')
   await mobilePanel.waitFor({ state: 'hidden' })
   await waitFor(() => mobileComputer.evaluate((element) => element === document.activeElement), 'foco no botão Computador após fechar', 5_000)
-  await page.setViewportSize({ width: 1280, height: 900 })
+  const filesButton = page.getByRole('button', { name: 'Arquivos da conversa', exact: true })
+  const filesPanel = page.getByRole('dialog', { name: 'Arquivos da conversa', exact: true })
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    await filesButton.press('Enter')
+    await filesPanel.waitFor()
+    await page.keyboard.press('Escape')
+    await filesPanel.waitFor({ state: 'hidden' })
+    await waitFor(() => filesButton.evaluate((element) => element === document.activeElement), `foco em Arquivos após Escape a ${width} px`, 5_000)
+    await page.keyboard.press('Space')
+    await filesPanel.getByRole('button', { name: 'Fechar painel' }).press('Enter')
+    await filesPanel.waitFor({ state: 'hidden' })
+    await waitFor(() => filesButton.evaluate((element) => element === document.activeElement), `foco em Arquivos após Fechar painel a ${width} px`, 5_000)
+  }
   await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
   await page.getByRole('button', { name: 'Voltar à conversa' }).waitFor()
   // Exercita o caminho real de edição, sem gerar: salvar perfil e modelo mantém a abelha e a conversa.
