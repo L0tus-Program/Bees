@@ -155,11 +155,31 @@ export function configurationSignature(config: ModelConfig, apiKey: string) {
   return JSON.stringify({ config, apiKey })
 }
 
+async function clearedConversationId(conversationId: string, requestId: string) {
+  // Espelha uuid5(conversation_id, "bees.clear/v1:" + client_request_id) na API.
+  const name = new TextEncoder().encode(`bees.clear/v1:${requestId.toLowerCase()}`)
+  const input = new Uint8Array(16 + name.length)
+  const namespace = conversationId.replaceAll('-', '')
+  for (let index = 0; index < 16; index++) {
+    input[index] = Number.parseInt(namespace.slice(index * 2, index * 2 + 2), 16)
+  }
+  input.set(name, 16)
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', input))
+  digest[6] = (digest[6] & 0x0f) | 0x50
+  digest[8] = (digest[8] & 0x3f) | 0x80
+  const hex = Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 export async function clearConversation(agent: AgentSummary & { conversation_id: string }, conversationRevision: number, requestId: string, signal?: AbortSignal): Promise<string> {
-  const value = await request(`/agents/${encodeURIComponent(agent.id)}/conversations/${encodeURIComponent(agent.conversation_id)}/clear`, {
-    authenticated: true, signal, body: { client_request_id: requestId, expected_revision: agent.revision,
+  const { id, conversation_id: conversationId, revision } = agent
+  if (!uuid(conversationId) || !uuid(requestId)) throw new ApiError('invalid_request')
+  const expectedId = await clearedConversationId(conversationId, requestId)
+  signal?.throwIfAborted()
+  const value = await request(`/agents/${encodeURIComponent(id)}/conversations/${encodeURIComponent(conversationId)}/clear`, {
+    authenticated: true, signal, body: { client_request_id: requestId, expected_revision: revision,
       expected_conversation_revision: conversationRevision, consent: 'clear_conversation' },
   })
-  if (!record(value) || !uuid(value.conversation_id) || value.conversation_id === agent.conversation_id) throw new ApiError('invalid_response')
-  return value.conversation_id
+  if (!record(value) || value.conversation_id !== expectedId) throw new ApiError('invalid_response')
+  return expectedId
 }
