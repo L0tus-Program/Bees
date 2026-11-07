@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FolderOpen, ListTodo, LogOut, Menu, Monitor, Plus, Settings, Database, X, MessageSquare } from 'lucide-react'
 import { onboarding } from '../../api/onboarding'
+import { isTemporaryReadFailure } from '../../api/client'
 import type { AgentSummary, Onboarding } from '../../api/onboarding'
 import { ErrorNotice, LoadingNotice } from '../../components/Feedback'
 import { AppearanceSelect } from '../../components/AppearanceSelect'
@@ -73,7 +74,7 @@ function SidePanel({ panel, onPanel, onClose, children }: { panel: Panel; onPane
 export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => void; onData: () => void; signingOut: boolean }) {
   const { t, i18n } = useTranslation('workspace')
   const { t: product } = useTranslation('product')
-  const { resource, reload } = useResource(onboarding)
+  const { resource, reload } = useResource(onboarding, isTemporaryReadFailure)
   const [creating, setCreating] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(() => restoreWorkspace().selectedId)
   const [settings, setSettings] = useState<SettingsView | null>(null)
@@ -90,8 +91,12 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   if (resource.state === 'loading') return <div className="ui grid h-dvh place-items-center bg-background"><LoadingNotice /></div>
   if (resource.state === 'error') return <div className="ui grid h-dvh place-items-center bg-background"><div className="legacy-scope surface resource-error"><ErrorNotice error={resource.error} /><button className="button secondary" onClick={reload} type="button">{product('retry')}</button></div></div>
   const data = resource.data
+  const refreshNotice = resource.refreshError && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
+    <p className="text-xs text-destructive" role="alert">{t('workspaceRefreshFailed')}</p>
+    <Button variant="outline" size="sm" disabled={resource.refreshing} onClick={reload}>{t('retry')}</Button>
+  </div>
   if (creating || data.agents.length === 0) {
-    return <div className="ui min-h-dvh bg-background"><div className="legacy-scope mx-auto max-w-5xl p-4 md:p-8"><CreateBee vault={data.vault} onCreated={(agent) => { setSelectedId(agent.id); setCreating(false); reload() }} onCancel={data.agents.length ? () => setCreating(false) : undefined} onReconcile={() => { setCreating(false); reload() }} /></div></div>
+    return <div className="ui min-h-dvh bg-background">{refreshNotice}<div className="legacy-scope mx-auto max-w-5xl p-4 md:p-8"><CreateBee vault={data.vault} onCreated={(agent) => { setSelectedId(agent.id); setCreating(false); reload() }} onCancel={data.agents.length ? () => setCreating(false) : undefined} onReconcile={() => { setCreating(false); reload() }} /></div></div>
   }
   const selected = data.agents.find((agent) => agent.id === selectedId) ?? data.agents[0]
   const select = (id: string) => { setSelectedId(id); setSettings(null); setMenu(false); setPanel(null) }
@@ -112,6 +117,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   </div>
 
   const conversation = selected.provider_config && selected.conversation_id
+  const conversationUnverified = !!(resource.refreshing || resource.refreshError)
   const toggle = (next: Panel) => setPanel((current) => current === next ? null : next)
   const sideContent = panel === 'computer' ? <ComputerPanel key={selected.id} agentId={selected.id} name={selected.name} /> : <ActivityPanel activity={activity} onOpen={setTaskId} />
   return <TooltipProvider>
@@ -135,8 +141,9 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
             <Tooltip label={t('settings')}><Button variant="ghost" size="icon-sm" aria-label={t('settings')} onClick={() => setSettings('profile')}><Settings /></Button></Tooltip>
           </>}
         </header>
+        {refreshNotice}
         {settings ? <SettingsPanel key={selected.id} agent={selected} data={data} initial={settings} onReload={reload} />
-          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} onTaskDetails={setTaskId} onComputerActivity={openComputer} onCleared={reload} />
+          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} conversationUnverified={conversationUnverified} onTaskDetails={setTaskId} onComputerActivity={openComputer} onCleared={reload} />
             : <div className="grid flex-1 place-items-center p-6 text-center"><div className="flex flex-col items-center gap-3"><p className="text-muted-foreground">{t('noModel')}</p><Button onClick={() => setSettings('model')}>{t('configureModel')}</Button></div></div>}
       </main>
       {!settings && panel && wide && <aside className={cn('flex min-h-0 shrink-0 flex-col overflow-hidden border-l', panel === 'computer' ? 'w-[min(44vw,640px)]' : 'w-80 xl:w-96')} aria-label={t('panel')}>
@@ -146,7 +153,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
         {panel && <SidePanel panel={panel} onPanel={setPanel}>{sideContent}</SidePanel>}
       </Sheet>}
       <Sheet open={files} onOpenChange={setFiles} title={t('files')} closeLabel={t('closePanel')}>
-        {conversation && <div className="legacy-scope"><ConversationArtifacts agentId={selected.id} conversationId={selected.conversation_id!} selected={[]} onSelected={() => undefined} onReady={() => undefined} blocked={false} /></div>}
+        {conversation && <div className="legacy-scope"><ConversationArtifacts agentId={selected.id} conversationId={selected.conversation_id!} selected={[]} onSelected={() => undefined} onReady={() => undefined} blocked={conversationUnverified} /></div>}
       </Sheet>
       <Sheet open={taskId !== null} onOpenChange={(open) => { if (!open) setTaskId(null) }} title={t('activity')} closeLabel={t('closePanel')} className="max-w-2xl">
         {taskId && <div className="legacy-scope"><TaskDetail key={taskId} agent={selected} taskId={taskId} onRefresh={() => undefined} onClose={() => setTaskId(null)} /></div>}
