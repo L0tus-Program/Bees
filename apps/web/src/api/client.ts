@@ -17,6 +17,11 @@ export class ApiError extends Error {
   }
 }
 
+export function isTemporaryReadFailure(error: ApiError) {
+  return (error.status === 0 && ['network_error', 'request_timeout'].includes(error.code))
+    || error.status === 429 || (error.status >= 500 && error.status < 600)
+}
+
 let csrfToken: string | undefined
 export function setCsrfToken(token?: string) { csrfToken = token }
 

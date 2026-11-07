@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ClipboardEvent, DragEvent, FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowUp, ChevronRight, FileText, ListTodo, Loader2, Mic, MicOff, Paperclip, Trash2, Volume2, VolumeX, X } from 'lucide-react'
-import { ApiError as ApiErrorClass, asApiError } from '../../api/client'
+import { ApiError as ApiErrorClass, asApiError, isTemporaryReadFailure } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import { clearConversation, messages as loadMessages, sendChat } from '../../api/onboarding'
 import type { AgentSummary, Message } from '../../api/onboarding'
@@ -29,11 +29,6 @@ import { cn } from '@/lib/utils'
 
 type Agent = AgentSummary & { conversation_id: string }
 const noDelegations: DelegationCollection['delegations'] = []
-
-function keepHistoryOnError(error: ApiError) {
-  return (error.status === 0 && ['network_error', 'request_timeout'].includes(error.code))
-    || error.status === 429 || (error.status >= 500 && error.status < 600)
-}
 
 function mergeDelegations(incoming: DelegationCollection, previous: DelegationCollection) {
   const known = new Map(previous.delegations.map((item) => [item.id, item]))
@@ -70,7 +65,7 @@ function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
 }
 
 /** Conversa no estilo assistente: uma rolagem, campo fixo embaixo, a abelha decide o que fazer. */
-export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
+export function ChatView({ agent, conversationUnverified = false, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; conversationUnverified?: boolean; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
   const { t, i18n } = useTranslation('workspace')
   const [capabilityVersion, setCapabilityVersion] = useState(0)
   const capabilityKey = `${agent.id}:${agent.revision}:${capabilityVersion}`
@@ -96,8 +91,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   const useAgent = !!capabilities?.available
 
   const load = useCallback((signal: AbortSignal) => loadMessages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
-  const { resource, reload } = useResource(load, keepHistoryOnError)
-  const historyReady = resource.state === 'ready' && !resource.refreshing && !resource.refreshError
+  const { resource, reload } = useResource(load, isTemporaryReadFailure)
+  const historyReady = resource.state === 'ready' && !resource.refreshing && !resource.refreshError && !conversationUnverified
   const loadDelegations = useCallback((signal: AbortSignal) => getDelegations(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const monitor = useTaskPolling(loadDelegations, mergeDelegations)
   const delegations = monitor.data?.delegations ?? noDelegations
@@ -258,7 +253,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
       if (!operation.signal.aborted) {
         const error = asApiError(failure)
         setError(error); reload(); monitor.refresh()
-        if (['mutation_network', 'mutation_timeout', 'invalid_response'].includes(error.code)) onCleared()
+        if (error.status >= 500 || ['mutation_network', 'mutation_timeout', 'invalid_response'].includes(error.code)) onCleared()
       }
     } finally {
       if (!operation.signal.aborted && !confirmed) {
