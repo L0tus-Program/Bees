@@ -152,8 +152,8 @@ async function auditWidths(page, name) {
 }
 
 async function conversationLayout(page, position) {
-  return page.getByRole('log').evaluate((log, where) => {
-    const list = log.parentElement
+  return page.getByRole('log').evaluate((list, where) => {
+    const messages = list.firstElementChild
     const input = document.querySelector('#chat-input')
     const composer = input.closest('form').getBoundingClientRect()
     const shell = document.querySelector('[data-shell]')
@@ -162,8 +162,8 @@ async function conversationLayout(page, position) {
     if (where === 'top') list.scrollTop = 0
     if (where === 'bottom') list.scrollTop = range
     const listBounds = list.getBoundingClientRect()
-    const oldest = log.firstElementChild?.getBoundingClientRect()
-    const newest = log.lastElementChild?.getBoundingClientRect()
+    const oldest = messages.firstElementChild?.getBoundingClientRect()
+    const newest = messages.lastElementChild?.getBoundingClientRect()
     return {
       range, scrollTop: list.scrollTop,
       oldestVisible: oldest && oldest.top >= listBounds.top - 1 && oldest.bottom <= listBounds.bottom + 1,
@@ -202,11 +202,23 @@ async function auditLongConversation(page, input) {
     }
     for (const width of longConversationWidths) {
       await page.setViewportSize({ width, height: 900 })
-      const top = await conversationLayout(page, 'top')
+      await input.focus()
+      await input.press('Shift+Tab')
+      if (!await log.evaluate((list) => list === document.activeElement)) {
+        throw new Error(`Teclado não alcançou o histórico em ${width}px.`)
+      }
+      await page.keyboard.press('Home')
+      await waitFor(async () => (await conversationLayout(page)).scrollTop <= 1, `início do histórico em ${width}px`, 5_000)
+      const top = await conversationLayout(page)
       if (top.range <= 0 || !top.oldestVisible || !top.pageFixed || !top.composerVisible) {
         throw new Error(`Histórico longo em ${width}px: topo ou compositor fora da área visível: ${JSON.stringify(top)}`)
       }
-      const bottom = await conversationLayout(page, 'bottom')
+      await page.keyboard.press('End')
+      await waitFor(async () => {
+        const layout = await conversationLayout(page)
+        return layout.range - layout.scrollTop <= 1
+      }, `fim do histórico em ${width}px`, 5_000)
+      const bottom = await conversationLayout(page)
       if (bottom.range - bottom.scrollTop > 1 || !bottom.newestVisible || !bottom.pageFixed || !bottom.composerVisible) {
         throw new Error(`Histórico longo em ${width}px: fim ou compositor fora da área visível: ${JSON.stringify(bottom)}`)
       }
