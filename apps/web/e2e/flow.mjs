@@ -151,6 +151,37 @@ async function auditWidths(page, name) {
   }
 }
 
+async function checkPanelKeyboard(page) {
+  const tablist = page.getByRole('tablist', { name: 'Painel lateral' })
+  const activity = tablist.getByRole('tab', { name: 'Atividade', exact: true })
+  const expectTab = async (name) => {
+    const tab = tablist.getByRole('tab', { name, exact: true, selected: true })
+    const panel = page.getByRole('tabpanel', { name, exact: true })
+    await panel.waitFor()
+    if (!await tab.evaluate((element) => element === document.activeElement)
+      || await tab.getAttribute('aria-controls') !== await panel.getAttribute('id')) {
+      throw new Error(`A aba ${name} perdeu o foco ou o vínculo com o painel.`)
+    }
+  }
+  await activity.focus()
+  await page.keyboard.press('ArrowRight')
+  await expectTab('Computador')
+  await page.keyboard.press('ArrowLeft')
+  await expectTab('Atividade')
+  await page.keyboard.press('End')
+  await expectTab('Computador')
+  await page.keyboard.press('Home')
+  await expectTab('Atividade')
+  await page.keyboard.press('Tab')
+  if (await tablist.evaluate((element) => element.contains(document.activeElement))) throw new Error('Tab ficou preso na lista de abas.')
+  await page.keyboard.press('Shift+Tab')
+  await expectTab('Atividade')
+  await tablist.getByRole('tab', { name: 'Computador', exact: true }).click()
+  await expectTab('Computador')
+  await activity.click()
+  await expectTab('Atividade')
+}
+
 const agentTurnLocales = {
   'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
   en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
@@ -479,10 +510,17 @@ try {
     log.getByRole('button', { name: labels.download }).waitFor())
   await page.getByRole('button', { name: 'Atividade', exact: true }).click()
   await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
+  await checkPanelKeyboard(page)
   await audit(page, '7-atividade-lateral')
   await page.getByRole('button', { name: 'Computador', exact: true }).click()
   await page.getByText(/Nenhum runtime de computador|computador desta abelha está desligado/).first().waitFor()
   await audit(page, '7-computador-lateral')
+  await page.getByRole('button', { name: 'Computador', exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 900 })
+  await page.getByRole('button', { name: 'Atividade', exact: true }).click()
+  await checkPanelKeyboard(page)
+  await page.getByRole('dialog', { name: 'Painel lateral' }).getByRole('button', { name: 'Fechar painel' }).click()
+  await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
   await page.getByRole('button', { name: 'Voltar à conversa' }).waitFor()
   // Exercita o caminho real de edição, sem gerar: salvar perfil e modelo mantém a abelha e a conversa.

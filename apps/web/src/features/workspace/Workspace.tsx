@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { useTranslation } from 'react-i18next'
 import { FolderOpen, ListTodo, LogOut, Menu, Monitor, Plus, Settings, Database, X, MessageSquare } from 'lucide-react'
 import { onboarding } from '../../api/onboarding'
@@ -58,16 +59,18 @@ type Panel = 'activity' | 'computer'
 function SidePanel({ panel, onPanel, onClose, children }: { panel: Panel; onPanel: (panel: Panel) => void; onClose?: () => void; children: ReactNode }) {
   const { t } = useTranslation('workspace')
   const tabs: { id: Panel; Icon: typeof Monitor }[] = [{ id: 'activity', Icon: ListTodo }, { id: 'computer', Icon: Monitor }]
-  return <div className="flex h-full min-h-0 flex-col">
+  return <Tabs.Root value={panel} onValueChange={(value) => { if (value === 'activity' || value === 'computer') onPanel(value) }} className="flex h-full min-h-0 flex-col">
     <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-      <div role="tablist" aria-label={t('panel')} className="flex flex-1 gap-1">
-        {tabs.map(({ id, Icon }) => <button key={id} type="button" role="tab" id={`panel-tab-${id}`} aria-selected={panel === id} aria-controls="side-panel" onClick={() => onPanel(id)}
-          className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 px-2.5 py-1.5 text-sm', panel === id ? 'bg-muted font-medium text-foreground' : 'bg-transparent text-muted-foreground hover:text-foreground')}><Icon className="size-4" aria-hidden="true" />{t(id)}</button>)}
-      </div>
+      <Tabs.List aria-label={t('panel')} className="flex flex-1 gap-1">
+        {tabs.map(({ id, Icon }) => <Tabs.Trigger key={id} value={id}
+          className={cn('inline-flex cursor-pointer items-center gap-1.5 rounded-md border-0 px-2.5 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-ring', panel === id ? 'bg-muted font-medium text-foreground' : 'bg-transparent text-muted-foreground hover:text-foreground')}><Icon className="size-4" aria-hidden="true" />{t(id)}</Tabs.Trigger>)}
+      </Tabs.List>
       {onClose && <Button variant="ghost" size="icon-sm" aria-label={t('closePanel')} onClick={onClose}><X /></Button>}
     </div>
-    <div id="side-panel" role="tabpanel" aria-labelledby={`panel-tab-${panel}`} className={cn('min-h-0 flex-1 p-3', panel === 'activity' ? 'overflow-y-auto' : 'overflow-hidden')}>{children}</div>
-  </div>
+    {tabs.map(({ id }) => <Tabs.Content key={id} value={id} className={cn('min-h-0 flex-1 p-3 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring', id === 'activity' ? 'overflow-y-auto' : 'overflow-hidden')}>
+      {panel === id ? children : null}
+    </Tabs.Content>)}
+  </Tabs.Root>
 }
 
 /** Área autenticada no estilo assistente: abelhas à esquerda, conversa ao centro, computador à direita. */
