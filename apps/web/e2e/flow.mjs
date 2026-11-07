@@ -151,6 +151,30 @@ async function auditWidths(page, name) {
   }
 }
 
+const agentTurnLocales = {
+  'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
+  en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
+  es: { composer: 'Mensaje para Abelha Agente…', decision: 'Decisiones pendientes', allow: 'Permitir una vez', download: /^Descargar relatorio-e2e/ },
+}
+
+async function auditLocalizedAgentTurn(page, log, name, checkTurn) {
+  const languageSelect = page.locator('.language-select select').first()
+  // Na largura móvel, o seletor fica dentro do menu recolhido.
+  for (const [language, labels] of Object.entries(agentTurnLocales)) {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await languageSelect.selectOption(language)
+    await page.locator(`html[lang="${language}"]`).waitFor()
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 })
+      await page.getByRole('textbox', { name: labels.composer, exact: true }).waitFor()
+      await checkTurn(log, labels)
+      await audit(page, `${name}-${language}-${width}`)
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await languageSelect.selectOption('pt-BR')
+}
+
 async function conversationLayout(page, position) {
   return page.getByRole('log').evaluate((list, where) => {
     const messages = list.firstElementChild
@@ -422,7 +446,9 @@ try {
   if (!unpublished.ok() || (await unpublished.json()).artifacts.length !== 0 || model.requests !== before + 1) {
     throw new Error('A publicação ou a continuação do modelo avançou antes da decisão.')
   }
-  await auditWidths(page, '6b-aprovacao-pendente')
+  await auditLocalizedAgentTurn(page, agentLog, '6b-aprovacao-pendente', (log, labels) =>
+    log.getByRole('region', { name: labels.decision, exact: true })
+      .getByRole('button', { name: labels.allow, exact: true }).waitFor())
   const [decided] = await Promise.all([
     page.waitForResponse((response) => response.request().method() === 'POST' && response.url().startsWith(`${agentUrl}/agent-tool-approvals/`) && response.url().endsWith('/decision')),
     decision.getByRole('button', { name: 'Permitir uma vez', exact: true }).click(),
@@ -444,8 +470,8 @@ try {
   await page.getByText('Usou 1 ferramenta').waitFor()
   if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
   if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')
-  await auditWidths(page, '6-agente-arquivo')
-  await page.setViewportSize({ width: 1280, height: 900 })
+  await auditLocalizedAgentTurn(page, agentLog, '6-agente-arquivo', (log, labels) =>
+    log.getByRole('button', { name: labels.download }).waitFor())
   await page.getByRole('button', { name: 'Atividade', exact: true }).click()
   await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
   await audit(page, '7-atividade-lateral')
