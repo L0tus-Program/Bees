@@ -168,6 +168,73 @@ describe('chat as an assistant conversation', () => {
     expect(downloads()).toEqual([[], [], [], ['Baixar planilha.csv'], [`Baixar ${artifact.name}`]])
   })
 
+  it('keeps the displayed history and draft through a failed refresh and an explicit retry', async () => {
+    const actual = await vi.importActual<typeof import('../../hooks/useResource')>('../../hooks/useResource')
+    vi.mocked(useResource).mockImplementation(actual.useResource)
+    const readHistory = (items: Message[]) => Response.json({ conversation_id: conversationId, revision: 3, messages: items })
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
+    const read = vi.fn<() => Promise<Response>>().mockResolvedValue(readHistory([user, reply]))
+    fetcher.mockImplementation((url: string) => url.includes('/messages?') ? read() : previous(url))
+    const onCleared = vi.fn()
+    delegations = { delegations: [turn], has_more: false, next_offset: null }
+    await show(onCleared)
+    const delivery = container.querySelector(`button[aria-label="Baixar ${artifact.name}"]`)!
+    expect(delivery).not.toBeNull()
+    const input = container.querySelector('textarea')!
+    await act(async () => {
+      input.focus()
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Rascunho')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    read.mockClear().mockRejectedValue(new TypeError('offline'))
+    delegations = { ...delegations, delegations: [...delegations.delegations, { ...turn, id: 'other', source_message_id: 'other', task: { ...turnTask, id: 'other' } }] }
+    await show(onCleared)
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('desatualizado')
+    expect(container.querySelector('[role="log"]')?.contains(delivery)).toBe(true)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('Rascunho')
+    const submit = container.querySelector<HTMLButtonElement>('button[type="submit"]')!
+    expect(submit.disabled).toBe(true)
+    expect([...container.querySelectorAll('button')].find((button) => button.textContent === 'Limpar conversa')?.disabled).toBe(true)
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="Anexar arquivo"]')?.disabled).toBe(true)
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(calls('/agent-messages')).toHaveLength(0)
+
+    let recover!: (value: Response) => void
+    read.mockImplementation(() => new Promise((resolve) => { recover = resolve }))
+    const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Tentar de novo')!
+    await act(async () => retry.click())
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('[role="log"]')?.contains(delivery)).toBe(true)
+    expect(submit.disabled).toBe(true)
+    await act(async () => recover(readHistory([user, reply, { ...user, id: 'new-message', content: 'Mensagem atualizada' }])))
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.querySelector('[role="log"]')?.contains(delivery)).toBe(true)
+    expect(container.textContent).toContain('Mensagem atualizada')
+    expect(submit.disabled).toBe(false)
+  })
+
+  it('removes the previous history when the server refuses access during a refresh', async () => {
+    const actual = await vi.importActual<typeof import('../../hooks/useResource')>('../../hooks/useResource')
+    vi.mocked(useResource).mockImplementation(actual.useResource)
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
+    const read = vi.fn()
+      .mockResolvedValueOnce(Response.json({ conversation_id: conversationId, revision: 3, messages: [user, reply] }))
+      .mockImplementation(async () => Response.json({ error: { code: 'network_error' } }, { status: 403 }))
+    fetcher.mockImplementation((url: string) => url.includes('/messages?') ? read() : previous(url))
+    delegations = { delegations: [turn], has_more: false, next_offset: null }
+    await show()
+    expect(container.querySelector(`button[aria-label="Baixar ${artifact.name}"]`)).not.toBeNull()
+    delegations = { ...delegations, delegations: [{ ...turn, task: { ...turnTask, status: 'paused' } }] }
+    await show()
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(container.textContent).not.toContain(user.content)
+    expect(container.querySelector(`button[aria-label="Baixar ${artifact.name}"]`)).toBeNull()
+    expect(container.textContent).not.toContain('desatualizado')
+  })
+
   it('does not reload for agent results that already existed when the chat opened, only for new ones', async () => {
     delegations = null
     await show()

@@ -30,6 +30,11 @@ import { cn } from '@/lib/utils'
 type Agent = AgentSummary & { conversation_id: string }
 const noDelegations: DelegationCollection['delegations'] = []
 
+function keepHistoryOnError(error: ApiError) {
+  return (error.status === 0 && ['network_error', 'request_timeout'].includes(error.code))
+    || error.status === 429 || (error.status >= 500 && error.status < 600)
+}
+
 function mergeDelegations(incoming: DelegationCollection, previous: DelegationCollection) {
   const known = new Map(previous.delegations.map((item) => [item.id, item]))
   return { ...incoming, delegations: incoming.delegations.map((item) => {
@@ -91,7 +96,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   const useAgent = !!capabilities?.available
 
   const load = useCallback((signal: AbortSignal) => loadMessages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
-  const { resource, reload } = useResource(load)
+  const { resource, reload } = useResource(load, keepHistoryOnError)
+  const historyReady = resource.state === 'ready' && !resource.refreshError
   const loadDelegations = useCallback((signal: AbortSignal) => getDelegations(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const monitor = useTaskPolling(loadDelegations, mergeDelegations)
   const delegations = monitor.data?.delegations ?? noDelegations
@@ -137,7 +143,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   const [voiceReplies, setVoiceReplies] = useState(readVoicePreference)
   const spoken = useRef<string | null | undefined>(undefined)
 
-  const list = useMemo(() => resource.state === 'ready' ? resource.data.messages.filter((message) => message.role !== 'tool').slice(-200) : [], [resource])
+  const history = resource.state === 'ready' ? resource.data.messages : undefined
+  const list = useMemo(() => history?.filter((message) => message.role !== 'tool').slice(-200) ?? [], [history])
   useEffect(() => {
     if (resource.state !== 'ready') return
     const last = [...list].reverse().find((item) => item.role === 'assistant' && item.content)
@@ -157,9 +164,9 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   // Sem a mensagem de origem na tela: só o turno recém-enviado (ainda não recarregado) aparece no fim;
   // turnos antigos, fora da janela, ficam no painel de atividade e nunca embaralham a ordem.
   const since = list[0] ? Date.parse(list[0].created_at) : -Infinity
-  const orphanTurns = agentTurns.filter((item) => !ids.has(item.source_message_id) && Date.parse(item.task.created_at) > since).reverse()
+  const orphanTurns = resource.state === 'error' ? [] : agentTurns.filter((item) => !ids.has(item.source_message_id) && Date.parse(item.task.created_at) > since).reverse()
 
-  const canAttach = useAgent && !busy && !clearing && resource.state === 'ready' && agent.status === 'active'
+  const canAttach = useAgent && !busy && !clearing && historyReady && agent.status === 'active'
   const hasDraggedFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes('Files')
 
   function paste(event: ClipboardEvent) {
@@ -207,7 +214,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     event?.preventDefault()
     const sentDraft = draft
     const content = sentDraft.trim()
-    if (!capabilities || sendController.current || clearController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !content || agent.status !== 'active') return
+    if (!capabilities || sendController.current || clearController.current || busy || clearing || uploadRunning.current || !historyReady || !content || agent.status !== 'active') return
     const operation = new AbortController(); sendController.current = operation
     setBusy(true); setError(null); follow.current = true
     try {
@@ -236,7 +243,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
   }
 
   async function clear() {
-    if (sendController.current || clearController.current || busy || clearing || uploadRunning.current || resource.state !== 'ready' || !resource.data.revision || !onCleared) return
+    if (sendController.current || clearController.current || busy || clearing || uploadRunning.current || !historyReady || !resource.data.revision || !onCleared) return
     const operation = new AbortController()
     clearController.current = operation
     setClearing(true); setError(null)
@@ -261,14 +268,14 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     }
   }
 
-  const empty = resource.state === 'ready' && list.length === 0 && delegations.length === 0
+  const empty = historyReady && list.length === 0 && delegations.length === 0
   return <div className="relative flex min-h-0 flex-1 flex-col" onPaste={paste}
     onDragEnter={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); dragDepth.current += 1; if (canAttach) setDragging(true) } }}
     onDragOver={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = canAttach ? 'copy' : 'none' } }}
     onDragLeave={(event) => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false) }}
     onDrop={(event) => { if (!hasDraggedFiles(event) && !event.dataTransfer.files.length) return; event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false); void attach(Array.from(event.dataTransfer.files)) }}>
     {dragging && canAttach && <div className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-background/95 px-4 text-center" role="status"><Paperclip className="size-8 text-primary" aria-hidden="true" /><p className="font-medium">{t('dropAttachments')}</p><p className="text-sm text-muted-foreground">{t('attachHint')}</p></div>}
-    {onCleared && <div className="flex justify-end px-4 py-1"><Button variant="ghost" size="sm" onClick={() => { void clear() }} disabled={busy || clearing || uploading || resource.state !== 'ready' || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
+    {onCleared && <div className="flex justify-end px-4 py-1"><Button variant="ghost" size="sm" onClick={() => { void clear() }} disabled={busy || clearing || uploading || !historyReady || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
     <div ref={scroller} role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions" tabIndex={0}
       className="relative min-h-0 flex-1 overflow-y-auto focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
@@ -297,6 +304,10 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     </div>
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">
       <form className="mx-auto w-full max-w-3xl" onSubmit={(event) => { void submit(event) }}>
+        {resource.state === 'ready' && resource.refreshError && <div className="mb-2 flex flex-wrap items-center gap-2">
+          <p className="text-xs text-destructive" role="alert">{t('historyRefreshFailed')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => { reload(); inputRef.current?.focus() }}>{t('retry')}</Button>
+        </div>}
         {error && (error.code === 'attachment_limit' ? <p className="mb-2 text-xs text-destructive" role="alert">{t('attachLimit')}</p> : <div className="legacy-scope mb-2"><ErrorNotice error={error} /></div>)}
         {!currentCapability && <p className="mb-2 text-xs text-muted-foreground" role="status">{t('preparingChat')}</p>}
         {currentCapability?.error && <div className="legacy-scope mb-2"><ErrorNotice error={currentCapability.error} /><button type="button" className="text-button" onClick={() => setCapabilityVersion((value) => value + 1)}>{t('retry')}</button></div>}
@@ -324,7 +335,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
             {canSpeak() && <Tooltip label={t('readAloud')}><Button variant="ghost" size="icon-sm" aria-label={t('readAloud')} aria-pressed={voiceReplies} onClick={() => { setVoiceReplies(!voiceReplies); writeVoicePreference(!voiceReplies) }}>{voiceReplies ? <Volume2 /> : <VolumeX />}</Button></Tooltip>}
             {dictation.listening && <span className="truncate text-xs text-muted-foreground" role="status">{dictation.interim}</span>}
             <span id="chat-enter-hint" className="ml-auto hidden text-xs text-muted-foreground sm:inline">{t('enterHint')}</span>
-            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={!capabilities || clearing || busy || uploading || resource.state !== 'ready' || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
+            <Button type="submit" size="icon-sm" className="ml-auto rounded-full sm:ml-2" aria-label={t(busy ? 'sending' : 'send')} disabled={!capabilities || clearing || busy || uploading || !historyReady || !draft.trim() || agent.status !== 'active'}>{busy ? <Loader2 className="animate-spin" /> : <ArrowUp />}</Button>
           </div>
         </div>
       </form>
