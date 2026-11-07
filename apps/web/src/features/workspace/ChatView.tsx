@@ -267,8 +267,9 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     onDrop={(event) => { if (!hasDraggedFiles(event) && !event.dataTransfer.files.length) return; event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false); void attach(Array.from(event.dataTransfer.files)) }}>
     {dragging && canAttach && <div className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-background/95 px-4 text-center" role="status"><Paperclip className="size-8 text-primary" aria-hidden="true" /><p className="font-medium">{t('dropAttachments')}</p><p className="text-sm text-muted-foreground">{t('attachHint')}</p></div>}
     {onCleared && <div className="flex justify-end px-4 py-1"><Button variant="ghost" size="sm" onClick={() => { void clear() }} disabled={busy || clearing || uploading || resource.state !== 'ready' || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
-    <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6" role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions">
+    <div ref={scroller} role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions" tabIndex={0}
+      className="relative min-h-0 flex-1 overflow-y-auto focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
         {resource.state === 'loading' && <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('thinking')}</p>}
         {resource.state === 'error' && <div className="legacy-scope"><ErrorNotice error={resource.error} /><Button variant="outline" size="sm" onClick={reload}>{t('retry')}</Button></div>}
         {empty && <div className="flex flex-col items-center gap-3 py-16 text-center">
