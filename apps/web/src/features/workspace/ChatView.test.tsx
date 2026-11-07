@@ -186,11 +186,11 @@ describe('chat as an assistant conversation', () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Rascunho')
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    read.mockClear().mockRejectedValue(new TypeError('offline'))
+    let fail!: (reason: unknown) => void
+    read.mockClear().mockImplementation(() => new Promise((_, reject) => { fail = reject }))
     delegations = { ...delegations, delegations: [...delegations.delegations, { ...turn, id: 'other', source_message_id: 'other', task: { ...turnTask, id: 'other' } }] }
     await show(onCleared)
     expect(read).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('desatualizado')
     expect(container.querySelector('[role="log"]')?.contains(delivery)).toBe(true)
     expect(document.activeElement).toBe(input)
     expect(input.value).toBe('Rascunho')
@@ -200,10 +200,15 @@ describe('chat as an assistant conversation', () => {
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Anexar arquivo"]')?.disabled).toBe(true)
     await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
     expect(calls('/agent-messages')).toHaveLength(0)
+    await act(async () => fail(new TypeError('offline')))
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('desatualizado')
+    expect(submit.disabled).toBe(true)
 
     let recover!: (value: Response) => void
     read.mockImplementation(() => new Promise((resolve) => { recover = resolve }))
     const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Tentar de novo')!
+    await act(async () => retry.click())
+    expect(retry.disabled).toBe(true)
     await act(async () => retry.click())
     expect(read).toHaveBeenCalledTimes(2)
     expect(container.querySelector('[role="log"]')?.contains(delivery)).toBe(true)
@@ -233,6 +238,31 @@ describe('chat as an assistant conversation', () => {
     expect(container.textContent).not.toContain(user.content)
     expect(container.querySelector(`button[aria-label="Baixar ${artifact.name}"]`)).toBeNull()
     expect(container.textContent).not.toContain('desatualizado')
+  })
+
+  it('keeps the empty conversation visible until the first message is loaded', async () => {
+    const actual = await vi.importActual<typeof import('../../hooks/useResource')>('../../hooks/useResource')
+    vi.mocked(useResource).mockImplementation(actual.useResource)
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
+    let resolve!: (value: Response) => void
+    const read = vi.fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json({ conversation_id: conversationId, revision: 1, messages: [] }))
+      .mockImplementation(() => new Promise((done) => { resolve = done }))
+    fetcher.mockImplementation((url: string) => url.includes('/messages?') ? read() : previous(url))
+    await show()
+    const intro = container.querySelector('[role="log"] h2')!
+    expect(intro).not.toBeNull()
+    const input = container.querySelector('textarea')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, user.content)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('[role="log"] h2')).toBe(intro)
+    await act(async () => resolve(Response.json({ conversation_id: conversationId, revision: 2, messages: [user] })))
+    expect(container.querySelector('[role="log"] h2')).toBeNull()
+    expect(container.querySelector('[role="log"]')?.textContent).toContain(user.content)
   })
 
   it('does not reload for agent results that already existed when the chat opened, only for new ones', async () => {

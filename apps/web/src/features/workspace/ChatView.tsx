@@ -97,7 +97,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
 
   const load = useCallback((signal: AbortSignal) => loadMessages(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const { resource, reload } = useResource(load, keepHistoryOnError)
-  const historyReady = resource.state === 'ready' && !resource.refreshError
+  const historyReady = resource.state === 'ready' && !resource.refreshing && !resource.refreshError
   const loadDelegations = useCallback((signal: AbortSignal) => getDelegations(agent.id, agent.conversation_id, signal), [agent.id, agent.conversation_id])
   const monitor = useTaskPolling(loadDelegations, mergeDelegations)
   const delegations = monitor.data?.delegations ?? noDelegations
@@ -268,7 +268,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     }
   }
 
-  const empty = historyReady && list.length === 0 && delegations.length === 0
+  const empty = resource.state === 'ready' && !resource.refreshError && list.length === 0 && delegations.length === 0
   return <div className="relative flex min-h-0 flex-1 flex-col" onPaste={paste}
     onDragEnter={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); dragDepth.current += 1; if (canAttach) setDragging(true) } }}
     onDragOver={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = canAttach ? 'copy' : 'none' } }}
@@ -306,7 +306,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
       <form className="mx-auto w-full max-w-3xl" onSubmit={(event) => { void submit(event) }}>
         {resource.state === 'ready' && resource.refreshError && <div className="mb-2 flex flex-wrap items-center gap-2">
           <p className="text-xs text-destructive" role="alert">{t('historyRefreshFailed')}</p>
-          <Button type="button" variant="outline" size="sm" onClick={() => { reload(); inputRef.current?.focus() }}>{t('retry')}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={resource.refreshing} onClick={() => { reload(); inputRef.current?.focus() }}>{t('retry')}</Button>
         </div>}
         {error && (error.code === 'attachment_limit' ? <p className="mb-2 text-xs text-destructive" role="alert">{t('attachLimit')}</p> : <div className="legacy-scope mb-2"><ErrorNotice error={error} /></div>)}
         {!currentCapability && <p className="mb-2 text-xs text-muted-foreground" role="status">{t('preparingChat')}</p>}
