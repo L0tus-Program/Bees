@@ -467,6 +467,11 @@ try {
   if (!downloaded.suggestedFilename().startsWith('relatorio-e2e')) throw new Error('Download inline perdeu o nome registrado.')
   await page.getByRole('status').filter({ hasText: 'Download enviado ao navegador.' }).waitFor()
   await agentLog.getByText(new RegExp(`${marker}.*Gere um relatório de teste`)).waitFor({ timeout: 60_000 })
+  const history = await page.request.get(`${agentUrl}/messages?conversation_id=${agent.conversation_id}`)
+  if (!history.ok() || !(await history.json()).messages.some((message) =>
+    message.role === 'assistant' && message.agent_task_id === taskId && message.content?.includes(marker))) {
+    throw new Error('O histórico não vinculou a resposta publicada à tarefa do agente.')
+  }
   await page.getByText('Usou 1 ferramenta').waitFor()
   if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
   if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')

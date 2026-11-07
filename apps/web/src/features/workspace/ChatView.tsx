@@ -149,6 +149,8 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
 
   const ids = new Set(list.map((message) => message.id))
   const agentTurns = delegations.filter((item) => item.task.execution_kind === 'agent_task')
+  const turnsByTask = new Map(agentTurns.map((item) => [item.task.id, item]))
+  const repliedTasks = new Set(list.map((message) => message.agent_task_id))
   // O turno da abelha nasce da mensagem do usuário que o originou e aparece logo depois dela.
   const turnFor = (message: Message) => message.role === 'user' ? agentTurns.find((item) => item.source_message_id === message.id) : undefined
   const chipsFor = (message: Message) => delegations.filter((item) => item.task.execution_kind !== 'agent_task' && item.source_message_id === message.id)
@@ -278,23 +280,19 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
           <p className="max-w-md text-sm text-muted-foreground">{t('emptyHint')}</p>
           {useAgent && <div className="mt-2 flex flex-wrap justify-center gap-2">{(['suggestion1', 'suggestion2', 'suggestion3'] as const).map((key) => <Button key={key} variant="outline" size="sm" className="h-auto max-w-xs py-2 text-left whitespace-normal" onClick={() => { setDraft(t(key)); inputRef.current?.focus() }}>{t(key)}</Button>)}</div>}
         </div>}
-        {list.map((message, index) => {
+        {list.map((message) => {
           const turn = turnFor(message)
           const live = turn ? ['queued', 'running'].includes(turn.task.status) : false
-          // A resposta do agente vem na mensagem seguinte; os arquivos ficam logo abaixo dela.
-          const previous = message.role !== 'user' ? [...list.slice(0, index)].reverse().find((item) => item.role === 'user') : undefined
-          const answered = previous ? turnFor(previous) : undefined
-          const replyFiles = answered && list.slice(list.indexOf(previous!) + 1).find((item) => item.role !== 'user')?.id === message.id ? answered : undefined
-          const following = list[index + 1]
-          const hasReply = !!turn && !!following && following.role !== 'user'
+          // O worker pode publicar respostas em uma ordem diferente dos pedidos.
+          const replyTurn = message.agent_task_id ? turnsByTask.get(message.agent_task_id) : undefined
           return <div key={message.id} className="flex flex-col gap-3">
             <Bubble message={message} name={agent.name} />
-            {turn && <div className={cn('flex gap-3', !live && 'pl-10')}>{live && <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />}<div className="min-w-0 flex-1"><AgentTurn task={turn.task} hasReply={!live} showFiles={!hasReply} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(turn.task.id)} /></div></div>}
-            {replyFiles && <div className="pl-10"><TurnFiles task={replyFiles.task} /></div>}
+            {turn && <div className={cn('flex gap-3', !live && 'pl-10')}>{live && <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />}<div className="min-w-0 flex-1"><AgentTurn task={turn.task} hasReply={!live} showFiles={!repliedTasks.has(turn.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(turn.task.id)} /></div></div>}
+            {replyTurn && <div className="pl-10"><TurnFiles task={replyTurn.task} /></div>}
             {chipsFor(message).map((item) => <TaskChip key={item.id} item={item} onOpen={() => onTaskDetails(item.task.id)} />)}
           </div>
         })}
-        {orphanTurns.map((item) => <div key={item.id} className="flex gap-3"><img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><AgentTurn task={item.task} hasReply={false} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(item.task.id)} /></div></div>)}
+        {orphanTurns.map((item) => <div key={item.id} className="flex gap-3"><img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><AgentTurn task={item.task} hasReply={false} showFiles={!repliedTasks.has(item.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(item.task.id)} /></div></div>)}
       </div>
     </div>
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">

@@ -456,6 +456,9 @@ def messages(agent_id: UUID, conversation_id: UUID, request: Request, session: _
                 "role": record.role,
                 "content": record.content,
                 "created_at": record.created_at.isoformat(),
+                "agent_task_id": record.metadata.get("agent_task", {}).get("task_id")
+                if record.role == "assistant" and record.source == "agent_task_result"
+                else None,
                 "attachments": public_attachments(record.metadata) if record.role == "user" else [],
                 "delegation_results": record.metadata.get("delegation_results", [])
                 if record.role == "assistant"

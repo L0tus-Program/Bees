@@ -37,7 +37,7 @@ vi.mock('../artifacts/api', async (original) => ({
 const agent = { ...baseAgent, id: agentId, conversation_id: conversationId }
 const stamp = '2026-10-30T12:00:00Z'
 const user: Message = { id: 'message-user', role: 'user', content: 'Gere um relatório', created_at: stamp }
-const reply: Message = { id: 'message-assistant', role: 'assistant', content: 'Pronto, **relatório** gerado.', created_at: stamp }
+const reply: Message = { id: 'message-assistant', role: 'assistant', content: 'Pronto, **relatório** gerado.', created_at: stamp, agent_task_id: taskId }
 const turnTask = { ...baseTask, id: taskId, agent_id: agentId, execution_kind: 'agent_task', status: 'completed' as const, agent_steps: [{ tool: 'publish_file', status: 'confirmed', code: null, at: stamp }] }
 const turn = { id: taskId, source_message_id: user.id, response_message_id: user.id, task: turnTask }
 
@@ -143,6 +143,29 @@ describe('chat as an assistant conversation', () => {
     expect(text.indexOf('relatório gerado')).toBeLessThan(text.indexOf(artifact.name))
     expect(container.querySelector('strong')?.textContent).toBe('relatório')
     expect(text).not.toMatch(/Tarefa|tarefa do agente/)
+  })
+
+  it('keeps deliveries on their own turns when replies arrive out of order', async () => {
+    const otherTaskId = 'a4cb3735-a4ef-49f4-9631-e0602c9a1eab'
+    const secondUser = { ...user, id: 'second-user', content: 'Gere a planilha' }
+    const directReply = { ...reply, id: 'direct-reply', content: 'Resposta de conversa', agent_task_id: null }
+    const secondReply = { ...reply, id: 'second-reply', content: 'Planilha pronta', agent_task_id: otherTaskId }
+    const otherTurn = { ...turn, id: otherTaskId, source_message_id: secondUser.id, task: { ...turnTask, id: otherTaskId } }
+    delegations = { delegations: [turn, otherTurn], has_more: false, next_offset: null }
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
+    fetcher.mockImplementation((url: string) => url.includes(`/tasks/${otherTaskId}/artifacts`)
+      ? Response.json(page([{ ...artifact, name: 'planilha.csv', task_id: otherTaskId }]))
+      : previous(url))
+
+    messages = [user, secondUser, directReply, secondReply]
+    await show()
+    const rows = () => Array.from(container.querySelector('[role="log"] > div')!.children)
+    const downloads = () => rows().map((row) => Array.from(row.querySelectorAll('button[aria-label^="Baixar "]'), (button) => button.getAttribute('aria-label')))
+    expect(downloads()).toEqual([[`Baixar ${artifact.name}`], [], [], ['Baixar planilha.csv']])
+
+    messages = [...messages, reply]
+    await show()
+    expect(downloads()).toEqual([[], [], [], ['Baixar planilha.csv'], [`Baixar ${artifact.name}`]])
   })
 
   it('does not reload for agent results that already existed when the chat opened, only for new ones', async () => {
