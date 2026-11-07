@@ -152,7 +152,7 @@ describe('chat as an assistant conversation', () => {
     const secondReply = { ...reply, id: 'second-reply', content: 'Planilha pronta', agent_task_id: otherTaskId }
     const otherTurn = { ...turn, id: otherTaskId, source_message_id: secondUser.id, task: { ...turnTask, id: otherTaskId } }
     delegations = { delegations: [turn, otherTurn], has_more: false, next_offset: null }
-    const previous = fetcher.getMockImplementation()!
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
     fetcher.mockImplementation((url: string) => url.includes(`/tasks/${otherTaskId}/artifacts`)
       ? Response.json(page([{ ...artifact, name: 'planilha.csv', task_id: otherTaskId }]))
       : previous(url))
