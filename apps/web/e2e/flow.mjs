@@ -82,7 +82,7 @@ const modelServer = createServer((request, response) => {
       return
     }
     const last = messages.filter((item) => item.role === 'user').at(-1)
-    complete({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${last ? textOf(last).slice(0, 40) : ''}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
+    complete({ choices: [{ message: { role: 'assistant', content: `${marker}: recebi "${last ? textOf(last).slice(0, 80) : ''}".` }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
   })
 })
 
@@ -417,7 +417,7 @@ try {
   const decision = agentLog.getByRole('region', { name: 'Decisões pendentes' })
   const inlineDownload = agentLog.getByRole('button', { name: /Baixar relatorio-e2e/ })
   await decision.getByRole('heading', { name: 'Publicar arquivo de entrega' }).waitFor({ timeout: 90_000 })
-  await agentLog.getByText('Gere um relatório de teste', { exact: true }).waitFor()
+  await agentLog.getByText(/Gere um relatório de teste/).waitFor()
   const unpublished = await page.request.get(`${agentUrl}/tasks/${taskId}/artifacts`)
   if (!unpublished.ok() || (await unpublished.json()).artifacts.length !== 0 || model.requests !== before + 1) {
     throw new Error('A publicação ou a continuação do modelo avançou antes da decisão.')
