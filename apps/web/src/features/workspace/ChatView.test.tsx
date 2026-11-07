@@ -467,18 +467,20 @@ describe('chat as an assistant conversation', () => {
 it('clears only after confirmation, bound to the displayed conversation and revision', async () => {
   messages = [user, reply]
   const cleared = vi.fn(); const confirm = vi.fn().mockReturnValue(false); vi.stubGlobal('confirm', confirm)
-  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ conversation_id: '99999999-9999-4999-8999-999999999999' }) : Response.json(capabilities))
+  const requestId = '99999999-9999-4999-8999-999999999999'
+  vi.stubGlobal('crypto', { subtle: webcrypto.subtle, randomUUID: () => requestId })
+  fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ conversation_id: '85769b49-2a85-5bcd-9386-5030d86186cd' }) : Response.json(capabilities))
   await show(cleared)
   const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
   await act(async () => button.click())
   expect(calls('/clear')).toHaveLength(0); expect(cleared).not.toHaveBeenCalled()
   expect(confirm.mock.calls[0][0]).toContain('Memórias, configurações, tarefas e entregas serão preservadas')
   confirm.mockReturnValue(true)
-  await act(async () => button.click())
-  expect(calls('/clear')).toHaveLength(1); expect(cleared).toHaveBeenCalledOnce()
+  await act(async () => { button.click(); await vi.waitFor(() => expect(cleared).toHaveBeenCalledOnce()) })
+  expect(calls('/clear')).toHaveLength(1)
   const [path, options] = calls('/clear')[0] as [string, RequestInit]
   expect(path).toBe(`/api/v1/agents/${agentId}/conversations/${conversationId}/clear`)
-  expect(JSON.parse(options.body as string)).toMatchObject({ consent: 'clear_conversation', expected_revision: agent.revision, expected_conversation_revision: 3 })
+  expect(JSON.parse(options.body as string)).toMatchObject({ client_request_id: requestId, consent: 'clear_conversation', expected_revision: agent.revision, expected_conversation_revision: 3 })
   confirm.mockRestore()
 })
 
@@ -488,7 +490,7 @@ it('keeps the conversation and explains why pending work prevents clearing', asy
   fetcher.mockImplementation(async (url: string) => url.endsWith('/clear') ? Response.json({ error: { code: 'conversation_has_pending_work' } }, { status: 409 }) : Response.json(capabilities))
   await show(cleared)
   const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent?.includes('Limpar conversa'))!
-  await act(async () => button.click())
+  await act(async () => { button.click(); await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce()) })
   expect(cleared).not.toHaveBeenCalled(); expect(container.textContent).toContain(user.content)
   expect(container.textContent).toContain('Abra Atividade')
   confirm.mockRestore()
@@ -607,12 +609,26 @@ describe('conversation clear exclusivity', () => {
     const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
     fetcher.mockImplementation((...args) => String(args[0]).endsWith('/clear') ? Promise.resolve(Response.json({ error: { code: 'conversation_has_pending_work' } }, { status: 409 })) : previous(...args))
     await act(async () => clearButton().click())
-    await act(async () => confirmations[0].resolve(true))
+    await act(async () => { confirmations[0].resolve(true); await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce()) })
     expect(cleared).not.toHaveBeenCalled()
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
     await act(async () => clearButton().click())
     expect(confirmations).toHaveLength(2)
     await act(async () => confirmations[1].resolve(false))
+  })
+  it('reconciles through reads when the clear receipt belongs to another command', async () => {
+    await prepare()
+    vi.stubGlobal('crypto', { subtle: webcrypto.subtle, randomUUID: () => '99999999-9999-4999-8999-999999999999' })
+    const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
+    fetcher.mockImplementation((...args) => String(args[0]).endsWith('/clear')
+      ? Promise.resolve(Response.json({ conversation_id: '6af98644-c9c6-52ba-9e52-34ecad450e71' }))
+      : previous(...args))
+    await act(async () => clearButton().click())
+    await act(async () => { confirmations[0].resolve(true); await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce()) })
+    expect(calls('/clear')).toHaveLength(1)
+    expect(cleared).toHaveBeenCalledOnce()
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('resposta incompatível')
+    expect((container.querySelector('#chat-input') as HTMLTextAreaElement).value).toBe('Rascunho')
   })
   it('ignores confirmation resolved after leaving', async () => {
     await prepare()
@@ -630,7 +646,7 @@ describe('conversation clear exclusivity', () => {
     const previous = fetcher.getMockImplementation() as (...args: unknown[]) => Promise<Response>
     fetcher.mockImplementation((...args) => String(args[0]).endsWith('/clear') ? pending : previous(...args))
     await act(async () => clearButton().click())
-    await act(async () => confirmations[0].resolve(true))
+    await act(async () => { confirmations[0].resolve(true); await vi.waitFor(() => expect(calls('/clear')).toHaveLength(1)) })
     const signal = calls('/clear')[0][1].signal as AbortSignal
     const refresh = vi.mocked(useTaskPolling).mock.results.at(-1)!.value.refresh
     reload.mockClear(); refresh.mockClear()

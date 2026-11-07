@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, request, setCsrfToken } from './client'
-import { authStatus, configurationSignature, createAgent, isAgent, messages, testModel } from './onboarding'
+import { authStatus, clearConversation, configurationSignature, createAgent, isAgent, messages, testModel } from './onboarding'
 import type { ModelConfig } from './onboarding'
 
 const config: ModelConfig = { kind: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'test-model', capabilities: { text: true, tool_calls: false } }
@@ -139,6 +139,23 @@ describe('onboarding contracts', () => {
     expect(fetcher.mock.calls[0][0]).toBe('/api/v1/agents/bee-1/messages?conversation_id=conversation-1')
     fetcher.mockResolvedValue(Response.json({ conversation_id: 'conversation-1', messages: [{ content: 'Only text' }] }))
     await expect(messages('bee-1', 'conversation-1')).rejects.toMatchObject({ code: 'invalid_response' })
+  })
+
+  it('confere a nova conversa contra o UUID v5 do comando de limpeza, inclusive no replay', async () => {
+    const original = { ...agent, status: 'active' as const, conversation_id: '77777777-7777-4777-8777-777777777777' }
+    const requestId = '99999999-9999-4999-8999-999999999999'
+    // Vetores calculados com uuid5 do Python, para o pedido acima e para outro pedido da mesma conversa.
+    const expected = '85769b49-2a85-5bcd-9386-5030d86186cd'
+    const other = '6af98644-c9c6-52ba-9e52-34ecad450e71'
+    const fetcher = vi.fn()
+      .mockImplementationOnce(async () => Response.json({ conversation_id: other }))
+      .mockImplementation(async () => Response.json({ conversation_id: expected }))
+    vi.stubGlobal('fetch', fetcher)
+    setCsrfToken('test-csrf')
+    await expect(clearConversation(original, 3, requestId)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await expect(clearConversation(original, 3, requestId)).resolves.toBe(expected)
+    expect(fetcher.mock.calls.map(([, options]) => JSON.parse(options.body).client_request_id)).toEqual([requestId, requestId])
   })
 
   it('rejeita histórico de conversa diferente da solicitada, mesmo quando válido', async () => {
