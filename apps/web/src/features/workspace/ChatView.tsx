@@ -268,7 +268,7 @@ export function ChatView({ agent, onTaskDetails, onComputerActivity, onCleared }
     }
   }
 
-  const empty = historyReady && list.length === 0 && delegations.length === 0
+  const empty = resource.state === 'ready' && !resource.refreshError && list.length === 0 && delegations.length === 0
   return <div className="relative flex min-h-0 flex-1 flex-col" onPaste={paste}
     onDragEnter={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); dragDepth.current += 1; if (canAttach) setDragging(true) } }}
     onDragOver={(event) => { if (hasDraggedFiles(event)) { event.preventDefault(); event.dataTransfer.dropEffect = canAttach ? 'copy' : 'none' } }}

@@ -240,6 +240,31 @@ describe('chat as an assistant conversation', () => {
     expect(container.textContent).not.toContain('desatualizado')
   })
 
+  it('keeps the empty conversation visible until the first message is loaded', async () => {
+    const actual = await vi.importActual<typeof import('../../hooks/useResource')>('../../hooks/useResource')
+    vi.mocked(useResource).mockImplementation(actual.useResource)
+    const previous = fetcher.getMockImplementation() as (url: string) => Promise<Response>
+    let resolve!: (value: Response) => void
+    const read = vi.fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json({ conversation_id: conversationId, revision: 1, messages: [] }))
+      .mockImplementation(() => new Promise((done) => { resolve = done }))
+    fetcher.mockImplementation((url: string) => url.includes('/messages?') ? read() : previous(url))
+    await show()
+    const intro = container.querySelector('[role="log"] h2')!
+    expect(intro).not.toBeNull()
+    const input = container.querySelector('textarea')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, user.content)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('[role="log"] h2')).toBe(intro)
+    await act(async () => resolve(Response.json({ conversation_id: conversationId, revision: 2, messages: [user] })))
+    expect(container.querySelector('[role="log"] h2')).toBeNull()
+    expect(container.querySelector('[role="log"]')?.textContent).toContain(user.content)
+  })
+
   it('does not reload for agent results that already existed when the chat opened, only for new ones', async () => {
     delegations = null
     await show()
