@@ -253,7 +253,7 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
       if (!operation.signal.aborted) {
         const error = asApiError(failure)
         setError(error); reload(); monitor.refresh()
-        if (error.status >= 500 || ['mutation_network', 'mutation_timeout', 'invalid_response'].includes(error.code)) onCleared()
+        if (error.status >= 500 || ['mutation_network', 'mutation_timeout', 'invalid_response', 'state_conflict', 'conversation_inactive'].includes(error.code)) onCleared()
       }
     } finally {
       if (!operation.signal.aborted && !confirmed) {

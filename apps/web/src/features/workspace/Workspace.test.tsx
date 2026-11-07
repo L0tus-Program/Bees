@@ -15,7 +15,13 @@ import { Workspace } from './Workspace'
 const requestId = 'c6827f60-d208-4ba6-a30a-74bc3d2c46a8'
 const oldMessage = { id: 'old-message', role: 'user', content: 'Histórico anterior à limpeza', created_at: stamp }
 
-it.each([false, true])('retries the active conversation read without replaying the clear (changed: %s)', async (changed) => {
+it.each([
+  { changed: false, code: 'http_502', status: 502 },
+  { changed: true, code: null, status: 200 },
+  { changed: true, code: 'conversation_inactive', status: 502 },
+  { changed: true, code: 'state_conflict', status: 409 },
+  { changed: false, code: 'state_conflict', status: 409 },
+])('retries the active conversation read after $status $code (changed: $changed)', async ({ changed, code, status }) => {
   const agent = { ...baseAgent, id: agentId, conversation_id: conversationId }
   const active = (id: string) => Response.json({
     agents: [{ ...agent, conversation_id: id }], vault: { available: true, backend: 'test' }, environments: [], next_steps: [],
@@ -26,7 +32,7 @@ it.each([false, true])('retries the active conversation read without replaying t
   const reads = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(unavailable)
   let finishRead!: (response: Response) => void
   reads.mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRead = resolve }))
-  const clear = vi.fn(async () => changed ? Response.json({ conversation_id: newId }) : Response.json({ error: { code: 'http_502' } }, { status: 502 }))
+  const clear = vi.fn(async () => code ? Response.json({ error: { code } }, { status }) : Response.json({ conversation_id: newId }))
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.stubGlobal('crypto', { randomUUID: () => requestId, subtle: webcrypto.subtle })
   vi.stubGlobal('confirm', () => true)
@@ -71,7 +77,7 @@ it.each([false, true])('retries the active conversation read without replaying t
     expect(input.value).toBe('Meu rascunho')
     expect(send()?.disabled).toBe(true)
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Anexar arquivo"]')?.disabled).toBe(true)
-    expect(button(changed ? 'Limpando…' : 'Limpar conversa')?.disabled).toBe(true)
+    expect(button(code ? 'Limpar conversa' : 'Limpando…')?.disabled).toBe(true)
 
     await act(async () => button('Tentar de novo')!.click())
     expect(reads).toHaveBeenCalledTimes(3)
