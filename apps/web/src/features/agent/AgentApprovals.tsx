@@ -76,7 +76,7 @@ export function AgentApprovals({ agentId, taskId, onChanged, refreshKey }: { age
   }
   async function inspect(item: AgentApproval) {
     if (details[item.id]) { setDetails((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== item.id))); return }
-    try { const value = await getAgentApproval(agentId, item.id); setDetails((current) => ({ ...current, [item.id]: value })) } catch (failure) { setError(asApiError(failure)) }
+    try { const value = await getAgentApproval(agentId, item); setDetails((current) => ({ ...current, [item.id]: value })) } catch (failure) { setError(asApiError(failure)) }
   }
   if (!items.length && !error) return null
   return <section className="agent-approvals" aria-label={t('approvalsTitle')}>

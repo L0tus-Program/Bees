@@ -64,7 +64,7 @@ describe('agent api client', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ available: 'yes' }), { status: 200 })))
     await expect(getAgentCapabilities('bee-1')).rejects.toThrow('invalid_response')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ approval: {}, receipt: { confirmed: true } }), { status: 200 })))
-    const approval = { id: 'a1', task_id: 't1', run_id: 'r1', status: 'pending', decision: null, revision: 1, created_at: '2026-10-23T10:00:00Z', expires_at: '2026-10-23T11:00:00Z', consumed_at: null, valid: true, stale_reason: null, tool_name: 'memory.save', effect: 'write', summary: 'x', task_title: 't', target: { kind: 'control_plane', environment_id: 'control_plane' }, arguments_preview: null } as const
+    const approval = { id: 'a1', agent_id: 'bee-1', task_id: 't1', run_id: 'r1', status: 'pending', decision: null, revision: 1, created_at: '2026-10-23T10:00:00Z', expires_at: '2026-10-23T11:00:00Z', consumed_at: null, valid: true, stale_reason: null, tool_name: 'memory.save', effect: 'write', summary: 'x', task_title: 't', target: { kind: 'control_plane', environment_id: 'control_plane' }, arguments_preview: null } as const
     await expect(decideAgentApproval('bee-1', approval, 'allow_once', 'req')).rejects.toThrow('invalid_response')
   })
 })
