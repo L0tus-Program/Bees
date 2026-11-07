@@ -21,6 +21,8 @@ const password = 'senha descartável do e2e 12345'
 const marker = 'MARCADOR-E2E-7Q'
 const responsesMode = process.argv.includes('--responses')
 const fixtureModel = responsesMode ? 'gpt-5.6-terra' : 'modelo-e2e'
+const longConversationWidths = [390, 768, 1280, 1920]
+const expectedModelRequests = 7 + longConversationWidths.length
 mkdirSync(out, { recursive: true })
 
 function freePort() {
@@ -149,6 +151,108 @@ async function auditWidths(page, name) {
   }
 }
 
+async function conversationLayout(page, position) {
+  return page.getByRole('log').evaluate((log, where) => {
+    const list = log.parentElement
+    const input = document.querySelector('#chat-input')
+    const composer = input.closest('form').getBoundingClientRect()
+    const shell = document.querySelector('[data-shell]')
+    const root = document.scrollingElement
+    const range = list.scrollHeight - list.clientHeight
+    if (where === 'top') list.scrollTop = 0
+    if (where === 'bottom') list.scrollTop = range
+    const listBounds = list.getBoundingClientRect()
+    const oldest = log.firstElementChild?.getBoundingClientRect()
+    const newest = log.lastElementChild?.getBoundingClientRect()
+    return {
+      range, scrollTop: list.scrollTop,
+      oldestVisible: oldest && oldest.top >= listBounds.top - 1 && oldest.bottom <= listBounds.bottom + 1,
+      newestVisible: newest && newest.top >= listBounds.top - 1 && newest.bottom <= listBounds.bottom + 1,
+      pageFixed: root.scrollHeight - root.clientHeight <= 1 && root.scrollTop === 0 && shell.scrollTop === 0,
+      composerVisible: composer.top >= listBounds.bottom - 1 && composer.bottom <= window.innerHeight + 1
+        && composer.left >= 0 && composer.right <= window.innerWidth + 1,
+      composerBottom: composer.bottom,
+      composerFocused: document.activeElement === input,
+    }
+  }, position ?? null)
+}
+
+async function auditLongConversation(page, input) {
+  // Injeta só o histórico antigo na leitura. Envio e novas respostas percorrem API e modelo HTTP.
+  const history = Array.from({ length: 50 }, (_, index) => ({
+    id: `historico-e2e-${index}`,
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: `Mensagem de histórico E2E ${index + 1}.`,
+    created_at: new Date(Date.UTC(2025, 0, 1, 0, index)).toISOString(),
+  }))
+  const messagesUrl = /\/api\/v1\/agents\/[^/]+\/messages\?/
+  const prependHistory = async (route) => {
+    const response = await route.fetch()
+    if (!response.ok()) { await route.fulfill({ response }); return }
+    const conversation = await response.json()
+    await route.fulfill({ json: { ...conversation, messages: [...history, ...conversation.messages] } })
+  }
+  await page.route(messagesUrl, prependHistory)
+  try {
+    await page.reload()
+    const log = page.getByRole('log')
+    await log.getByText(history[0].content, { exact: false }).waitFor()
+    if (await log.getByText(/Mensagem de histórico E2E \d+\./).count() !== history.length) {
+      throw new Error('O histórico da conversa não renderizou as 50 mensagens.')
+    }
+    for (const width of longConversationWidths) {
+      await page.setViewportSize({ width, height: 900 })
+      const top = await conversationLayout(page, 'top')
+      if (top.range <= 0 || !top.oldestVisible || !top.pageFixed || !top.composerVisible) {
+        throw new Error(`Histórico longo em ${width}px: topo ou compositor fora da área visível: ${JSON.stringify(top)}`)
+      }
+      const bottom = await conversationLayout(page, 'bottom')
+      if (bottom.range - bottom.scrollTop > 1 || !bottom.newestVisible || !bottom.pageFixed || !bottom.composerVisible) {
+        throw new Error(`Histórico longo em ${width}px: fim ou compositor fora da área visível: ${JSON.stringify(bottom)}`)
+      }
+
+      const prompt = `Layout ${width}`
+      const before = model.requests
+      await input.fill(prompt)
+      await input.press('End')
+      await input.press('Shift+Enter')
+      if (await input.inputValue() !== `${prompt}\n` || model.requests !== before) {
+        throw new Error(`Shift+Enter alterou o fluxo de envio em ${width}px.`)
+      }
+      await input.press('a')
+      const [request] = await Promise.all([
+        page.waitForRequest((entry) => entry.method() === 'POST' && /\/api\/v1\/agents\/[^/]+\/chat$/.test(new URL(entry.url()).pathname)),
+        input.press('Enter'),
+      ])
+      if (request.postDataJSON().content !== `${prompt}\na`) {
+        throw new Error(`Enter não enviou a mensagem com a quebra de linha em ${width}px.`)
+      }
+      await log.getByText(new RegExp(`${marker}.*${prompt}`)).waitFor({ timeout: 60_000 })
+      await waitFor(async () => {
+        const layout = await conversationLayout(page)
+        return layout.range - layout.scrollTop <= 1 && layout.newestVisible && layout.composerFocused
+      }, `última resposta e foco em ${width}px`, 5_000)
+      const after = await conversationLayout(page)
+      if (!after.pageFixed || !after.composerVisible || Math.abs(after.composerBottom - bottom.composerBottom) > 1
+        || await input.inputValue() !== '' || model.requests !== before + 1) {
+        throw new Error(`Histórico longo em ${width}px: envio deslocou o compositor ou não concluiu corretamente: ${JSON.stringify(after)}`)
+      }
+      await audit(page, `5-conversa-longa-${width}`)
+    }
+    // Mantém a verificação original de janela baixa com mensagens renderizadas.
+    await page.setViewportSize({ width: 1280, height: 300 })
+    for (const position of ['top', 'bottom']) {
+      const layout = await conversationLayout(page, position)
+      if (layout.range <= 0 || !layout.pageFixed || !layout.composerVisible) {
+        throw new Error(`Histórico longo em janela baixa (${position}): ${JSON.stringify(layout)}`)
+      }
+    }
+  } finally {
+    await page.unroute(messagesUrl, prependHistory)
+    await page.setViewportSize({ width: 1280, height: 900 })
+  }
+}
+
 async function selectSettings(page, value) {
   const option = page.locator(`#settings-section option[value="${value}"]`)
   const label = await option.textContent()
@@ -224,9 +328,10 @@ try {
     await page.waitForTimeout(300)
     await audit(page, `5-conversa-${language}`)
   }
+  await page.locator('.language-select select').first().selectOption('pt-BR')
+  await auditLongConversation(page, input)
   // Modo agente: abelha com ferramentas publica um arquivo, que aparece na resposta para baixar.
   const before = model.requests
-  await page.locator('.language-select select').first().selectOption('pt-BR')
   await page.getByRole('button', { name: 'Nova abelha' }).click()
   await page.getByRole('heading', { name: 'Crie sua abelha.' }).waitFor()
   await page.getByLabel('Provedor').selectOption('custom')
@@ -289,21 +394,6 @@ try {
   if (!model.attached) throw new Error('Anexos colado e arrastado não chegaram juntos ao modelo.')
   if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')
   await auditWidths(page, '6-agente-arquivo')
-  await page.setViewportSize({ width: 1280, height: 900 })
-  // Conversa maior que a janela: nada fora da lista pode esticar a página (rolando a lista para cima e para baixo).
-  await page.setViewportSize({ width: 1280, height: 300 })
-  for (const position of ['top', 'bottom']) {
-    const shell = await page.evaluate((where) => {
-      const log = document.querySelector('[role="log"]')
-      // Simula conversa longa: texto só para leitor de tela (sr-only, posição absoluta) no fim de uma lista alta.
-      if (!document.getElementById('e2e-long')) log.insertAdjacentHTML('beforeend', '<div id="e2e-long"><div style="height:4000px"></div><span class="sr-only">fim</span></div>')
-      const list = log.parentElement
-      list.scrollTop = where === 'top' ? 0 : list.scrollHeight
-      return { list: list.scrollHeight - list.clientHeight, extra: document.documentElement.scrollHeight - document.documentElement.clientHeight }
-    }, position)
-    if (shell.list <= 0 || shell.extra > 1) violations.push({ page: `janela-baixa-${position}`, id: 'page-scroll', impact: 'serious', nodes: 1, sample: JSON.stringify(shell) })
-  }
-  await page.evaluate(() => document.getElementById('e2e-long')?.remove())
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.getByRole('button', { name: 'Atividade', exact: true }).click()
   await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
@@ -409,7 +499,7 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Limpar conversa', exact: true }).click()
   await page.getByRole('heading', { name: 'Como posso ajudar?' }).waitFor()
   await auditWidths(page, '13-conversa-limpa')
-  if (model.requests !== 3) throw new Error('Limpar a conversa iniciou uma geração.')
+  if (model.requests !== before + 2) throw new Error('Limpar a conversa iniciou uma geração.')
   // Recusa do modelo precisa explicar a causa no turno, preservando o aviso de resultado incerto.
   model.failNext = true
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -454,7 +544,7 @@ try {
   await page.locator('#chat-input').fill('Teste de falha da ferramenta web')
   await waitFor(() => page.getByRole('button', { name: 'Enviar', exact: true }).isEnabled(), 'editor pronto após configurações')
   await page.locator('#chat-input').press('Enter')
-  await waitFor(() => model.requests === 7, 'tarefa com ferramenta recusada', 90_000)
+  await waitFor(() => model.requests === expectedModelRequests, 'tarefa com ferramenta recusada', 90_000)
   await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
   await selectSettings(page, 'tasks')
   await page.locator('.task-item').filter({ hasText: 'Teste de falha da ferramenta web' }).click()
@@ -496,11 +586,11 @@ try {
     await page.getByText('Configurações da abelha → Modelo → Opções avançadas', { exact: false }).waitFor()
     await auditWidths(page, '18-orientacao-de-visao')
   }
-  if (responsesMode && (model.responsesRequests !== 7 || model.responsesContinuations !== 2)) throw new Error(`Responses: ${model.responsesRequests} chamadas, ${model.responsesContinuations} continuações.`)
+  if (responsesMode && (model.responsesRequests !== expectedModelRequests || model.responsesContinuations !== 2)) throw new Error(`Responses: ${model.responsesRequests} chamadas, ${model.responsesContinuations} continuações.`)
   const serious = violations.filter((item) => ['serious', 'critical'].includes(item.impact))
   writeFileSync(join(out, 'e2e.json'), JSON.stringify({ model_requests: model.requests, responses_requests: model.responsesRequests, responses_continuations: model.responsesContinuations, violations }, null, 2))
   console.log(JSON.stringify({ model_requests: model.requests, violations: violations.length, serious: serious.length }))
-  if (model.requests !== 7) throw new Error(`Esperava 7 chamadas (1 conversa + 2 do agente + 2 falhas de modelo + 2 da ferramenta), houve ${model.requests}.`)
+  if (model.requests !== expectedModelRequests) throw new Error(`Esperava ${expectedModelRequests} chamadas, houve ${model.requests}.`)
   if (serious.length) { console.error(JSON.stringify(serious, null, 2)); process.exitCode = 1 }
 } catch (error) {
   console.error(error)
