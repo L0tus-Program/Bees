@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as Tabs from '@radix-ui/react-tabs'
 import { useTranslation } from 'react-i18next'
@@ -83,6 +83,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [menu, setMenu] = useState(false)
   const [panel, setPanel] = useState<Panel | null>(null)
+  const panelOpener = useRef<HTMLButtonElement>(null)
   const [files, setFiles] = useState(false)
   const [taskId, setTaskId] = useState<string | null>(null)
   const wide = useWide()
@@ -121,7 +122,10 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
 
   const conversation = selected.provider_config && selected.conversation_id
   const conversationUnverified = !!(resource.refreshing || resource.refreshError)
-  const toggle = (next: Panel) => setPanel((current) => current === next ? null : next)
+  const toggle = (next: Panel, trigger: HTMLButtonElement) => {
+    if (!wide) panelOpener.current = trigger
+    setPanel((current) => current === next ? null : next)
+  }
   const sideContent = panel === 'computer' ? <ComputerPanel key={selected.id} agentId={selected.id} name={selected.name} /> : <ActivityPanel activity={activity} onOpen={setTaskId} />
   return <TooltipProvider>
     {/* Fixa na janela: contém e recorta elementos absolutos (ex.: textos sr-only) que esticariam a página. */}
@@ -137,10 +141,10 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
           {selected.status !== 'active' && <Badge variant="warning">{selected.status}</Badge>}
           {settings ? <Button variant="outline" size="sm" onClick={() => setSettings(null)}><MessageSquare />{t('backToChat')}</Button> : <>
             <Tooltip label={t('files')}><Button variant="ghost" size="icon-sm" aria-label={t('files')} aria-pressed={files} onClick={() => setFiles(true)}><FolderOpen /></Button></Tooltip>
-            <Tooltip label={activity.active ? t('activityCount', { count: activity.active }) : t('activity')}><Button variant={panel === 'activity' ? 'secondary' : 'ghost'} size={activity.active || activity.attention ? 'sm' : 'icon-sm'} aria-label={t('activity')} aria-pressed={panel === 'activity'} onClick={() => toggle('activity')}>
+            <Tooltip label={activity.active ? t('activityCount', { count: activity.active }) : t('activity')}><Button variant={panel === 'activity' ? 'secondary' : 'ghost'} size={activity.active || activity.attention ? 'sm' : 'icon-sm'} aria-label={t('activity')} aria-pressed={panel === 'activity'} onClick={(event) => toggle('activity', event.currentTarget)}>
               <ListTodo />{(activity.active > 0 || activity.attention > 0) && <span className={cn('rounded-full px-1.5 text-xs leading-5 tabular-nums', activity.attention ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground')}>{activity.attention || activity.active}</span>}
             </Button></Tooltip>
-            <Tooltip label={t('computer')}><Button variant={panel === 'computer' ? 'secondary' : 'ghost'} size="icon-sm" aria-label={t('computer')} aria-pressed={panel === 'computer'} onClick={() => toggle('computer')}><Monitor /></Button></Tooltip>
+            <Tooltip label={t('computer')}><Button variant={panel === 'computer' ? 'secondary' : 'ghost'} size="icon-sm" aria-label={t('computer')} aria-pressed={panel === 'computer'} onClick={(event) => toggle('computer', event.currentTarget)}><Monitor /></Button></Tooltip>
             <Tooltip label={t('settings')}><Button variant="ghost" size="icon-sm" aria-label={t('settings')} onClick={() => setSettings('profile')}><Settings /></Button></Tooltip>
           </>}
         </header>
@@ -152,7 +156,14 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
       {!settings && panel && wide && <aside className={cn('flex min-h-0 shrink-0 flex-col overflow-hidden border-l', panel === 'computer' ? 'w-[min(44vw,640px)]' : 'w-80 xl:w-96')} aria-label={t('panel')}>
         <SidePanel panel={panel} onPanel={setPanel} onClose={() => setPanel(null)}>{sideContent}</SidePanel>
       </aside>}
-      {!wide && <Sheet open={!settings && panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }} title={t('panel')} closeLabel={t('closePanel')} className="max-w-full [&>div:last-child]:p-0">
+      {!wide && <Sheet open={!settings && panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }} title={t('panel')} closeLabel={t('closePanel')} className="max-w-full [&>div:last-child]:p-0"
+        onCloseAutoFocus={(event) => {
+          const trigger = panelOpener.current
+          panelOpener.current = null
+          if (!trigger?.isConnected) return
+          event.preventDefault()
+          trigger.focus()
+        }}>
         {panel && <SidePanel panel={panel} onPanel={setPanel}>{sideContent}</SidePanel>}
       </Sheet>}
       <Sheet open={files} onOpenChange={setFiles} title={t('files')} closeLabel={t('closePanel')}>
