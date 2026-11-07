@@ -10,8 +10,9 @@ import { AgentApprovals, RecentAgentDecisions } from './AgentApprovals'
 import { agentResources } from '../../locales/agent'
 import { productResources } from '../../locales/product'
 import { setCsrfToken } from '../../api/client'
+import { digest } from '../../api/toolTasks'
 
-const base = { id: 'a1', task_id: 't1', run_id: 'r1', status: 'pending', decision: null, revision: 1, created_at: '2026-10-24T10:00:00Z', expires_at: '2026-10-24T11:00:00Z', consumed_at: null, valid: true, stale_reason: null, tool_name: 'computer.shell.run', effect: 'external', summary: 'ls -la', task_title: 'Tarefa', target: { kind: 'computer', environment_id: 'c1' }, arguments_preview: null }
+const base = { id: 'a1', agent_id: 'b1', task_id: 't1', run_id: 'r1', status: 'pending', decision: null, revision: 1, created_at: '2026-10-24T10:00:00Z', expires_at: '2026-10-24T11:00:00Z', consumed_at: null, valid: true, stale_reason: null, tool_name: 'computer.shell.run', effect: 'external', summary: 'ls -la', task_title: 'Tarefa', target: { kind: 'computer', environment_id: 'c1' }, arguments_preview: null }
 let root: Root
 let container: HTMLDivElement
 let i18n: ReturnType<typeof createInstance>
@@ -37,7 +38,13 @@ it('lists recent decisions and revokes with confirmation', async () => {
   vi.stubGlobal('confirm', vi.fn(() => true))
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
     calls.push({ url, method: options.method })
-    if (options.method === 'PATCH') return Response.json({ approval: { ...base, status: 'revoked', revision: 3 }, receipt: { confirmed: true } })
+    if (options.method === 'PATCH') {
+      const input = JSON.parse(options.body as string)
+      return Response.json({ approval: { ...base, status: 'revoked', decision: 'allow_tool', revision: 3 }, receipt: {
+        approval_id: base.id, client_request_id: input.client_request_id, operation: 'revoke', expected_revision: 2,
+        request_hash: await digest({ operation: 'revoke', input }), confirmed: true,
+      } })
+    }
     if (url.includes('status=approved')) return Response.json({ approvals: [{ ...base, status: 'approved', decision: 'allow_tool', revision: 2 }], has_more: false })
     return Response.json({ approvals: [], has_more: false })
   }))
