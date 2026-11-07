@@ -163,7 +163,7 @@ async function auditLocalizedAgentTurn(page, log, name, checkTurn) {
   for (const [language, labels] of Object.entries(agentTurnLocales)) {
     await page.setViewportSize({ width: 1280, height: 900 })
     await languageSelect.selectOption(language)
-    await page.locator(`html[lang="${language}"]`).waitFor()
+    await page.locator(`html[lang="${language}"]`).waitFor({ state: 'attached' })
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 })
       await page.getByRole('textbox', { name: labels.composer, exact: true }).waitFor()
