@@ -145,7 +145,7 @@ def exchange(body: ExchangeInput, request: Request) -> dict:
     # O convite de alta entropia e uso único autentica esta troca.
     result = _service(request).exchange(body)
     link_dir = request.app.state.settings.computer_link_dir
-    if link_dir is not None:
+    if result["kind"] == "computer_runtime" and link_dir is not None:
         (Path(link_dir) / "invite.json").unlink(missing_ok=True)
     return result
 
