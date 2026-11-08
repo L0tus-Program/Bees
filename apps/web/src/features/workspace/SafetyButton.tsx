@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getSafety } from '../../api/safety'
 import { SafetyControl } from '../safety/SafetyControl'
@@ -7,12 +7,28 @@ import { Sheet } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
 /** Estado da parada global sempre visível; o controle completo abre num painel. */
-export function SafetyButton() {
+export function SafetyButton({ closePanelRef }: { closePanelRef?: RefObject<(() => void) | null> }) {
   const { t } = useTranslation('workspace')
   const [stopped, setStopped] = useState<boolean | null>(null)
   const [open, setOpen] = useState(false)
   const [portalContainer, setPortalContainer] = useState<HTMLElement>()
   const opener = useRef<HTMLButtonElement>(null)
+  const restoreFocus = useRef(false)
+  const closePanel = useCallback(() => {
+    restoreFocus.current = true
+    setOpen(false)
+  }, [])
+  useLayoutEffect(() => {
+    if (!closePanelRef || !open) return
+    closePanelRef.current = closePanel
+    return () => { closePanelRef.current = null }
+  }, [closePanel, closePanelRef, open])
+  useEffect(() => {
+    if (open || !restoreFocus.current) return
+    restoreFocus.current = false
+    // A gaveta já saiu do DOM, inclusive quando foi fechada antes do foco inicial.
+    opener.current?.focus({ preventScroll: true })
+  }, [open])
   useEffect(() => {
     let active = true
     const read = () => { getSafety().then((state) => { if (active) setStopped(state.status === 'stopped') }, () => undefined) }
@@ -30,16 +46,8 @@ export function SafetyButton() {
       <span className={cn('size-2 rounded-full', stopped ? 'bg-destructive' : 'bg-emerald-500')} aria-hidden="true" />
       {t(stopped ? 'safetyStopped' : 'safetyRunning')}
     </Button>
-    <Sheet open={open} onOpenChange={setOpen} title={t('safety')} closeLabel={t('closePanel')} side="left" portalContainer={portalContainer}
-      onCloseAutoFocus={(event) => {
-        const trigger = opener.current
-        if (!trigger?.isConnected) return
-        event.preventDefault()
-        // O menu móvel também é modal. Deixe a gaveta interna concluir a troca do escopo de foco.
-        requestAnimationFrame(() => {
-          if (trigger.isConnected) trigger.focus()
-        })
-      }}>
+    <Sheet open={open} onOpenChange={(next) => { if (!next) closePanel() }} title={t('safety')} closeLabel={t('closePanel')} side="left" portalContainer={portalContainer}
+      onCloseAutoFocus={(event) => event.preventDefault()}>
       <div className="legacy-scope"><SafetyControl /></div>
     </Sheet>
   </>

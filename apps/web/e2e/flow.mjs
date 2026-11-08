@@ -202,16 +202,32 @@ async function checkSafetyPanelKeyboard(page, width, scope = page) {
   const triggerWithPanelOpen = scope.getByRole('button', { name: 'Executando normalmente', exact: true, includeHidden: true }).filter({ visible: true })
   const panel = page.getByRole('dialog', { name: 'Execução', exact: true })
   if (await trigger.getAttribute('aria-haspopup') !== 'dialog') throw new Error('O controle de execução não anuncia o diálogo.')
+  const close = panel.getByRole('button', { name: 'Fechar painel', exact: true })
+  const expectFocus = async (target, message) => {
+    try {
+      await waitFor(() => target.evaluate((element) => element === document.activeElement, undefined, { timeout: 500 }), message, 5_000)
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        active: document.activeElement?.getAttribute('aria-label') ?? document.activeElement?.tagName,
+        dialogs: [...document.querySelectorAll('[role="dialog"]')].map((dialog) => ({
+          title: document.getElementById(dialog.getAttribute('aria-labelledby'))?.textContent,
+          hidden: dialog.closest('[aria-hidden="true"]') !== null,
+        })),
+      }))
+      throw new Error(`${error.message}. Estado do foco: ${JSON.stringify(state)}`, { cause: error })
+    }
+  }
   await trigger.press('Enter')
-  await panel.waitFor()
+  await expectFocus(close, `foco inicial em Execução a ${width} px`)
   if (await triggerWithPanelOpen.getAttribute('aria-expanded') !== 'true') throw new Error('O controle de execução não anuncia o painel aberto.')
   await page.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
-  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em Execução após Escape a ${width} px`, 5_000)
+  await expectFocus(trigger, `foco em Execução após Escape a ${width} px`)
   await page.keyboard.press('Space')
-  await panel.getByRole('button', { name: 'Fechar painel', exact: true }).press('Enter')
+  await expectFocus(close, `foco inicial em Execução a ${width} px`)
+  await page.keyboard.press('Enter')
   await panel.waitFor({ state: 'hidden' })
-  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em Execução após Fechar painel a ${width} px`, 5_000)
+  await expectFocus(trigger, `foco em Execução após Fechar painel a ${width} px`)
   if (await trigger.getAttribute('aria-expanded') !== 'false') throw new Error('O controle de execução não anuncia o painel fechado.')
 }
 
