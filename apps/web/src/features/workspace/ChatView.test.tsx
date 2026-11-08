@@ -345,6 +345,27 @@ describe('chat as an assistant conversation', () => {
     expect(container.querySelector('[role="alert"], .notice, [class*="error"]')).not.toBeNull()
   })
 
+  it('returns keyboard focus to the draft when an attachment is removed', async () => {
+    await show()
+    const input = container.querySelector<HTMLTextAreaElement>('#chat-input')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, 'Confira os dados')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.dispatchEvent(transferEvent('paste', [new File(['a'], 'um.txt'), new File(['b'], 'dois.txt')]))
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(publishArtifact).toHaveBeenCalledTimes(2))
+    })
+    const remove = container.querySelector<HTMLButtonElement>('[aria-label="Remover um.txt"]')!
+    remove.focus()
+    await act(async () => remove.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })))
+    expect(remove.isConnected).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe('Confira os dados')
+    expect(container.querySelector('[aria-label="Remover dois.txt"]')).not.toBeNull()
+    expect(calls('/agent-messages')).toHaveLength(0)
+  })
+
   it.each([false, true])('pastes files from clipboard, including items-only browsers (%s)', async (itemsOnly) => {
     await show()
     const event = transferEvent('paste', [new File(['# Dados'], 'colado.md')], itemsOnly)

@@ -327,7 +327,12 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
           {(files.length > 0 || uploading) && <ul className="flex flex-wrap gap-1.5 px-3 pt-3" aria-live="polite">
             {files.map((file) => <li key={file.id} className="flex max-w-60 items-center gap-1.5 rounded-lg border bg-muted/50 py-1 pr-1 pl-2.5 text-xs">
               <FileText className="size-3.5 shrink-0 text-primary" aria-hidden="true" /><span className="truncate">{file.name}</span>
-              <Button variant="ghost" size="icon-sm" className="size-6" aria-label={t('removeAttachment', { name: file.name })} disabled={busy || clearing} onClick={() => { selectedFiles.current = selectedFiles.current.filter((item) => item.id !== file.id); setFiles(selectedFiles.current) }}><X /></Button>
+              <Button variant="ghost" size="icon-sm" className="size-6" aria-label={t('removeAttachment', { name: file.name })} disabled={busy || clearing} onClick={(event) => {
+                // Ativações sem ponteiro preservam o foco sem abrir o teclado em um toque.
+                if (event.detail === 0) inputRef.current?.focus()
+                selectedFiles.current = selectedFiles.current.filter((item) => item.id !== file.id)
+                setFiles(selectedFiles.current)
+              }}><X /></Button>
             </li>)}
             {uploading && <li className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground"><Loader2 className="size-3.5 animate-spin" aria-hidden="true" />{t('uploading')}</li>}
           </ul>}
