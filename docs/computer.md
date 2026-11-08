@@ -9,7 +9,7 @@ Cada abelha pode ter um computador Linux próprio com desktop, Chromium (sessõe
 3. Clique **Criar computador**. O runtime cria a conta e o desktop; o status muda para **Pronto**.
 4. Em **Ferramentas** (ou no chat, **Ativar ferramentas recomendadas**), instale e conceda o pacote **Computador próprio da abelha** (`bees.computer`).
 
-Fora do Docker, gere o convite pela mesma tela e rode `bees-executor computer --api http://127.0.0.1:8000 --invite <convite> --mode single` (desenvolvimento; sem isolamento de conta).
+Fora do Docker, gere o convite pela mesma tela e rode `bees-executor computer --api http://127.0.0.1:8000 --invite=<convite> --mode single` (desenvolvimento; sem isolamento de conta).
 
 ## Ferramentas
 

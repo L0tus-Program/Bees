@@ -294,16 +294,17 @@ it.each([true, false])('clears previous instructions during reissuance and keeps
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
   expect(posts()).toHaveLength(2)
 })
-it('shows a fresh valid invitation after a failed issuance', async () => {
+it('shows a fresh valid invitation with a leading hyphen after a failed issuance', async () => {
+  const hyphenInvite = { ...invite, token: '-' + 'a'.repeat(42) }
   await show()
   fetcher.mockImplementation(async () => Response.json({}))
   await act(async () => pairButton().click())
   expect(container.querySelector('[role="alert"]')).not.toBeNull()
-  fetcher.mockImplementation(async () => Response.json(invite))
+  fetcher.mockImplementation(async () => Response.json(hyphenInvite))
   await act(async () => pairButton().click())
   expect(container.querySelector('[role="alert"]')).toBeNull()
-  expect(container.querySelector('.invite-token')?.textContent).toBe(invite.token)
-  expect(container.querySelector('pre')?.textContent).toContain(`--invite ${invite.token} --root`)
+  expect(container.querySelector('.invite-token')?.textContent).toBe(hyphenInvite.token)
+  expect(container.querySelector('pre')?.textContent).toContain(`--invite=${hyphenInvite.token} --root`)
 })
 
 it.each([
