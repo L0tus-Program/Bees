@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Annotated
 from uuid import UUID, uuid4
 
@@ -40,6 +41,7 @@ DISPATCH_SECONDS = 0.25
 HEARTBEAT_SECONDS = 10
 RESTART_SECONDS = 90
 RESTART_KEEP_SECONDS = 600
+_LINK_LOCK = Lock()
 
 
 @dataclass
@@ -108,6 +110,22 @@ def _write_link(directory: Path, api_url: str, token: str, expires_at: str) -> N
     os.replace(temporary, target)
 
 
+def _clear_link(directory: Path, token: str) -> None:
+    target = directory / "invite.json"
+    # A API é a única escritora do volume. Serialize a leitura e a remoção
+    # com a publicação para não apagar um convite publicado entre as duas.
+    with _LINK_LOCK:
+        try:
+            pending = json.loads(target.read_text(encoding="utf-8"))
+            if isinstance(pending, dict) and pending.get("token") == token:
+                target.unlink(missing_ok=True)
+        except FileNotFoundError:
+            pass
+        except OSError, UnicodeError, json.JSONDecodeError:
+            # A troca já consumiu o convite. O executor ainda precisa da credencial.
+            log.warning("Falha ao limpar o convite local já consumido")
+
+
 @router.post("/executors/invites")
 def create_invite(body: InviteInput, request: Request, session: _SESSION) -> dict:
     invite = _service(request).invite(body)
@@ -115,7 +133,8 @@ def create_invite(body: InviteInput, request: Request, session: _SESSION) -> dic
     delivered = False
     if body.kind == "computer_runtime" and link_dir is not None:
         # Entrega privada ao runtime local pelo volume compartilhado; sem terminal.
-        _write_link(Path(link_dir), "", invite["token"], invite["expires_at"])
+        with _LINK_LOCK:
+            _write_link(Path(link_dir), "", invite["token"], invite["expires_at"])
         delivered = True
     return invite | {"delivered_locally": delivered}
 
@@ -148,11 +167,7 @@ def exchange(body: ExchangeInput, request: Request) -> dict:
     result = _service(request).exchange(body)
     link_dir = request.app.state.settings.computer_link_dir
     if result["kind"] == "computer_runtime" and link_dir is not None:
-        try:
-            (Path(link_dir) / "invite.json").unlink(missing_ok=True)
-        except OSError:
-            # A troca já consumiu o convite. O executor ainda precisa da credencial.
-            log.warning("Falha ao limpar o convite local já consumido")
+        _clear_link(Path(link_dir), body.token)
     return result
 
 
