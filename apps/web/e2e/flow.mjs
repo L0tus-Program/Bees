@@ -215,6 +215,13 @@ async function checkSafetyPanelKeyboard(page, width, scope = page) {
   if (await trigger.getAttribute('aria-expanded') !== 'false') throw new Error('O controle de execução não anuncia o painel fechado.')
 }
 
+async function closeDesktopPanelWithKeyboard(page, target) {
+  const panel = page.getByRole('complementary', { name: 'Painel lateral', exact: true })
+  await panel.getByRole('button', { name: 'Fechar painel', exact: true }).press('Enter')
+  await panel.waitFor({ state: 'hidden' })
+  await waitFor(() => target.evaluate((element) => element === document.activeElement), 'foco após fechar o painel lateral no desktop', 5_000)
+}
+
 const agentTurnLocales = {
   'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
   en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
@@ -541,14 +548,43 @@ try {
   if (!model.imagesReceived) throw new Error('PNG/JPEG não chegaram ao modelo como imagens com bytes exatos.')
   await auditLocalizedAgentTurn(page, agentLog, '6-agente-arquivo', (log, labels) =>
     log.getByRole('button', { name: labels.download }).waitFor())
-  await page.getByRole('button', { name: 'Atividade', exact: true }).click()
+  const desktopActivity = page.getByRole('button', { name: 'Atividade', exact: true })
+  const desktopComputer = page.getByRole('button', { name: 'Computador', exact: true })
+  const desktopTabs = page.getByRole('tablist', { name: 'Painel lateral' })
+  await desktopActivity.press('Enter')
   await page.getByRole('tabpanel').getByText('Gere um relatório de teste').waitFor()
   await checkPanelKeyboard(page)
   await audit(page, '7-atividade-lateral')
-  await page.getByRole('button', { name: 'Computador', exact: true }).click()
+  await desktopTabs.getByRole('tab', { name: 'Atividade', exact: true }).press('ArrowRight')
+  await desktopTabs.getByRole('tab', { name: 'Computador', selected: true }).waitFor()
+  await closeDesktopPanelWithKeyboard(page, desktopActivity)
+  await desktopComputer.press('Space')
   await page.getByText(/Nenhum runtime de computador|computador desta abelha está desligado/).first().waitFor()
   await audit(page, '7-computador-lateral')
-  await page.getByRole('button', { name: 'Computador', exact: true }).click()
+  await desktopTabs.getByRole('tab', { name: 'Computador', exact: true }).press('ArrowLeft')
+  await desktopTabs.getByRole('tab', { name: 'Atividade', selected: true }).waitFor()
+  await closeDesktopPanelWithKeyboard(page, desktopComputer)
+
+  // Simula apenas a leitura de uma etapa de computador, sem iniciar um runtime.
+  const delegationsUrl = `${agentUrl}/delegations?conversation_id=${agent.conversation_id}&offset=0&limit=100`
+  const reportComputerActivity = async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const task = payload.delegations.find((item) => item.id === taskId).task
+    task.status = 'running'
+    task.agent_steps = [{ tool: 'computer_screenshot', status: null, code: null, at: task.updated_at }]
+    await route.fulfill({ response, json: payload })
+  }
+  const composer = page.locator('#chat-input')
+  await composer.focus()
+  await page.route(delegationsUrl, reportComputerActivity)
+  try {
+    await desktopTabs.getByRole('tab', { name: 'Computador', selected: true }).waitFor()
+    if (!await composer.evaluate((element) => element === document.activeElement)) throw new Error('A abertura automática do painel tirou o foco da conversa.')
+    await closeDesktopPanelWithKeyboard(page, desktopComputer)
+  } finally {
+    await page.unroute(delegationsUrl, reportComputerActivity)
+  }
   await checkSafetyPanelKeyboard(page, 1280)
   await page.setViewportSize({ width: 390, height: 900 })
   const menuButton = page.getByRole('button', { name: 'Abrir menu', exact: true })
