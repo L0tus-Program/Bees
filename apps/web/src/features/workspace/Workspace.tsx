@@ -85,6 +85,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const menuButton = useRef<HTMLButtonElement>(null)
   const [panel, setPanel] = useState<Panel | null>(null)
   const panelOpener = useRef<HTMLButtonElement>(null)
+  const computerButton = useRef<HTMLButtonElement>(null)
   const [files, setFiles] = useState(false)
   const filesButton = useRef<HTMLButtonElement>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -106,7 +107,10 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
     return <div className="ui min-h-dvh bg-background">{refreshNotice}<div className="legacy-scope mx-auto max-w-5xl p-4 md:p-8"><CreateBee vault={data.vault} onCreated={(agent) => { setSelectedId(agent.id); setCreating(false); reload() }} onCancel={data.agents.length ? () => setCreating(false) : undefined} onReconcile={() => { setCreating(false); reload() }} /></div></div>
   }
   const selected = data.agents.find((agent) => agent.id === selectedId) ?? data.agents[0]
-  const select = (id: string) => { setSelectedId(id); setSettings(null); setMenu(false); setPanel(null) }
+  const select = (id: string) => {
+    panelOpener.current = null
+    setSelectedId(id); setSettings(null); setMenu(false); setPanel(null)
+  }
 
   const sidebar = <div className="flex h-full flex-col gap-3 p-3">
     <div className="flex items-center gap-2 px-2 py-1"><img src="/bee.svg" alt="" width="28" height="28" /><span className="text-lg font-bold tracking-tight">bees<span className="text-primary">.</span></span></div>
@@ -126,8 +130,16 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const conversation = selected.provider_config && selected.conversation_id
   const conversationUnverified = !!(resource.refreshing || resource.refreshError)
   const toggle = (next: Panel, trigger: HTMLButtonElement) => {
-    if (!wide) panelOpener.current = trigger
-    setPanel((current) => current === next ? null : next)
+    const opening = panel !== next
+    panelOpener.current = opening ? trigger : null
+    setPanel(opening ? next : null)
+  }
+  const closeDesktopPanel = () => {
+    const opener = panelOpener.current
+    const target = opener?.isConnected ? opener : computerButton.current
+    panelOpener.current = null
+    setPanel(null)
+    target?.focus()
   }
   const openTask = (id: string, trigger: HTMLButtonElement) => {
     taskOpener.current = trigger
@@ -157,7 +169,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
             <Tooltip label={activity.active ? t('activityCount', { count: activity.active }) : t('activity')}><Button variant={panel === 'activity' ? 'secondary' : 'ghost'} size={activity.active || activity.attention ? 'sm' : 'icon-sm'} aria-label={t('activity')} aria-pressed={panel === 'activity'} onClick={(event) => toggle('activity', event.currentTarget)}>
               <ListTodo />{(activity.active > 0 || activity.attention > 0) && <span className={cn('rounded-full px-1.5 text-xs leading-5 tabular-nums', activity.attention ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground')}>{activity.attention || activity.active}</span>}
             </Button></Tooltip>
-            <Tooltip label={t('computer')}><Button variant={panel === 'computer' ? 'secondary' : 'ghost'} size="icon-sm" aria-label={t('computer')} aria-pressed={panel === 'computer'} onClick={(event) => toggle('computer', event.currentTarget)}><Monitor /></Button></Tooltip>
+            <Tooltip label={t('computer')}><Button variant={panel === 'computer' ? 'secondary' : 'ghost'} size="icon-sm" ref={computerButton} aria-label={t('computer')} aria-pressed={panel === 'computer'} onClick={(event) => toggle('computer', event.currentTarget)}><Monitor /></Button></Tooltip>
             <Tooltip label={t('settings')}><Button variant="ghost" size="icon-sm" aria-label={t('settings')} onClick={() => setSettings('profile')}><Settings /></Button></Tooltip>
           </>}
         </header>
@@ -167,7 +179,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
             : <div className="grid flex-1 place-items-center p-6 text-center"><div className="flex flex-col items-center gap-3"><p className="text-muted-foreground">{t('noModel')}</p><Button onClick={() => setSettings('model')}>{t('configureModel')}</Button></div></div>}
       </main>
       {!settings && panel && wide && <aside className={cn('flex min-h-0 shrink-0 flex-col overflow-hidden border-l', panel === 'computer' ? 'w-[min(44vw,640px)]' : 'w-80 xl:w-96')} aria-label={t('panel')}>
-        <SidePanel panel={panel} onPanel={setPanel} onClose={() => setPanel(null)}>{sideContent}</SidePanel>
+        <SidePanel panel={panel} onPanel={setPanel} onClose={closeDesktopPanel}>{sideContent}</SidePanel>
       </aside>}
       {!wide && <Sheet open={!settings && panel !== null} onOpenChange={(open) => { if (!open) setPanel(null) }} title={t('panel')} closeLabel={t('closePanel')} className="max-w-full [&>div:last-child]:p-0"
         onCloseAutoFocus={(event) => {
