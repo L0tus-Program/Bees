@@ -29,7 +29,10 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
     (tmp_path / "state").mkdir()
     database = Database(tmp_path / "state" / "bees.sqlite3")
     database.initialize()
-    invite = ExecutorService(database).invite({"kind": "personal", "name": "Notebook"})
+    # Um convite base64url pode começar com hífen, que o argparse trata como opção.
+    with monkeypatch.context() as invite_patch:
+        invite_patch.setattr("bees_core.executors.secrets.token_urlsafe", lambda _: "-" + "A" * 42)
+        invite = ExecutorService(database).invite({"kind": "personal", "name": "Notebook"})
     log = open(tmp_path / "executor.log", "wb")
     process = subprocess.Popen(
         [
@@ -41,8 +44,7 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
             f"http://127.0.0.1:{port}",
             "--state",
             str(tmp_path / "personal"),
-            "--invite",
-            invite["token"],
+            f"--invite={invite['token']}",
             "--root",
             f"Docs={tmp_path}",
         ],

@@ -151,7 +151,7 @@ export function PersonalConnectors({ agentId }: { agentId: string }) {
     {invite && <div className="connector-invite" role="status">
       <p>{t('inviteInstructions')}</p>
       <code className="invite-token">{invite.token}</code>
-      <pre>{`bees-executor personal --api ${window.location.origin} --invite ${invite.token} --root Documentos=~/Documents`}</pre>
+      <pre>{`bees-executor personal --api ${window.location.origin} --invite=${invite.token} --root Documentos=~/Documents`}</pre>
       <small>{t('inviteExpires', { time: new Date(invite.expires_at).toLocaleTimeString(i18n.resolvedLanguage) })}</small>
     </div>}
   </section>

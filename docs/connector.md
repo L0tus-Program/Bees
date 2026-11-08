@@ -10,7 +10,7 @@ O conector deixa a abelha trabalhar no seu computador **somente** nas pastas e r
    ```sh
    pip install "./apps/executor[browser,documents]"   # a partir do checkout do Bees
    python -m playwright install chromium            # somente se for conceder navegador
-   bees-executor personal --api http://127.0.0.1:8080 --invite <convite> \
+   bees-executor personal --api http://127.0.0.1:8080 --invite=<convite> \
      --root Documentos=~/Documents --root Downloads=~/Downloads
    ```
 
