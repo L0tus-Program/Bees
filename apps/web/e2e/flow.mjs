@@ -759,6 +759,7 @@ try {
   await page.locator('#chat-input').fill(draft)
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 900 })
+    await waitFor(() => clearChat.isEnabled(), `Limpar conversa disponível a ${width} px`, 10_000)
     if (await clearChat.getAttribute('aria-haspopup') !== 'dialog') throw new Error('Limpar conversa não anuncia o diálogo.')
     await clearChat.press('Enter')
     await cancelClear.waitFor()
