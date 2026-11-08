@@ -123,6 +123,8 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
   useEffect(() => () => sendController.current?.abort(), [])
   const [clearing, setClearing] = useState(false)
   const clearController = useRef<AbortController | null>(null)
+  const clearButtonRef = useRef<HTMLButtonElement>(null)
+  const restoreClearFocus = useRef(false)
   const clearIdentity = useRef(commandIdentity())
   useEffect(() => () => clearController.current?.abort(), [])
   const [error, setError] = useState<ApiError | null>(null)
@@ -131,6 +133,14 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
+
+  useEffect(() => {
+    if (clearing || !restoreClearFocus.current) return
+    restoreClearFocus.current = false
+    const trigger = clearButtonRef.current
+    if (trigger && !trigger.disabled) trigger.focus()
+    else inputRef.current?.focus()
+  }, [clearing])
 
   const draftRef = useRef(draft)
   useEffect(() => { draftRef.current = draft }, [draft])
@@ -245,7 +255,12 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
     const snapshot = resource.data.revision
     let confirmed = false
     try {
-      if (!await confirmAction(t('clearConfirm'), t('clearConversation')) || operation.signal.aborted) return
+      const accepted = await confirmAction(t('clearConfirm'), t('clearConversation'))
+      if (operation.signal.aborted) return
+      if (!accepted) {
+        restoreClearFocus.current = true
+        return
+      }
       const requestId = clearIdentity.current.forPayload({ conversation: agent.conversation_id, agentRevision: agent.revision, revision: snapshot })
       await clearConversation(agent, snapshot, requestId, operation.signal)
       if (!operation.signal.aborted) { confirmed = true; onCleared() }
@@ -270,7 +285,7 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
     onDragLeave={(event) => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false) }}
     onDrop={(event) => { if (!hasDraggedFiles(event) && !event.dataTransfer.files.length) return; event.preventDefault(); event.stopPropagation(); dragDepth.current = 0; setDragging(false); void attach(Array.from(event.dataTransfer.files)) }}>
     {dragging && canAttach && <div className="pointer-events-none absolute inset-2 z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary bg-background/95 px-4 text-center" role="status"><Paperclip className="size-8 text-primary" aria-hidden="true" /><p className="font-medium">{t('dropAttachments')}</p><p className="text-sm text-muted-foreground">{t('attachHint')}</p></div>}
-    {onCleared && <div className="flex justify-end px-4 py-1"><Button variant="ghost" size="sm" onClick={() => { void clear() }} disabled={busy || clearing || uploading || !historyReady || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
+    {onCleared && <div className="flex justify-end px-4 py-1"><Button ref={clearButtonRef} variant="ghost" size="sm" aria-haspopup="dialog" onClick={() => { void clear() }} disabled={busy || clearing || uploading || !historyReady || !resource.data.revision || empty}><Trash2 />{t(clearing ? 'clearing' : 'clearConversation')}</Button></div>}
     <div ref={scroller} role="log" aria-label={agent.name} aria-live="polite" aria-relevant="additions" tabIndex={0}
       className="relative min-h-0 flex-1 overflow-y-auto focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" onScroll={(event) => { const node = event.currentTarget; follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
