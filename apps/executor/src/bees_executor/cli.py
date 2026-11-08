@@ -115,12 +115,14 @@ class PersonalConnector:
 def _invite(args) -> str | None:
     if args.invite:
         return args.invite
-    if args.invite_file and Path(args.invite_file).exists():
-        try:
-            return json.loads(Path(args.invite_file).read_text())["token"]
-        except (ValueError, KeyError, OSError):
-            return None
-    return None
+    if not args.invite_file:
+        return None
+    try:
+        pending = json.loads(Path(args.invite_file).read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    token = pending.get("token") if isinstance(pending, dict) else None
+    return token if isinstance(token, str) and token.strip() else None
 
 
 async def _run(args, handler, kind, roots=()):
