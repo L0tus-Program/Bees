@@ -509,6 +509,32 @@ try {
     data: { client_request_id: randomUUID(), name: 'Confirmar publicação E2E', effect: 'ask', scope: { tool_name: 'deliverable.publish', action: 'publish' } },
   })
   if (policy.status() !== 201) throw new Error(`Regra de publicação não criada: HTTP ${policy.status()}.`)
+  const attachmentDraft = page.locator('#chat-input')
+  const attachmentPicker = page.locator('input[type="file"]')
+  const attachButton = page.getByRole('button', { name: /^Anexar arquivo/ })
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    await attachmentDraft.fill('Rascunho com anexos')
+    await waitFor(() => attachButton.isEnabled(), 'anexos prontos para verificar o foco')
+    await attachmentPicker.setInputFiles([
+      { name: 'remover-enter.txt', mimeType: 'text/plain', buffer: Buffer.from('Enter') },
+      { name: 'remover-espaco.txt', mimeType: 'text/plain', buffer: Buffer.from('Espaço') },
+    ])
+    const removeWithEnter = page.getByRole('button', { name: 'Remover remover-enter.txt', exact: true })
+    const removeWithSpace = page.getByRole('button', { name: 'Remover remover-espaco.txt', exact: true })
+    await removeWithSpace.waitFor()
+    for (const [remove, key] of [[removeWithEnter, 'Enter'], [removeWithSpace, 'Space']]) {
+      await remove.press(key)
+      await remove.waitFor({ state: 'detached' })
+      if (!await attachmentDraft.evaluate((element) => element === document.activeElement)) {
+        throw new Error(`O rascunho não recuperou o foco após remover anexo com ${key} a ${width} px.`)
+      }
+      if (await attachmentDraft.inputValue() !== 'Rascunho com anexos') {
+        throw new Error(`O texto do rascunho mudou após remover anexo a ${width} px.`)
+      }
+    }
+  }
+  await attachmentDraft.fill('')
   // Eventos reais de DOM com arquivos de DataTransfer: colagem e drop na lista, com upload pela API.
   await page.locator('#chat-input').evaluate((input) => {
     const clipboardData = new DataTransfer()
