@@ -82,6 +82,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const [selectedId, setSelectedId] = useState<string | null>(() => restoreWorkspace().selectedId)
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [menu, setMenu] = useState(false)
+  const menuButton = useRef<HTMLButtonElement>(null)
   const [panel, setPanel] = useState<Panel | null>(null)
   const panelOpener = useRef<HTMLButtonElement>(null)
   const [files, setFiles] = useState(false)
@@ -132,10 +133,16 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
     {/* Fixa na janela: contém e recorta elementos absolutos (ex.: textos sr-only) que esticariam a página. */}
     <div data-shell className="ui fixed inset-0 flex overflow-hidden bg-background font-sans text-foreground">
       <aside className="hidden w-72 shrink-0 border-r bg-muted/30 lg:block" aria-label={t('bees')}>{sidebar}</aside>
-      {!wide && <Sheet open={menu} onOpenChange={setMenu} title="bees." closeLabel={t('closePanel')} side="left" className="max-w-xs [&>div:last-child]:p-0">{sidebar}</Sheet>}
+      {!wide && <Sheet open={menu} onOpenChange={setMenu} title="bees." closeLabel={t('closePanel')} side="left" className="max-w-xs [&>div:last-child]:p-0"
+        onCloseAutoFocus={(event) => {
+          const trigger = menuButton.current
+          if (!trigger?.isConnected) return
+          event.preventDefault()
+          trigger.focus()
+        }}>{sidebar}</Sheet>}
       <main id="main" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
-          <Button variant="ghost" size="icon-sm" className="lg:hidden" aria-label={t('menu')} onClick={() => setMenu(true)}><Menu /></Button>
+          <Button variant="ghost" size="icon-sm" className="lg:hidden" ref={menuButton} aria-label={t('menu')} aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(true)}><Menu /></Button>
           <img src="/bee.svg" alt="" width="24" height="24" className="hidden size-6 sm:block" />
           <div className="min-w-0 flex-1"><h1 className="truncate text-base font-semibold">{selected.name}</h1>
             {selected.provider_config && <p className="truncate text-xs text-muted-foreground">{selected.provider_config.model}</p>}</div>
