@@ -7,6 +7,7 @@ autenticam executores e executores nunca acessam rotas humanas.
 
 import asyncio
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ from bees_core.executors import (
 from bees_core.security.identity import Session
 
 _SESSION = Annotated[Session, Depends(require_session)]
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["executors"])
 DISPATCH_SECONDS = 0.25
 HEARTBEAT_SECONDS = 10
@@ -146,7 +148,11 @@ def exchange(body: ExchangeInput, request: Request) -> dict:
     result = _service(request).exchange(body)
     link_dir = request.app.state.settings.computer_link_dir
     if result["kind"] == "computer_runtime" and link_dir is not None:
-        (Path(link_dir) / "invite.json").unlink(missing_ok=True)
+        try:
+            (Path(link_dir) / "invite.json").unlink(missing_ok=True)
+        except OSError:
+            # A troca já consumiu o convite. O executor ainda precisa da credencial.
+            log.warning("Falha ao limpar o convite local já consumido")
     return result
 
 
