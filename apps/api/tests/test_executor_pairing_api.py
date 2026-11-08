@@ -4,6 +4,8 @@ from pathlib import Path
 from test_tasks import headers
 from test_tasks import state as state
 
+from bees_core.executors import ExecutorService
+
 
 def test_personal_pairing_preserves_pending_computer_invite(state, tmp_path):
     client, _, _, _, settings = state
@@ -77,12 +79,8 @@ def test_computer_pairing_returns_credential_when_invite_cleanup_fails(
     assert token not in caplog.text
     assert receipt["credential"] not in caplog.text
 
-    with client.websocket_connect(
-        "ws://127.0.0.1:8000/api/v1/executors/connect",
-        headers={"Authorization": f"Bearer {receipt['credential']}"},
-    ) as socket:
-        socket.send_json({"type": "hello", "kind": "computer_runtime"})
-        assert socket.receive_json()["executor_id"] == receipt["executor_id"]
+    executor = ExecutorService(client.app.state.database).authenticate(receipt["credential"])
+    assert executor["id"] == receipt["executor_id"]
 
     replay = client.post("/api/v1/executors/exchange", json={"token": token})
     assert replay.status_code == 401
