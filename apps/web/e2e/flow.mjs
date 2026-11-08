@@ -222,6 +222,31 @@ async function closeDesktopPanelWithKeyboard(page, target) {
   await waitFor(() => target.evaluate((element) => element === document.activeElement), 'foco após fechar o painel lateral no desktop', 5_000)
 }
 
+async function checkSettingsKeyboard(page) {
+  const name = 'Configurações da abelha'
+  const header = page.locator('main > header').getByRole('button', { name, exact: true })
+  const desktop = page.getByRole('complementary', { name: 'Suas abelhas', exact: true }).getByRole('button', { name, exact: true })
+  const menu = page.getByRole('button', { name: 'Abrir menu', exact: true })
+  const drawer = page.getByRole('dialog', { name: 'bees.', exact: true })
+  const heading = page.locator('#settings-heading')
+  const back = page.getByRole('button', { name: 'Voltar à conversa', exact: true })
+  const checkRoundTrip = async (opener, returnTarget, context) => {
+    await opener.press('Enter')
+    await heading.waitFor()
+    await waitFor(() => heading.evaluate((element) => element === document.activeElement), `foco na seção ao abrir ${context}`, 5_000)
+    await back.press('Enter')
+    await heading.waitFor({ state: 'hidden' })
+    await waitFor(() => returnTarget.evaluate((element) => element === document.activeElement), `foco ao voltar de ${context}`, 5_000)
+  }
+  await page.setViewportSize({ width: 390, height: 900 })
+  await checkRoundTrip(header, header, 'cabeçalho móvel')
+  await menu.press('Enter')
+  await checkRoundTrip(drawer.getByRole('button', { name, exact: true }), menu, 'menu móvel')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await checkRoundTrip(desktop, desktop, 'barra de abelhas no desktop')
+  await checkRoundTrip(header, header, 'cabeçalho desktop')
+}
+
 const agentTurnLocales = {
   'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
   en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
@@ -635,6 +660,7 @@ try {
     await filesPanel.waitFor({ state: 'hidden' })
     await waitFor(() => filesButton.evaluate((element) => element === document.activeElement), `foco em Arquivos após Fechar painel a ${width} px`, 5_000)
   }
+  await checkSettingsKeyboard(page)
   await page.getByRole('button', { name: 'Configurações da abelha' }).first().click()
   await page.getByRole('button', { name: 'Voltar à conversa' }).waitFor()
   // Exercita o caminho real de edição, sem gerar: salvar perfil e modelo mantém a abelha e a conversa.

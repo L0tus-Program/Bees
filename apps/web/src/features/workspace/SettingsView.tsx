@@ -43,7 +43,7 @@ export function SettingsPanel({ agent, data, initial = 'profile', onReload }: { 
   const [notice, setNotice] = useState<string | null>(null)
   const content = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
-  const focusNext = useRef(false)
+  const focusNext = useRef(true)
   useLayoutEffect(() => {
     if (content.current) content.current.scrollTop = 0
     if (focusNext.current) heading.current?.focus({ preventScroll: true })
