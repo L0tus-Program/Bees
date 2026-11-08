@@ -1,21 +1,38 @@
-"""Executor iniciado antes da API: o convite não se perde por erro de rede."""
+"""Recuperação do executor enquanto aguarda pareamento."""
 
+import json
 import os
 import signal
 import socket
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 from test_executor_gateway import Server
 
 from bees_core.executors import ExecutorService
+from bees_executor.cli import _invite
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
+
+@pytest.mark.parametrize(
+    "content",
+    [None, b"\xff", b"{", b"null", b"[]", b"{}", b'{"token": 123}', b'{"token": " "}'],
+)
+def test_invite_ignores_invalid_file_and_prefers_cli(tmp_path, content):
+    invite_file = tmp_path / "invite.json"
+    if content is not None:
+        invite_file.write_bytes(content)
+    args = SimpleNamespace(invite=None, invite_file=invite_file)
+    assert _invite(args) is None
+    args.invite = "-" + "A" * 42
+    assert _invite(args) == args.invite
 
 
-def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
+@pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
+@pytest.mark.parametrize("from_file", [False, True], ids=["cli", "volume"])
+def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file):
     # Porta reservada (bind sem listen): conexões são recusadas e outro teste paralelo
     # não a ocupa enquanto a API ainda não subiu.
     reserved = socket.socket()
@@ -30,46 +47,77 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch):
     database = Database(tmp_path / "state" / "bees.sqlite3")
     database.initialize()
     # Um convite base64url pode começar com hífen, que o argparse trata como opção.
+    kind = "computer_runtime" if from_file else "personal"
     with monkeypatch.context() as invite_patch:
         invite_patch.setattr("bees_core.executors.secrets.token_urlsafe", lambda _: "-" + "A" * 42)
-        invite = ExecutorService(database).invite({"kind": "personal", "name": "Notebook"})
+        invite = ExecutorService(database).invite({"kind": kind, "name": "Computador de teste"})
+    invite_file = tmp_path / "invite.json"
+    if from_file:
+        invite_file.write_text("[]", encoding="utf-8")
+        arguments = [
+            "--invite-file",
+            str(invite_file),
+            "--computers",
+            str(tmp_path / "computers"),
+            "--mode",
+            "single",
+        ]
+    else:
+        arguments = [f"--invite={invite['token']}", "--root", f"Docs={tmp_path}"]
     log = open(tmp_path / "executor.log", "wb")
     process = subprocess.Popen(
         [
             sys.executable,
             "-m",
             "bees_executor.cli",
-            "personal",
+            "computer" if from_file else "personal",
             "--api",
             f"http://127.0.0.1:{port}",
             "--state",
-            str(tmp_path / "personal"),
-            f"--invite={invite['token']}",
-            "--root",
-            f"Docs={tmp_path}",
+            str(tmp_path / "executor"),
+            *arguments,
         ],
         stdout=log,
         stderr=subprocess.STDOUT,
-        env=os.environ | {"PYTHONPATH": os.pathsep.join(p for p in sys.path if p)},
+        env=os.environ
+        | {
+            "BEES_EXECUTOR_INVITE": "",
+            "PYTHONPATH": os.pathsep.join(p for p in sys.path if p),
+        },
     )
     try:
-        time.sleep(4)  # pelo menos uma tentativa falha com conexão recusada
-        assert process.poll() is None, (tmp_path / "executor.log").read_text()
+        # Observe a espera antes de liberar a API ou substituir o arquivo.
+        expected = "Aguardando convite" if from_file else "API indisponível ao parear"
+        deadline = time.monotonic() + 15
+        log_path = tmp_path / "executor.log"
+        while process.poll() is None and time.monotonic() < deadline:
+            if expected in log_path.read_text(encoding="utf-8"):
+                break
+            time.sleep(0.1)
+        assert process.poll() is None, log_path.read_text(encoding="utf-8")
+        assert expected in log_path.read_text(encoding="utf-8")
+        if from_file:
+            temporary = invite_file.with_suffix(".tmp")
+            temporary.write_text(json.dumps(invite), encoding="utf-8")
+            temporary.replace(invite_file)
         reserved.close()
         server = Server(tmp_path)
         try:
             service = ExecutorService(server.database)
             deadline = time.monotonic() + 30
             while time.monotonic() < deadline and not any(
-                item["online"] for item in service.list("personal")
+                item["online"] for item in service.list(kind)
             ):
                 time.sleep(0.3)
-            assert any(item["online"] for item in service.list("personal")), (
+            assert any(item["online"] for item in service.list(kind)), (
                 tmp_path / "executor.log"
-            ).read_text()
+            ).read_text(encoding="utf-8")
+            assert len(service.list(kind)) == 1
         finally:
             server.stop()
     finally:
         reserved.close()
-        process.send_signal(signal.SIGKILL)
+        if process.poll() is None:
+            process.send_signal(signal.SIGKILL)
         process.wait(timeout=10)
+        log.close()
