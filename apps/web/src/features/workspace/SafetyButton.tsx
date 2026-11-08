@@ -30,7 +30,10 @@ export function SafetyButton() {
         const trigger = opener.current
         if (!trigger?.isConnected) return
         event.preventDefault()
-        trigger.focus()
+        // O menu móvel também é modal. Deixe a gaveta interna concluir a troca do escopo de foco.
+        requestAnimationFrame(() => {
+          if (trigger.isConnected) trigger.focus()
+        })
       }}>
       <div className="legacy-scope"><SafetyControl /></div>
     </Sheet>

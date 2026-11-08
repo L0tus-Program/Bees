@@ -53,6 +53,6 @@ it('lists recent decisions and revokes with confirmation', async () => {
   await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')) })
   await vi.waitFor(() => expect(container.textContent).toContain('sempre permitir'))
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label^="Revogar"]')!.click())
-  expect(calls.some((call) => call.method === 'PATCH')).toBe(true)
+  await vi.waitFor(() => expect(calls.some((call) => call.method === 'PATCH')).toBe(true))
   await vi.waitFor(() => expect(container.textContent).toContain('Decisão revogada'))
 })
