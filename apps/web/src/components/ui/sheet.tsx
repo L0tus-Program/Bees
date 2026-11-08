@@ -4,15 +4,16 @@ import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /** Painel lateral (gaveta) acessível: foco preso, Esc fecha, título obrigatório. */
-export function Sheet({ open, onOpenChange, onCloseAutoFocus, title, description, closeLabel, side = 'right', className, portalContainer, children }: {
+export function Sheet({ open, onOpenChange, onCloseAutoFocus, onEscapeKeyDown, title, description, closeLabel, side = 'right', className, portalContainer, children }: {
   open: boolean; onOpenChange: (open: boolean) => void; title: ReactNode; description?: ReactNode; closeLabel: string
   onCloseAutoFocus?: (event: Event) => void
+  onEscapeKeyDown?: (event: KeyboardEvent) => void
   side?: 'right' | 'left'; className?: string; portalContainer?: HTMLElement; children: ReactNode
 }) {
   return <Dialog.Root open={open} onOpenChange={onOpenChange}>
     <Dialog.Portal container={portalContainer}>
       <Dialog.Overlay className="ui fixed inset-0 z-40 bg-black/40" />
-      <Dialog.Content className={cn('ui fixed top-0 z-50 flex h-dvh w-full max-w-md flex-col bg-background text-foreground shadow-xl outline-none', side === 'right' ? 'right-0 border-l' : 'left-0 border-r', className)} aria-describedby={description ? undefined : undefined} onCloseAutoFocus={onCloseAutoFocus}>
+      <Dialog.Content className={cn('ui fixed top-0 z-50 flex h-dvh w-full max-w-md flex-col bg-background text-foreground shadow-xl outline-none', side === 'right' ? 'right-0 border-l' : 'left-0 border-r', className)} aria-describedby={description ? undefined : undefined} onCloseAutoFocus={onCloseAutoFocus} onEscapeKeyDown={onEscapeKeyDown}>
         <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
           <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
           <Dialog.Close className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-foreground hover:bg-muted" aria-label={closeLabel}><X className="size-4" /></Dialog.Close>

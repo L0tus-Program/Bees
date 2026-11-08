@@ -84,6 +84,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const [settings, setSettings] = useState<SettingsView | null>(null)
   const [menu, setMenu] = useState(false)
   const menuButton = useRef<HTMLButtonElement>(null)
+  const closeMobileSafetyPanel = useRef<(() => void) | null>(null)
   const settingsButton = useRef<HTMLButtonElement>(null)
   const configureModelButton = useRef<HTMLButtonElement>(null)
   const settingsOpener = useRef<SettingsOpener | null>(null)
@@ -132,11 +133,11 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
     setSettings(view)
   }
 
-  const sidebar = <div className="flex h-full flex-col gap-3 p-3">
+  const sidebar = (mobile: boolean) => <div className="flex h-full flex-col gap-3 p-3">
     <div className="flex items-center gap-2 px-2 py-1"><img src="/bee.svg" alt="" width="28" height="28" /><span className="text-lg font-bold tracking-tight">bees<span className="text-primary">.</span></span></div>
     <BeeList data={data} selected={selected} onSelect={select} onCreate={() => { setCreating(true); setMenu(false) }} />
     <div className="flex flex-col gap-1 border-t pt-3">
-      <SafetyButton />
+      <SafetyButton closePanelRef={mobile ? closeMobileSafetyPanel : undefined} />
       <Button variant="ghost" size="sm" className="justify-start" onClick={(event) => {
         if (menu) {
           // Deixa a gaveta liberar o foco antes de montar ou sair das configurações.
@@ -179,8 +180,15 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   return <TooltipProvider>
     {/* Fixa na janela: contém e recorta elementos absolutos (ex.: textos sr-only) que esticariam a página. */}
     <div data-shell className="ui fixed inset-0 flex overflow-hidden bg-background font-sans text-foreground">
-      <aside className="hidden w-72 shrink-0 border-r bg-muted/30 lg:block" aria-label={t('bees')}>{sidebar}</aside>
+      <aside className="hidden w-72 shrink-0 border-r bg-muted/30 lg:block" aria-label={t('bees')}>{sidebar(false)}</aside>
       {!wide && <Sheet open={menu} onOpenChange={setMenu} title="bees." closeLabel={t('closePanel')} side="left" className="max-w-xs [&>div:last-child]:p-0"
+        onEscapeKeyDown={(event) => {
+          const close = closeMobileSafetyPanel.current
+          if (!close) return
+          // Se o menu receber Escape primeiro, feche somente a gaveta interna.
+          event.preventDefault()
+          close()
+        }}
         onCloseAutoFocus={(event) => {
           if (toggleSettingsAfterMenu.current) {
             toggleSettingsAfterMenu.current = false
@@ -193,7 +201,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
           if (!trigger?.isConnected) return
           event.preventDefault()
           trigger.focus()
-        }}>{sidebar}</Sheet>}
+        }}>{sidebar(true)}</Sheet>}
       <main id="main" tabIndex={-1} className="flex min-h-0 min-w-0 flex-1 flex-col outline-none">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
           <Button variant="ghost" size="icon-sm" className="lg:hidden" ref={menuButton} aria-label={t('menu')} aria-haspopup="dialog" aria-expanded={menu} onClick={() => setMenu(true)}><Menu /></Button>
