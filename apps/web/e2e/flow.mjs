@@ -197,6 +197,24 @@ async function checkTaskDetailsKeyboard(page, trigger, reason, context) {
   await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em ${context} após Fechar painel`, 5_000)
 }
 
+async function checkSafetyPanelKeyboard(page, width, scope = page) {
+  const trigger = scope.getByRole('button', { name: 'Executando normalmente', exact: true }).filter({ visible: true })
+  const triggerWithPanelOpen = scope.getByRole('button', { name: 'Executando normalmente', exact: true, includeHidden: true }).filter({ visible: true })
+  const panel = page.getByRole('dialog', { name: 'Execução', exact: true })
+  if (await trigger.getAttribute('aria-haspopup') !== 'dialog') throw new Error('O controle de execução não anuncia o diálogo.')
+  await trigger.press('Enter')
+  await panel.waitFor()
+  if (await triggerWithPanelOpen.getAttribute('aria-expanded') !== 'true') throw new Error('O controle de execução não anuncia o painel aberto.')
+  await page.keyboard.press('Escape')
+  await panel.waitFor({ state: 'hidden' })
+  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em Execução após Escape a ${width} px`, 5_000)
+  await page.keyboard.press('Space')
+  await panel.getByRole('button', { name: 'Fechar painel', exact: true }).press('Enter')
+  await panel.waitFor({ state: 'hidden' })
+  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em Execução após Fechar painel a ${width} px`, 5_000)
+  if (await trigger.getAttribute('aria-expanded') !== 'false') throw new Error('O controle de execução não anuncia o painel fechado.')
+}
+
 const agentTurnLocales = {
   'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
   en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
@@ -531,6 +549,7 @@ try {
   await page.getByText(/Nenhum runtime de computador|computador desta abelha está desligado/).first().waitFor()
   await audit(page, '7-computador-lateral')
   await page.getByRole('button', { name: 'Computador', exact: true }).click()
+  await checkSafetyPanelKeyboard(page, 1280)
   await page.setViewportSize({ width: 390, height: 900 })
   const menuButton = page.getByRole('button', { name: 'Abrir menu', exact: true })
   const beeMenu = page.getByRole('dialog', { name: 'bees.', exact: true })
@@ -539,6 +558,8 @@ try {
   await beeMenu.waitFor()
   const hiddenMenuButton = page.getByRole('button', { name: 'Abrir menu', exact: true, includeHidden: true })
   if (await hiddenMenuButton.getAttribute('aria-expanded') !== 'true') throw new Error('O botão Abrir menu não registra a gaveta aberta.')
+  await checkSafetyPanelKeyboard(page, 390, beeMenu)
+  await beeMenu.waitFor()
   await page.keyboard.press('Escape')
   await beeMenu.waitFor({ state: 'hidden' })
   await waitFor(() => menuButton.evaluate((element) => element === document.activeElement), 'foco em Abrir menu após Escape', 5_000)
