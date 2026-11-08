@@ -197,13 +197,14 @@ async function checkTaskDetailsKeyboard(page, trigger, reason, context) {
   await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em ${context} após Fechar painel`, 5_000)
 }
 
-async function checkSafetyPanelKeyboard(page, width) {
-  const trigger = page.getByRole('button', { name: 'Executando normalmente', exact: true, includeHidden: true }).filter({ visible: true })
+async function checkSafetyPanelKeyboard(page, width, scope = page) {
+  const trigger = scope.getByRole('button', { name: 'Executando normalmente', exact: true }).filter({ visible: true })
+  const triggerWithPanelOpen = scope.getByRole('button', { name: 'Executando normalmente', exact: true, includeHidden: true }).filter({ visible: true })
   const panel = page.getByRole('dialog', { name: 'Execução', exact: true })
   if (await trigger.getAttribute('aria-haspopup') !== 'dialog') throw new Error('O controle de execução não anuncia o diálogo.')
   await trigger.press('Enter')
   await panel.waitFor()
-  if (await trigger.getAttribute('aria-expanded') !== 'true') throw new Error('O controle de execução não anuncia o painel aberto.')
+  if (await triggerWithPanelOpen.getAttribute('aria-expanded') !== 'true') throw new Error('O controle de execução não anuncia o painel aberto.')
   await page.keyboard.press('Escape')
   await panel.waitFor({ state: 'hidden' })
   await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em Execução após Escape a ${width} px`, 5_000)
@@ -557,7 +558,7 @@ try {
   await beeMenu.waitFor()
   const hiddenMenuButton = page.getByRole('button', { name: 'Abrir menu', exact: true, includeHidden: true })
   if (await hiddenMenuButton.getAttribute('aria-expanded') !== 'true') throw new Error('O botão Abrir menu não registra a gaveta aberta.')
-  await checkSafetyPanelKeyboard(page, 390)
+  await checkSafetyPanelKeyboard(page, 390, beeMenu)
   await beeMenu.waitFor()
   await page.keyboard.press('Escape')
   await beeMenu.waitFor({ state: 'hidden' })

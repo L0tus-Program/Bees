@@ -11,6 +11,7 @@ export function SafetyButton() {
   const { t } = useTranslation('workspace')
   const [stopped, setStopped] = useState<boolean | null>(null)
   const [open, setOpen] = useState(false)
+  const [portalContainer, setPortalContainer] = useState<HTMLElement>()
   const opener = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     let active = true
@@ -21,11 +22,15 @@ export function SafetyButton() {
   }, [open])
   return <>
     <Button variant="ghost" size="sm" className="w-full justify-start" ref={opener}
-      aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+      aria-haspopup="dialog" aria-expanded={open} onClick={(event) => {
+        // No celular, mantenha a gaveta interna dentro do escopo de foco do menu.
+        setPortalContainer(event.currentTarget.closest('[role="dialog"]') ? event.currentTarget.parentElement ?? undefined : undefined)
+        setOpen(true)
+      }}>
       <span className={cn('size-2 rounded-full', stopped ? 'bg-destructive' : 'bg-emerald-500')} aria-hidden="true" />
       {t(stopped ? 'safetyStopped' : 'safetyRunning')}
     </Button>
-    <Sheet open={open} onOpenChange={setOpen} title={t('safety')} closeLabel={t('closePanel')} side="left"
+    <Sheet open={open} onOpenChange={setOpen} title={t('safety')} closeLabel={t('closePanel')} side="left" portalContainer={portalContainer}
       onCloseAutoFocus={(event) => {
         const trigger = opener.current
         if (!trigger?.isConnected) return
