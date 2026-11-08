@@ -88,6 +88,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
   const [files, setFiles] = useState(false)
   const filesButton = useRef<HTMLButtonElement>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
+  const taskOpener = useRef<HTMLButtonElement>(null)
   const wide = useWide()
   useEffect(() => { rememberWorkspace(selectedId, 'conversation') }, [selectedId])
   const agents = resource.state === 'ready' ? resource.data.agents : []
@@ -128,7 +129,11 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
     if (!wide) panelOpener.current = trigger
     setPanel((current) => current === next ? null : next)
   }
-  const sideContent = panel === 'computer' ? <ComputerPanel key={selected.id} agentId={selected.id} name={selected.name} /> : <ActivityPanel activity={activity} onOpen={setTaskId} />
+  const openTask = (id: string, trigger: HTMLButtonElement) => {
+    taskOpener.current = trigger
+    setTaskId(id)
+  }
+  const sideContent = panel === 'computer' ? <ComputerPanel key={selected.id} agentId={selected.id} name={selected.name} /> : <ActivityPanel activity={activity} onOpen={openTask} />
   return <TooltipProvider>
     {/* Fixa na janela: contém e recorta elementos absolutos (ex.: textos sr-only) que esticariam a página. */}
     <div data-shell className="ui fixed inset-0 flex overflow-hidden bg-background font-sans text-foreground">
@@ -158,7 +163,7 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
         </header>
         {refreshNotice}
         {settings ? <SettingsPanel key={selected.id} agent={selected} data={data} initial={settings} onReload={reload} />
-          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} conversationUnverified={conversationUnverified} onTaskDetails={setTaskId} onComputerActivity={openComputer} onCleared={reload} />
+          : conversation ? <ChatView key={`${selected.id}:${selected.conversation_id}`} agent={{ ...selected, conversation_id: selected.conversation_id! }} conversationUnverified={conversationUnverified} onTaskDetails={openTask} onComputerActivity={openComputer} onCleared={reload} />
             : <div className="grid flex-1 place-items-center p-6 text-center"><div className="flex flex-col items-center gap-3"><p className="text-muted-foreground">{t('noModel')}</p><Button onClick={() => setSettings('model')}>{t('configureModel')}</Button></div></div>}
       </main>
       {!settings && panel && wide && <aside className={cn('flex min-h-0 shrink-0 flex-col overflow-hidden border-l', panel === 'computer' ? 'w-[min(44vw,640px)]' : 'w-80 xl:w-96')} aria-label={t('panel')}>
@@ -183,7 +188,14 @@ export function Workspace({ onSignOut, onData, signingOut }: { onSignOut: () => 
         }}>
         {conversation && <div className="legacy-scope"><ConversationArtifacts agentId={selected.id} conversationId={selected.conversation_id!} selected={[]} onSelected={() => undefined} onReady={() => undefined} blocked={conversationUnverified} /></div>}
       </Sheet>
-      <Sheet open={taskId !== null} onOpenChange={(open) => { if (!open) setTaskId(null) }} title={t('activity')} closeLabel={t('closePanel')} className="max-w-2xl">
+      <Sheet open={taskId !== null} onOpenChange={(open) => { if (!open) setTaskId(null) }} title={t('activity')} closeLabel={t('closePanel')} className="max-w-2xl"
+        onCloseAutoFocus={(event) => {
+          const trigger = taskOpener.current
+          taskOpener.current = null
+          if (!trigger?.isConnected) return
+          event.preventDefault()
+          trigger.focus()
+        }}>
         {taskId && <div className="legacy-scope"><TaskDetail key={taskId} agent={selected} taskId={taskId} onRefresh={() => undefined} onClose={() => setTaskId(null)} /></div>}
       </Sheet>
     </div>

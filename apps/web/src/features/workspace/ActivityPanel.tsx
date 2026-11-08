@@ -30,10 +30,10 @@ function ago(value: string, language: string) {
   return format.format(Math.min(amount, 0), 'year')
 }
 
-function TaskRow({ task, onOpen }: { task: TaskRecord; onOpen: (id: string) => void }) {
+function TaskRow({ task, onOpen }: { task: TaskRecord; onOpen: (id: string, trigger: HTMLButtonElement) => void }) {
   const { t, i18n } = useTranslation('workspace')
   return <li>
-    <button type="button" onClick={() => onOpen(task.id)} className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left text-foreground hover:bg-muted">
+    <button type="button" aria-haspopup="dialog" onClick={(event) => onOpen(task.id, event.currentTarget)} className="group flex w-full cursor-pointer items-center gap-3 rounded-lg border-0 bg-transparent px-2 py-2 text-left text-foreground hover:bg-muted">
       <StatusIcon status={task.status} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{task.title}</span>
@@ -45,7 +45,7 @@ function TaskRow({ task, onOpen }: { task: TaskRecord; onOpen: (id: string) => v
   </li>
 }
 
-function Group({ title, tasks, onOpen, limit }: { title: string; tasks: TaskRecord[]; onOpen: (id: string) => void; limit?: number }) {
+function Group({ title, tasks, onOpen, limit }: { title: string; tasks: TaskRecord[]; onOpen: (id: string, trigger: HTMLButtonElement) => void; limit?: number }) {
   const { t } = useTranslation('workspace')
   const [all, setAll] = useState(false)
   if (!tasks.length) return null
@@ -58,7 +58,7 @@ function Group({ title, tasks, onOpen, limit }: { title: string; tasks: TaskReco
 }
 
 /** Lista compacta, agrupada: o que precisa de você, o que está andando e o que já terminou. */
-export function ActivityPanel({ activity, onOpen }: { activity: ReturnType<typeof useActivity>; onOpen: (id: string) => void }) {
+export function ActivityPanel({ activity, onOpen }: { activity: ReturnType<typeof useActivity>; onOpen: (id: string, trigger: HTMLButtonElement) => void }) {
   const { t } = useTranslation('workspace')
   const { tasks } = activity
   if (activity.loading && !activity.data) return <p className="flex items-center gap-2 p-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" aria-hidden="true" />{t('thinking')}</p>
