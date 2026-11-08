@@ -48,7 +48,7 @@ export function TurnFiles({ task }: { task: TaskRecord }) {
 }
 
 /** Turno da abelha no modo agente: passos ao vivo, decisões, estado e arquivos — sem jargão de tarefa. */
-export function AgentTurn({ task, hasReply, showFiles = true, onChanged, onDetails }: { task: TaskRecord; hasReply: boolean; showFiles?: boolean; onChanged: () => void; onDetails: () => void }) {
+export function AgentTurn({ task, hasReply, showFiles = true, onChanged, onDetails }: { task: TaskRecord; hasReply: boolean; showFiles?: boolean; onChanged: () => void; onDetails: (trigger: HTMLButtonElement) => void }) {
   const { t, i18n } = useTranslation('workspace')
   const { t: agent } = useTranslation('agent')
   const steps: Step[] = task.agent_steps ?? []
@@ -78,7 +78,7 @@ export function AgentTurn({ task, hasReply, showFiles = true, onChanged, onDetai
       </ol>}
     </div>}
     {status && <div className="flex flex-wrap items-center gap-2"><Badge variant={status.variant}><status.Icon aria-hidden="true" />{status.text}</Badge>
-      {task.status !== 'waiting_approval' && <Button variant="link" size="sm" className="h-auto px-0" onClick={onDetails}>{t('details')}</Button>}</div>}
+      {task.status !== 'waiting_approval' && <Button variant="link" size="sm" className="h-auto px-0" aria-haspopup="dialog" onClick={(event) => onDetails(event.currentTarget)}>{t('details')}</Button>}</div>}
     <TaskFailure task={task} warnUnknown />
     {task.status === 'waiting_approval' && <div className="legacy-scope"><AgentApprovals agentId={task.agent_id} taskId={task.id} onChanged={onChanged} refreshKey={task.revision} /></div>}
     {showFiles && (hasReply || !live) && <TurnFiles task={task} />}

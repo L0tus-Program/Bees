@@ -182,6 +182,21 @@ async function checkPanelKeyboard(page) {
   await expectTab('Atividade')
 }
 
+async function checkTaskDetailsKeyboard(page, trigger, reason, context) {
+  const detail = page.getByRole('dialog', { name: 'Atividade', exact: true })
+  await trigger.waitFor()
+  if (await trigger.getAttribute('aria-haspopup') !== 'dialog') throw new Error(`O botão de ${context} não anuncia o diálogo.`)
+  await trigger.press('Enter')
+  await detail.getByText(reason, { exact: true }).waitFor()
+  await page.keyboard.press('Escape')
+  await detail.waitFor({ state: 'hidden' })
+  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em ${context} após Escape`, 5_000)
+  await page.keyboard.press('Space')
+  await detail.getByRole('button', { name: 'Fechar painel', exact: true }).press('Enter')
+  await detail.waitFor({ state: 'hidden' })
+  await waitFor(() => trigger.evaluate((element) => element === document.activeElement), `foco em ${context} após Fechar painel`, 5_000)
+}
+
 const agentTurnLocales = {
   'pt-BR': { composer: 'Mensagem para Abelha Agente…', decision: 'Decisões pendentes', allow: 'Permitir uma vez', download: /^Baixar relatorio-e2e/ },
   en: { composer: 'Message Abelha Agente…', decision: 'Pending decisions', allow: 'Allow once', download: /^Download relatorio-e2e/ },
@@ -681,9 +696,15 @@ try {
   const reason = 'Os argumentos da ferramenta não formam um objeto JSON válido.'
   await page.getByRole('log').getByText(reason, { exact: true }).waitFor({ timeout: 60_000 })
   if ((await page.getByRole('log').textContent()).includes('INVALID-PRIVATE-ARGUMENTS')) throw new Error('O diagnóstico publicou argumentos inválidos privados.')
+  const turnDetails = page.getByRole('log').getByRole('button', { name: 'Ver detalhes', exact: true }).last()
+  await checkTaskDetailsKeyboard(page, turnDetails, reason, 'Ver detalhes na conversa')
   await page.getByRole('button', { name: 'Atividade', exact: true }).click()
-  await page.getByRole('tabpanel').locator('.task-failure-summary').filter({ hasText: reason }).waitFor()
+  const activityRow = page.getByRole('tabpanel').getByRole('button', { name: /Teste de argumentos inválidos/ })
+  await activityRow.locator('.task-failure-summary').filter({ hasText: reason }).waitFor()
+  await checkTaskDetailsKeyboard(page, activityRow, reason, 'tarefa em Atividade no desktop')
   await auditWidths(page, '15-causa-na-atividade')
+  await page.getByRole('dialog', { name: 'Painel lateral', exact: true }).waitFor()
+  await checkTaskDetailsKeyboard(page, activityRow, reason, 'tarefa na gaveta móvel de Atividade')
   const closeActivity = page.getByRole('button', { name: 'Fechar painel', exact: true })
   if (await closeActivity.isVisible()) await closeActivity.click()
   await page.setViewportSize({ width: 1280, height: 900 })

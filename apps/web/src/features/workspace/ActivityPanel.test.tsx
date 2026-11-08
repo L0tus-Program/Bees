@@ -33,8 +33,10 @@ describe('activity panel', () => {
     expect(headings).toEqual(['Precisam de você (1)', 'Em andamento (1)', 'Recentes (1)'])
     const sections = [...container.querySelectorAll('section')].map((item) => item.textContent ?? '')
     expect(sections[0]).toContain('Apagar arquivo'); expect(sections[1]).toContain('Pesquisa'); expect(sections[2]).toContain('Relatório')
-    await act(async () => { (container.querySelector('section:last-of-type button') as HTMLButtonElement).click() })
-    expect(onOpen).toHaveBeenCalledWith('c')
+    const row = container.querySelector('section:last-of-type button') as HTMLButtonElement
+    expect(row.getAttribute('aria-haspopup')).toBe('dialog')
+    await act(async () => row.click())
+    expect(onOpen).toHaveBeenCalledWith('c', row)
   })
 
   it('keeps finished tasks minimized until asked', async () => {
@@ -58,6 +60,6 @@ describe('activity panel', () => {
     expect(row.textContent).toContain('invalid_response')
     expect(row.querySelector('details, button')).toBeNull()
     await act(async () => row.click())
-    expect(onOpen).toHaveBeenCalledWith('failure')
+    expect(onOpen).toHaveBeenCalledWith('failure', row)
   })
 })

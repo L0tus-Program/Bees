@@ -53,10 +53,10 @@ function Bubble({ message, name }: { message: Message; name: string }) {
 }
 
 /** Tarefa avulsa ligada à mensagem: um chip; os detalhes ficam no painel de atividade. */
-function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
+function TaskChip({ item, onOpen }: { item: Delegation; onOpen: (trigger: HTMLButtonElement) => void }) {
   const { t } = useTranslation('workspace')
   const live = ['queued', 'running'].includes(item.task.status)
-  return <button type="button" onClick={onOpen} className="group inline-flex max-w-full cursor-pointer items-center gap-2 self-start rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground">
+  return <button type="button" aria-haspopup="dialog" onClick={(event) => onOpen(event.currentTarget)} className="group inline-flex max-w-full cursor-pointer items-center gap-2 self-start rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground">
     {live ? <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-hidden="true" /> : <ListTodo className="size-3.5 shrink-0" aria-hidden="true" />}
     <span className="min-w-0 truncate text-foreground">{item.task.title}</span>
     <span className="shrink-0">· {t(`status.${item.task.status}`)}</span>
@@ -65,7 +65,7 @@ function TaskChip({ item, onOpen }: { item: Delegation; onOpen: () => void }) {
 }
 
 /** Conversa no estilo assistente: uma rolagem, campo fixo embaixo, a abelha decide o que fazer. */
-export function ChatView({ agent, conversationUnverified = false, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; conversationUnverified?: boolean; onTaskDetails: (taskId: string) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
+export function ChatView({ agent, conversationUnverified = false, onTaskDetails, onComputerActivity, onCleared }: { agent: Agent; conversationUnverified?: boolean; onTaskDetails: (taskId: string, trigger: HTMLButtonElement) => void; onComputerActivity?: () => void; onCleared?: () => void }) {
   const { t, i18n } = useTranslation('workspace')
   const [capabilityVersion, setCapabilityVersion] = useState(0)
   const capabilityKey = `${agent.id}:${agent.revision}:${capabilityVersion}`
@@ -289,12 +289,12 @@ export function ChatView({ agent, conversationUnverified = false, onTaskDetails,
           const replyTurn = message.agent_task_id ? turnsByTask.get(message.agent_task_id) : undefined
           return <div key={message.id} className="flex flex-col gap-3">
             <Bubble message={message} name={agent.name} />
-            {turn && <div className={cn('flex gap-3', !live && 'pl-10')}>{live && <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />}<div className="min-w-0 flex-1"><AgentTurn task={turn.task} hasReply={!live} showFiles={!repliedTasks.has(turn.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(turn.task.id)} /></div></div>}
+            {turn && <div className={cn('flex gap-3', !live && 'pl-10')}>{live && <img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" />}<div className="min-w-0 flex-1"><AgentTurn task={turn.task} hasReply={!live} showFiles={!repliedTasks.has(turn.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={(trigger) => onTaskDetails(turn.task.id, trigger)} /></div></div>}
             {replyTurn && <div className="pl-10"><TurnFiles task={replyTurn.task} /></div>}
-            {chipsFor(message).map((item) => <TaskChip key={item.id} item={item} onOpen={() => onTaskDetails(item.task.id)} />)}
+            {chipsFor(message).map((item) => <TaskChip key={item.id} item={item} onOpen={(trigger) => onTaskDetails(item.task.id, trigger)} />)}
           </div>
         })}
-        {orphanTurns.map((item) => <div key={item.id} className="flex gap-3"><img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><AgentTurn task={item.task} hasReply={false} showFiles={!repliedTasks.has(item.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={() => onTaskDetails(item.task.id)} /></div></div>)}
+        {orphanTurns.map((item) => <div key={item.id} className="flex gap-3"><img src="/bee.svg" alt="" width="28" height="28" className="mt-0.5 size-7 shrink-0 rounded-full" /><div className="min-w-0 flex-1"><AgentTurn task={item.task} hasReply={false} showFiles={!repliedTasks.has(item.task.id)} onChanged={() => { monitor.refresh(); reload() }} onDetails={(trigger) => onTaskDetails(item.task.id, trigger)} /></div></div>)}
       </div>
     </div>
     <div className="shrink-0 border-t bg-background/80 px-4 pt-3 pb-4 backdrop-blur">
