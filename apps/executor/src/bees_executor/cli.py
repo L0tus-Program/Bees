@@ -137,7 +137,7 @@ async def _run(args, handler, kind, roots=()):
                 await asyncio.sleep(3)
                 continue
             try:
-                credential = exchange(args.api, token, state)
+                credential = exchange(args.api, token, state, expected_kind=kind)
                 log.info("Executor pareado.")
             except CredentialRejected as error:
                 # Recusado pela API: não tenta de novo o mesmo convite.

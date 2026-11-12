@@ -47,7 +47,7 @@ def _ssl_context(url: str):
     return ssl.create_default_context() if url.startswith("https") else None
 
 
-def exchange(api: str, token: str, state: Path) -> dict:
+def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = None) -> dict:
     body = json.dumps(
         {"token": token, "version": VERSION, "platform": platform.platform()[:80]}
     ).encode()
@@ -90,6 +90,10 @@ def exchange(api: str, token: str, state: Path) -> dict:
         # O convite pode ter sido consumido: aguarda outro, sem repetir a troca
         # nem incluir o corpo (que pode conter segredos) no diagnóstico.
         raise CredentialRejected("exchange_invalid_response") from None
+    if expected_kind is not None and payload["kind"] != expected_kind:
+        # O modo é escolha local: não salva identidade de outro tipo nem tenta
+        # conectá-la. O convite pode ter sido consumido, portanto aguarda outro.
+        raise CredentialRejected("exchange_kind_mismatch")
     credential = {
         "executor_id": payload["executor_id"],
         "credential": payload["credential"],
