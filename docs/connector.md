@@ -22,6 +22,13 @@ O conector deixa a abelha trabalhar no seu computador **somente** nas pastas e r
 
 A credencial fica em `executor-state/credential.json` (permissão restrita). Reiniciar o conector reconecta sem novo convite.
 
+O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
+informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar
+a credencial. O arquivo é preservado; reinicie com a URL original. Uma barra
+final é equivalente, mas outras diferenças de URL são recusadas. Para outra
+instalação, use outro `--state` e faça um pareamento próprio. Estado sem vínculo
+válido também é bloqueado: não edite nem apague a credencial para contornar o erro.
+
 Se aparecer `exchange_invalid_response`, o executor recebeu uma resposta de pareamento
 inválida ou truncada no transporte e continua aguardando outro convite, sem salvar
 a resposta nem repetir a troca.
