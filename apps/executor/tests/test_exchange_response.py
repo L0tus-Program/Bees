@@ -82,12 +82,15 @@ def test_exchange_persists_valid_response(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-def test_executor_waits_for_new_invite_after_invalid_response(tmp_path, monkeypatch, kind):
+@pytest.mark.parametrize("response_mode", ["invalid", "truncated"])
+def test_executor_waits_for_new_invite_after_invalid_response(
+    tmp_path, monkeypatch, kind, response_mode
+):
     import os
     import subprocess
     import time
 
-    from starlette.responses import Response
+    from starlette.responses import Response, StreamingResponse
     from test_executor_gateway import Server, create_app
 
     from bees_core.executors import ExecutorService
@@ -105,6 +108,13 @@ def test_executor_waits_for_new_invite_after_invalid_response(tmp_path, monkeypa
             response = await call_next(request)
             if len(attempts) == 1:
                 # A API consumiu o convite, mas a resposta recebida é inválida.
+                if response_mode == "truncated":
+
+                    async def interrupted_body():
+                        yield b'{"credential":"private-response-secret"'
+                        raise RuntimeError("controlled transport interruption")
+
+                    return StreamingResponse(interrupted_body(), media_type="application/json")
                 return Response(b'{"credential":"private-response-secret"}', status_code=200)
             return response
 
