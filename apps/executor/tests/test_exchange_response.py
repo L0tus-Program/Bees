@@ -82,7 +82,7 @@ def test_exchange_persists_valid_response(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("response_mode", ["invalid", "truncated"])
+@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "wrong_kind"])
 def test_executor_waits_for_new_invite_after_invalid_response(
     tmp_path, monkeypatch, kind, response_mode
 ):
@@ -106,7 +106,7 @@ def test_executor_waits_for_new_invite_after_invalid_response(
                 return await call_next(request)
             attempts.append((await request.json())["token"])
             response = await call_next(request)
-            if len(attempts) == 1:
+            if len(attempts) == 1 and response_mode != "wrong_kind":
                 # A API consumiu o convite, mas a resposta recebida é inválida.
                 if response_mode == "truncated":
 
@@ -125,7 +125,9 @@ def test_executor_waits_for_new_invite_after_invalid_response(
     process = None
     try:
         service = ExecutorService(server.database)
-        first = service.invite({"kind": kind, "name": "Resposta perdida"})
+        other_kind = "computer_runtime" if kind == "personal" else "personal"
+        first_kind = other_kind if response_mode == "wrong_kind" else kind
+        first = service.invite({"kind": first_kind, "name": "Resposta perdida"})
         invite_file = tmp_path / "invite.json"
         invite_file.write_text(json.dumps(first), encoding="utf-8")
         state = tmp_path / "executor"
@@ -165,7 +167,12 @@ def test_executor_waits_for_new_invite_after_invalid_response(
                 time.sleep(0.1)
             diagnostic = log_path.read_text(encoding="utf-8")
             assert process.poll() is None, diagnostic
-            assert "exchange_invalid_response" in diagnostic
+            code = (
+                "exchange_kind_mismatch"
+                if response_mode == "wrong_kind"
+                else "exchange_invalid_response"
+            )
+            assert code in diagnostic
             assert "Aguardando convite" in diagnostic
             assert "private-response-secret" not in diagnostic
             assert first["token"] not in diagnostic
@@ -183,8 +190,12 @@ def test_executor_waits_for_new_invite_after_invalid_response(
             )
             assert process.poll() is None
             assert attempts == [first["token"], second["token"]]
-            assert len(service.list(kind)) == 2
+            assert len(service.list(kind)) == (1 if response_mode == "wrong_kind" else 2)
+            if response_mode == "wrong_kind":
+                assert len(service.list(other_kind)) == 1
+                assert not any(x["online"] for x in service.list(other_kind))
             saved = json.loads((state / "credential.json").read_text())
+            assert saved["kind"] == kind
             assert service.authenticate(saved["credential"])["id"] == saved["executor_id"]
     finally:
         if process is not None:

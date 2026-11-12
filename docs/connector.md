@@ -29,6 +29,13 @@ Confira a API escolhida e emita um novo convite pela interface. A API pode ter c
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.
 
+Se aparecer `exchange_kind_mismatch`, o convite retornou uma identidade de tipo
+diferente do modo iniciado (`personal` ou `computer`). O executor não salva essa
+credencial e aguarda outro convite: emita um convite do tipo correto e substitua
+o arquivo indicado por `--invite-file` (ou reinicie com o novo `--invite`).
+O convite anterior pode ter sido consumido; revogue o cadastro sem conexão na
+interface. A checagem não repara credenciais incompatíveis já salvas.
+
 ## O que a abelha pode fazer
 
 | Recurso | Concessão | Política padrão |
