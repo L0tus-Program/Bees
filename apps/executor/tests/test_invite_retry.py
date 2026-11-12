@@ -24,7 +24,7 @@ def test_exchange_distinguishes_temporary_failure_from_rejection(tmp_path, monke
     def unavailable(*args, **kwargs):
         raise urllib.error.HTTPError("http://localhost", status, "Unavailable", {}, None)
 
-    monkeypatch.setattr("urllib.request.urlopen", unavailable)
+    monkeypatch.setattr("urllib.request.OpenerDirector.open", unavailable)
     expected = ConnectionError if status == 429 or status >= 500 else CredentialRejected
     with pytest.raises(expected, match=f"exchange_.*_{status}"):
         exchange("http://localhost", "test-invite", tmp_path)

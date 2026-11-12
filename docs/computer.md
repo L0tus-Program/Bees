@@ -11,6 +11,11 @@ Cada abelha pode ter um computador Linux próprio com desktop, Chromium (sessõe
 
 Fora do Docker, gere o convite pela mesma tela e rode `bees-executor computer --api http://127.0.0.1:8000 --invite=<convite> --mode single` (desenvolvimento; sem isolamento de conta).
 
+A troca do convite recusa redirecionamentos HTTP, inclusive na mesma origem. Configure
+`--api` com a origem final do plano de controle; uma resposta 3xx não autoriza consultar
+outro destino nem salvar a credencial devolvida por ele. Isso vale também para o
+conector pessoal.
+
 ## Ferramentas
 
 | Função | O que faz | Política padrão |
