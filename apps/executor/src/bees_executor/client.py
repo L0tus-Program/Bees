@@ -10,11 +10,13 @@ import json
 import logging
 import os
 import platform
+import re
 import ssl
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from uuid import UUID
 
 from bees_executor import PROTOCOL, VERSION
 
@@ -59,12 +61,30 @@ def exchange(api: str, token: str, state: Path) -> dict:
     )
     try:
         with opener.open(request, timeout=20) as response:
-            payload = json.loads(response.read())
+            raw = response.read()
     except urllib.error.HTTPError as error:
         if error.code == 429 or error.code >= 500:
             # Limitação temporária ou falha do servidor não confirma recusa do convite.
             raise ConnectionError(f"exchange_unavailable_{error.code}") from None
         raise CredentialRejected(f"exchange_failed_{error.code}") from None
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError
+        executor_id = payload.get("executor_id")
+        secret = payload.get("credential")
+        if (
+            not isinstance(executor_id, str)
+            or str(UUID(executor_id)) != executor_id
+            or not isinstance(secret, str)
+            or re.fullmatch(r"be_[A-Za-z0-9_-]{43}", secret) is None
+            or payload.get("kind") not in ("personal", "computer_runtime")
+        ):
+            raise ValueError
+    except ValueError:
+        # O convite pode ter sido consumido: aguarda outro, sem repetir a troca
+        # nem incluir o corpo (que pode conter segredos) no diagnóstico.
+        raise CredentialRejected("exchange_invalid_response") from None
     credential = {
         "executor_id": payload["executor_id"],
         "credential": payload["credential"],
