@@ -7,7 +7,13 @@ import logging
 import os
 from pathlib import Path
 
-from bees_executor.client import CredentialRejected, ExecutorClient, exchange, load_credential
+from bees_executor.client import (
+    CredentialBindingError,
+    CredentialRejected,
+    ExecutorClient,
+    exchange,
+    load_credential,
+)
 from bees_executor.journal import Journal
 from bees_executor.tools import ToolHost
 
@@ -229,6 +235,12 @@ def main(argv=None) -> None:
                 args, handler, "computer_runtime" if args.kind == "computer" else "personal", roots
             )
         )
+    except CredentialBindingError:
+        raise SystemExit(
+            "executor_api_mismatch: credencial preservada. "
+            "Reinicie com a API original ou use um diretório de estado separado "
+            "para outra instalação. Não apague o estado privado."
+        ) from None
     except KeyboardInterrupt:
         pass
 

@@ -28,6 +28,10 @@ class CredentialRejected(RuntimeError):
     pass
 
 
+class CredentialBindingError(RuntimeError):
+    """Vínculo local inválido: preservar estado, sem tratar como revogação."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # O convite só pode ser trocado no endpoint escolhido pelo operador.
@@ -145,6 +149,16 @@ class ExecutorClient:
             pass
 
     async def run_forever(self, credential: dict) -> None:
+        saved_api = credential.get("api")
+        if (
+            not isinstance(saved_api, str)
+            or not saved_api.rstrip("/")
+            or saved_api.rstrip("/") != self.api
+        ):
+            # Nunca envia o segredo persistido a outro destino escolhido no
+            # reinício. Este erro não autoriza apagar a credencial ou reparear.
+            raise CredentialBindingError("executor_api_mismatch")
+
         from websockets.asyncio.client import connect
         from websockets.exceptions import InvalidStatus
 
