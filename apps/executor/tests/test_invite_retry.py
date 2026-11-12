@@ -7,13 +7,28 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
 from types import SimpleNamespace
 
 import pytest
-from test_executor_gateway import Server
+from starlette.responses import JSONResponse
+from test_executor_gateway import Server, create_app
 
 from bees_core.executors import ExecutorService
 from bees_executor.cli import _invite
+from bees_executor.client import CredentialRejected, exchange
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 409, 429, 500, 502, 503])
+def test_exchange_distinguishes_temporary_failure_from_rejection(tmp_path, monkeypatch, status):
+    def unavailable(*args, **kwargs):
+        raise urllib.error.HTTPError("http://localhost", status, "Unavailable", {}, None)
+
+    monkeypatch.setattr("urllib.request.urlopen", unavailable)
+    expected = ConnectionError if status == 429 or status >= 500 else CredentialRejected
+    with pytest.raises(expected, match=f"exchange_.*_{status}"):
+        exchange("http://localhost", "test-invite", tmp_path)
+    assert not (tmp_path / "credential.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -32,7 +47,8 @@ def test_invite_ignores_invalid_file_and_prefers_cli(tmp_path, content):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("from_file", [False, True], ids=["cli", "volume"])
-def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file):
+@pytest.mark.parametrize("rate_limited", [False, True], ids=["normal", "http429"])
+def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file, rate_limited):
     # Porta reservada (bind sem listen): conexões são recusadas e outro teste paralelo
     # não a ocupa enquanto a API ainda não subiu.
     reserved = socket.socket()
@@ -100,6 +116,22 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file):
             temporary = invite_file.with_suffix(".tmp")
             temporary.write_text(json.dumps(invite), encoding="utf-8")
             temporary.replace(invite_file)
+        attempts = []
+
+        def limited_app(settings):
+            app = create_app(settings)
+
+            @app.middleware("http")
+            async def limit_exchange(request, call_next):
+                if request.url.path == "/api/v1/executors/exchange":
+                    attempts.append((await request.json())["token"])
+                    if rate_limited and len(attempts) == 1:
+                        return JSONResponse({"code": "rate_limited"}, status_code=429)
+                return await call_next(request)
+
+            return app
+
+        monkeypatch.setattr("test_executor_gateway.create_app", limited_app)
         reserved.close()
         server = Server(tmp_path)
         try:
@@ -113,6 +145,10 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file):
                 tmp_path / "executor.log"
             ).read_text(encoding="utf-8")
             assert len(service.list(kind)) == 1
+            assert attempts == [invite["token"]] * (2 if rate_limited else 1)
+            # O limite temporário não enfraquece o consumo único do convite.
+            with pytest.raises(CredentialRejected, match="exchange_failed_401"):
+                exchange(server.url, invite["token"], tmp_path / "replay")
         finally:
             server.stop()
     finally:
