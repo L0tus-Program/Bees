@@ -25,6 +25,12 @@ class CredentialRejected(RuntimeError):
     pass
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # O convite só pode ser trocado no endpoint escolhido pelo operador.
+        return None
+
+
 def _write_private(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
@@ -48,8 +54,11 @@ def exchange(api: str, token: str, state: Path) -> dict:
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
+    opener = urllib.request.build_opener(
+        _NoRedirect(), urllib.request.HTTPSHandler(context=_ssl_context(api))
+    )
     try:
-        with urllib.request.urlopen(request, timeout=20, context=_ssl_context(api)) as response:
+        with opener.open(request, timeout=20) as response:
             payload = json.loads(response.read())
     except urllib.error.HTTPError as error:
         if error.code == 429 or error.code >= 500:
