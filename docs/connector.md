@@ -23,7 +23,8 @@ O conector deixa a abelha trabalhar no seu computador **somente** nas pastas e r
 A credencial fica em `executor-state/credential.json` (permissão restrita). Reiniciar o conector reconecta sem novo convite.
 
 Se aparecer `exchange_invalid_response`, o executor recebeu uma resposta de pareamento
-inválida e continua aguardando outro convite, sem salvar a resposta nem repetir a troca.
+inválida ou truncada no transporte e continua aguardando outro convite, sem salvar
+a resposta nem repetir a troca.
 Confira a API escolhida e emita um novo convite pela interface. A API pode ter consumido
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.

@@ -6,6 +6,7 @@ privado do estado local; convites são de uso único.
 """
 
 import asyncio
+import http.client
 import json
 import logging
 import os
@@ -62,6 +63,10 @@ def exchange(api: str, token: str, state: Path) -> dict:
     try:
         with opener.open(request, timeout=20) as response:
             raw = response.read()
+    except http.client.IncompleteRead:
+        # O servidor pode ter consumido o convite antes da interrupção. Não usa
+        # os bytes parciais nem repete o convite; outro pode ser fornecido à CLI.
+        raise CredentialRejected("exchange_invalid_response") from None
     except urllib.error.HTTPError as error:
         if error.code == 429 or error.code >= 500:
             # Limitação temporária ou falha do servidor não confirma recusa do convite.
