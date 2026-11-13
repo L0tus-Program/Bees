@@ -64,13 +64,15 @@ def _validate(path: Path) -> bool:
 
 
 class Journal:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, allow_create: bool = True):
         self.path = path
         self.lock = threading.Lock()
         connection = None
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
             existing = _validate(path)
+            if not existing and not allow_create:
+                raise ValueError
+            path.parent.mkdir(parents=True, exist_ok=True)
             # mode=rw não recria um arquivo existente que desapareceu após a validação.
             connection = sqlite3.connect(
                 path.resolve().as_uri() + ("?mode=rw" if existing else "?mode=rwc"),

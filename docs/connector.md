@@ -33,11 +33,16 @@ Use filesystem local; não há exclusividade entre diretórios de estado distint
 O journal existente é validado antes de recuperar comandos interrompidos.
 `executor_journal_invalid` encerra o conector antes de parear ou conectar quando
 o arquivo está vazio, ilegível, corrompido ou possui schema/registros incompatíveis.
+Se já houver credencial salva, a ausência do journal também bloqueia a inicialização,
+sem criar um histórico novo nem preparar pastas, perfil ou ferramentas.
 Preserve credencial, convite e journal; restaure o journal original de backup
 confiável. Não o apague para recriar um histórico vazio. A primeira instalação
-ainda cria um journal ausente: a checagem não detecta exclusão completa nem rollback
-para uma cópia antiga válida. No computador próprio, a mesma validação recusa a
-abertura do journal de cada computador antes de executar suas ferramentas.
+sem credencial ainda cria um journal ausente, antes de trocar o convite. A checagem
+não detecta perda conjunta de credencial e journal, exclusão de todo o estado, nem
+rollback para uma cópia antiga válida. Revogação remove a credencial: perda posterior
+do journal sem essa identidade também fica fora desta detecção. No computador
+próprio, a validação recusa journals existentes inválidos antes de executar as
+ferramentas, mas ainda não detecta a ausência completa do histórico por computador.
 
 O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
 informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar

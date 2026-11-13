@@ -71,7 +71,7 @@ def test_valid_restart_retains_receipts_and_unknown(tmp_path):
     journal.close()
 
 
-@pytest.mark.parametrize("damage", ["no_table", "receipt"])
+@pytest.mark.parametrize("damage", ["no_table", "receipt", "missing"])
 def test_real_cli_refuses_then_replays_after_explicit_restore(tmp_path, damage):
     import asyncio
     import json
@@ -104,14 +104,16 @@ def test_real_cli_refuses_then_replays_after_explicit_restore(tmp_path, damage):
         journal.begin("interrupted", "personal.files.write")
         journal.close()
         original = path.read_bytes()
-        if damage == "no_table":
+        if damage == "missing":
+            path.unlink()
+        elif damage == "no_table":
             path.unlink()
             with sqlite3.connect(path) as connection:
                 connection.execute("CREATE TABLE unrelated(id TEXT)")
         else:
             with sqlite3.connect(path) as connection:
                 connection.execute("UPDATE commands SET result='null' WHERE status='done'")
-        damaged = path.read_bytes()
+        damaged = path.read_bytes() if path.exists() else None
         requests, results = [], []
         completed = asyncio.Event()
 
@@ -176,7 +178,7 @@ def test_real_cli_refuses_then_replays_after_explicit_restore(tmp_path, damage):
                 assert api not in diagnostic
                 assert requests == []
                 assert not (state / "files").exists()
-                assert path.read_bytes() == damaged
+                assert (path.read_bytes() if path.exists() else None) == damaged
                 assert credential_file.read_bytes() == credential_before
                 assert invite.read_bytes() == invite_before
                 assert (root / "effect.txt").read_text() == "unique"
@@ -259,3 +261,30 @@ def test_computer_refuses_invalid_journal_before_effect(tmp_path):
         )
     assert not (home / "workspace" / "effect.txt").exists()
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("parent_exists", [False, True])
+def test_required_missing_journal_does_not_create_state(tmp_path, parent_exists):
+    parent = tmp_path / "state"
+    if parent_exists:
+        parent.mkdir()
+    with pytest.raises(RuntimeError, match="^executor_journal_invalid$"):
+        Journal(parent / "journal.sqlite3", allow_create=False)
+    assert parent.exists() == parent_exists
+    assert not (parent / "journal.sqlite3").exists()
+
+
+def test_required_existing_journal_retains_replay(tmp_path):
+    path = tmp_path / "journal.sqlite3"
+    journal = Journal(path)
+    receipt = {"status": "confirmed", "result": {"content": "único"}}
+    journal.begin("done", "files.write")
+    journal.finish("done", receipt)
+    journal.begin("active", "files.write")
+    journal.close()
+    journal = Journal(path, allow_create=False)
+    try:
+        assert journal.begin("done", "files.write") == receipt
+        assert journal.begin("active", "files.write")["status"] == "unknown"
+    finally:
+        journal.close()
