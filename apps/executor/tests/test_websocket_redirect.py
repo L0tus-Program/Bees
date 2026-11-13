@@ -13,6 +13,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 from bees_executor.client import CredentialRejected, ExecutorClient
+from bees_executor.journal import Journal
 from bees_executor.view import _bridge
 
 
@@ -202,6 +203,7 @@ def test_cli_keeps_identity_and_recovers_after_redirect(tmp_path, kind):
                 )
             )
             before = path.read_bytes()
+            Journal(state / "journal.sqlite3").close()
             marker = state / "private-evidence"
             marker.write_bytes(b"keep-journal")
             arguments = (
