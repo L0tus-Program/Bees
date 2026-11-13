@@ -36,7 +36,7 @@ def test_exchange_preserves_state_on_persistence_failure(tmp_path, monkeypatch, 
 
     monkeypatch.setattr("urllib.request.OpenerDirector.open", response)
     if phase == "open":
-        monkeypatch.setattr(client.os, "open", fail)
+        monkeypatch.setattr(client, "_create_private", fail)
     elif phase == "write":
         monkeypatch.setattr(client.json, "dump", fail)
     else:
@@ -111,7 +111,7 @@ def test_cli_sanitizes_save_failure_and_releases_lock(tmp_path, monkeypatch, mod
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("phase", ["open", "replace"])
+@pytest.mark.parametrize("phase", ["open", "collision", "replace"])
 def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypatch, kind, phase):
     from test_executor_gateway import Server
 
@@ -121,8 +121,8 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
     attempts, identities = [], []
     original_exchange = ExecutorService.exchange
     state = tmp_path / "executor"
-    obstacle = state / ("credential.tmp" if phase == "open" else "credential.json")
-    evidence = obstacle / "preserve.txt"
+    obstacle = state / ("credential.json" if phase == "replace" else "credential.tmp")
+    evidence = obstacle if phase == "collision" else obstacle / "preserve.txt"
 
     def tracked_exchange(self, *args, **kwargs):
         attempts.append(True)
@@ -130,7 +130,8 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         identities.append(identity)
         # Criar após o preflight, antes da resposta da API, para testar falha
         # real de open/replace após consumir o convite, sem pendência prévia.
-        obstacle.mkdir()
+        if phase != "collision":
+            obstacle.mkdir()
         evidence.write_bytes(b"private-evidence")
         return identity
 
@@ -188,7 +189,7 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         assert "API indisponível" not in diagnostic
         assert attempts == [True]
         assert identities[0]["credential"] not in diagnostic
-        if phase == "open":
+        if phase != "replace":
             assert not (state / "credential.json").exists()
         else:
             assert (state / "credential.json").is_dir()

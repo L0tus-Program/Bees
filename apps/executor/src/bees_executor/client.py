@@ -66,10 +66,56 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _create_private(path: Path) -> int:
+    if os.name != "nt":
+        return os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    # O CRT pode seguir um link quebrado mesmo com O_EXCL. CREATE_NEW deve
+    # operar sobre o próprio reparse point, nunca sobre seu destino.
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = kernel.CreateFileW
+    create.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    handle = create(
+        str(path),
+        0x40000000,  # GENERIC_WRITE
+        0,  # Sem compartilhamento enquanto gravamos.
+        None,
+        1,  # CREATE_NEW
+        0x00200000,  # FILE_FLAG_OPEN_REPARSE_POINT
+        None,
+    )
+    if handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        # O descritor assume a propriedade do HANDLE; os.fdopen o fechará.
+        return msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY)
+    except BaseException:
+        close(handle)
+        raise
+
+
 def _write_private(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # A pendência pode surgir durante o HTTP, depois do preflight. A própria
+    # abertura deve recusar colisão, sem truncar arquivo nem seguir link.
+    descriptor = _create_private(temporary)
     with os.fdopen(descriptor, "w") as handle:
         json.dump(payload, handle)
     os.replace(temporary, path)
