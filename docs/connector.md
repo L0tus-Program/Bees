@@ -58,8 +58,10 @@ instalação, use outro `--state` e faça um pareamento próprio. Estado sem ví
 válido também é bloqueado: não edite nem apague a credencial para contornar o erro.
 
 Se aparecer `exchange_invalid_response`, o executor recebeu uma resposta de pareamento
-inválida, excessivamente aninhada ou truncada no transporte e continua aguardando
+inválida, excessivamente aninhada ou interrompida no transporte e continua aguardando
 outro convite, sem salvar a resposta nem repetir a troca.
+Isso inclui timeout e reset durante a leitura após uma resposta HTTP de sucesso;
+falhas antes de obter a resposta e HTTP 429/5xx mantêm a política de indisponibilidade.
 Confira a API escolhida e emita um novo convite pela interface. A API pode ter consumido
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.
