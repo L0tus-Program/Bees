@@ -26,7 +26,7 @@ conector pessoal.
 
 Ao reiniciar, o runtime confere a URL e o tipo salvos com a credencial antes
 de preparar computadores, abrir journals ou conectar. Uma configuração incompatível
-não inicia a recuperação de comandos interrompidos nem cria recursos locais.
+não inicia a recuperação de comandos interrompidos nem prepara recursos do runtime.
 Outro `--api` (ou vínculo ausente/inválido) encerra com `executor_api_mismatch`,
 preservando o estado. Restaure a URL original para reconectar à mesma identidade;
 uma barra final é equivalente. Use um `--state` separado para outra instalação,

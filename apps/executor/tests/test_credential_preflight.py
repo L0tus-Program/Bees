@@ -17,6 +17,7 @@ from bees_executor.journal import Journal
 
 
 def snapshot(directory):
+    # A trava da CLI pode ser criada antes da guarda; não é recurso do runtime.
     return {
         str(path.relative_to(directory)): path.read_bytes() if path.is_file() else None
         for path in directory.rglob("*")
