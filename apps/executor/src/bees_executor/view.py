@@ -61,7 +61,7 @@ async def open_view(client, computers, message: dict) -> None:
 
 
 async def _bridge(client, token: str, port: int) -> None:
-    from websockets.asyncio.client import connect
+    from bees_executor.websocket import AuthenticatedConnect as connect
 
     url = client.ws_url().replace("/executors/connect", f"/executors/view/{token}")
     for _ in range(60):
@@ -72,26 +72,29 @@ async def _bridge(client, token: str, port: int) -> None:
             await asyncio.sleep(0.1)
     else:
         raise ConnectionError("vnc_unavailable")
-    async with connect(
-        url,
-        additional_headers={"Authorization": f"Bearer {client.credential}"},
-        max_size=16 * 1024 * 1024,
-    ) as websocket:
+    try:
+        async with connect(
+            url,
+            additional_headers={"Authorization": f"Bearer {client.credential}"},
+            max_size=16 * 1024 * 1024,
+        ) as websocket:
 
-        async def upstream():
-            while True:
-                data = await reader.read(65536)
-                if not data:
-                    return
-                await websocket.send(data)
+            async def upstream():
+                while True:
+                    data = await reader.read(65536)
+                    if not data:
+                        return
+                    await websocket.send(data)
 
-        async def downstream():
-            async for data in websocket:
-                writer.write(data if isinstance(data, bytes) else data.encode())
-                await writer.drain()
+            async def downstream():
+                async for data in websocket:
+                    writer.write(data if isinstance(data, bytes) else data.encode())
+                    await writer.drain()
 
-        tasks = [asyncio.create_task(upstream()), asyncio.create_task(downstream())]
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in tasks:
-            task.cancel()
-    writer.close()
+            tasks = [asyncio.create_task(upstream()), asyncio.create_task(downstream())]
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in tasks:
+                task.cancel()
+    finally:
+        writer.close()
+        await writer.wait_closed()

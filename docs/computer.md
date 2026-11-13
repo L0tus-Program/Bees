@@ -22,6 +22,11 @@ preservando o estado. Restaure a URL original para reconectar à mesma identidad
 uma barra final é equivalente. Use um `--state` separado para outra instalação,
 sem apagar ou editar o estado anterior. Essa regra também vale para o conector pessoal.
 
+O WebSocket autenticado de comandos e o canal de visualização também recusam
+redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a credencial;
+o canal de comandos tenta novamente somente a API configurada, sem novo pareamento.
+Corrija o endpoint/proxy para servir a conexão diretamente.
+
 ## Ferramentas
 
 | Função | O que faz | Política padrão |

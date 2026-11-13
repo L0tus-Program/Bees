@@ -31,7 +31,7 @@ def test_client_never_connects_with_an_unbound_credential(tmp_path, monkeypatch,
         client.stopped.set()
         raise OSError("stop fixture")
 
-    monkeypatch.setattr("websockets.asyncio.client.connect", connect)
+    monkeypatch.setattr("bees_executor.websocket.AuthenticatedConnect", connect)
     credential = {"executor_id": str(uuid4()), "credential": "be_" + "A" * 43, "kind": kind}
     if saved_api is not None:
         credential["api"] = saved_api
@@ -56,7 +56,7 @@ def test_client_keeps_trailing_slash_equivalence(tmp_path, monkeypatch, saved_ap
         client.stopped.set()
         raise OSError("stop fixture")
 
-    monkeypatch.setattr("websockets.asyncio.client.connect", connect)
+    monkeypatch.setattr("bees_executor.websocket.AuthenticatedConnect", connect)
     credential = {"api": saved_api, "credential": "be_" + "A" * 43}
     asyncio.run(client.run_forever(credential))
     assert len(calls) == 1
