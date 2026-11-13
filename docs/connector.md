@@ -69,3 +69,13 @@ Caminhos usam o alias da pasta (`Documentos/relatorio.pdf`). O conector confere 
 ## Revogar
 
 Desmarque a concessão da abelha ou clique **Revogar conector**. A revogação impede novos comandos imediatamente e encerra a conexão; comandos não enviados expiram sem efeito.
+
+Se `credential.json` existir com conteúdo inválido ou estiver ilegível, o executor
+encerra com `executor_credential_invalid`, antes de preparar recursos ou abrir o
+journal. Isso inclui JSON `null`, arquivo truncado, identidade incompleta e link
+quebrado. O arquivo, o convite pendente e o journal são preservados; nenhum convite
+substitui automaticamente uma credencial inválida. Preserve o estado privado e
+restaure o arquivo original de um backup confiável. Sem esse backup, a recuperação
+do cadastro exige avaliação humana; apagar o estado não é recuperação suportada.
+A ausência completa do arquivo ainda permite a primeira instalação. Esta checagem
+não detecta perda total do estado, rollback nem corrupção arbitrária do journal.

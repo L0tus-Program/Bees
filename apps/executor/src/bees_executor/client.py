@@ -36,6 +36,10 @@ class CredentialKindError(CredentialBindingError):
     """Modo local incompatível com a identidade salva: sem repareamento."""
 
 
+class CredentialStateError(RuntimeError):
+    """Estado local ilegível ou inválido: não autoriza uma nova identidade."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # O convite só pode ser trocado no endpoint escolhido pelo operador.
@@ -114,7 +118,33 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
 
 def load_credential(state: Path) -> dict | None:
     path = state / "credential.json"
-    return json.loads(path.read_text()) if path.exists() else None
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise CredentialStateError("executor_credential_invalid") from None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError
+        executor_id = payload.get("executor_id")
+        secret = payload.get("credential")
+        if (
+            not isinstance(executor_id, str)
+            or str(UUID(executor_id)) != executor_id
+            or not isinstance(secret, str)
+            or re.fullmatch(r"be_[A-Za-z0-9_-]{43}", secret) is None
+            or payload.get("kind") not in ("personal", "computer_runtime")
+            or not isinstance(payload.get("api"), str)
+            or not payload["api"].rstrip("/")
+        ):
+            raise ValueError
+    except (ValueError, OSError):
+        # Não confundir corrupção, perda durante leitura ou link quebrado com
+        # primeira instalação; não incluir conteúdo/caminho no diagnóstico.
+        raise CredentialStateError("executor_credential_invalid") from None
+    return payload
 
 
 class ExecutorClient:
