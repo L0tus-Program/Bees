@@ -239,3 +239,23 @@ conjunta de journal e marcador, rollback para journal válido, ou exclusão dura
 uma conexão já aberta. Não substitui backup consistente nem reconciliação humana.
 A criação exclusiva do marcador evita duas primeiras criações simultâneas, mas
 não substitui a exclusividade de processos do supervisor/estado privado.
+
+### Journal pessoal após revogação
+
+A CLI pessoal também grava `journal.required` no diretório privado do executor,
+antes da primeira criação de `journal.sqlite3`, usando a mesma criação exclusiva
+e sincronizada dos computadores. O marcador permanece quando uma recusa de
+autenticação remove `credential.json`: perder o journal depois da revogação ou
+mesmo durante a espera pelo primeiro convite não autoriza criar histórico vazio.
+A próxima inicialização bloqueia com `executor_journal_invalid` antes de preparar
+recursos, conectar ou consumir um convite. Um journal legado válido recebe o
+marcador; credencial salva sem journal já bloqueia mesmo sem marcador.
+
+Após parar os processos, preserve marcador, convites e arquivos compartilhados e
+restaure o journal original de backup confiável. A revogação continua valendo:
+a restauração do histórico não reativa a credencial recusada; outro pareamento
+segue o fluxo normal autorizado. Recibos confirmados continuam em replay e
+comandos interrompidos permanecem unknown. Não apague o marcador para reparear.
+Os limites de perda anterior à atualização sem marcador/credencial, perda
+conjunta de journal e marcador, rollback válido e exclusão durante conexão aberta
+continuam os mesmos; o marcador não é backup nem prova de conclusão do efeito.

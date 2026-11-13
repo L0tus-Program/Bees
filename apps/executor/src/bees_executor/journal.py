@@ -129,13 +129,12 @@ class Journal:
         self.connection.close()
 
 
-def computer_journal(home: Path) -> Journal:
+def persistent_journal(path: Path, *, allow_create: bool = True) -> Journal:
     """Marca a primeira abertura; ausência posterior nunca autoriza histórico vazio.
 
     Um journal legado válido recebe o marcador antes da abertura em escrita.
     Marcador sem journal também pode ser uma criação interrompida: não reparar.
     """
-    path = home / ".bees" / "journal.sqlite3"
     marker = path.with_suffix(".required")
     created = False
     try:
@@ -144,6 +143,8 @@ def computer_journal(home: Path) -> Journal:
         except FileNotFoundError:
             # Recusar corrupção legada antes de criar qualquer arquivo auxiliar.
             existing = _validate(path)
+            if not existing and not allow_create:
+                raise ValueError from None
             path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 with marker.open("xb") as stream:
@@ -167,3 +168,7 @@ def computer_journal(home: Path) -> Journal:
         return Journal(path, allow_create=created)
     except (OSError, sqlite3.Error, ValueError, RecursionError):
         raise JournalStateError("executor_journal_invalid") from None
+
+
+def computer_journal(home: Path) -> Journal:
+    return persistent_journal(home / ".bees" / "journal.sqlite3")
