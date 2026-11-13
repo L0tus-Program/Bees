@@ -11,6 +11,14 @@ Cada abelha pode ter um computador Linux próprio com desktop, Chromium (sessõe
 
 Fora do Docker, gere o convite pela mesma tela e rode `bees-executor computer --api http://127.0.0.1:8000 --invite=<convite> --mode single` (desenvolvimento; sem isolamento de conta).
 
+O runtime mantém uma trava local por diretório `--state` durante espera, pareamento
+e conexão. `executor_state_in_use` recusa uma segunda CLI antes de abrir o journal
+ou preparar computadores; encerre a instância anterior para reiniciar.
+O arquivo `executor.lock` permanece após saída/crash e não deve ser apagado:
+o sistema libera a trava automaticamente. `executor_state_unavailable` indica
+falha de acesso à trava. Use filesystem local; estados em diretórios diferentes
+continuam independentes. A mesma regra vale para o conector pessoal.
+
 A troca do convite recusa redirecionamentos HTTP, inclusive na mesma origem. Configure
 `--api` com a origem final do plano de controle; uma resposta 3xx não autoriza consultar
 outro destino nem salvar a credencial devolvida por ele. Isso vale também para o
