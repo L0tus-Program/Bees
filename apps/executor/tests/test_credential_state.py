@@ -17,7 +17,17 @@ from bees_executor.journal import Journal
 
 @pytest.mark.parametrize(
     "raw",
-    [b"null", b"[]", b'"private-secret"', b"42", b"true", b"{", b"", b"\xff"],
+    [
+        b"null",
+        b"[]",
+        b'"private-secret"',
+        b"42",
+        b"true",
+        b"{",
+        b"",
+        b"\xff",
+        pytest.param(b"[" * 100000 + b"0" + b"]" * 100000, id="deep"),
+    ],
 )
 def test_invalid_file_is_preserved(tmp_path, raw):
     path = tmp_path / "credential.json"
@@ -102,7 +112,10 @@ def test_valid_saved_identity(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("raw", [b"null", b"{"])
+@pytest.mark.parametrize(
+    "raw",
+    [b"null", b"{", pytest.param(b"[" * 100000 + b'"private-secret"' + b"]" * 100000, id="deep")],
+)
 def test_cli_blocks_corruption_and_recovers_original_identity(tmp_path, monkeypatch, kind, raw):
     server = Server(tmp_path)
     process = None

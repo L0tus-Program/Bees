@@ -98,7 +98,7 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
             or payload.get("kind") not in ("personal", "computer_runtime")
         ):
             raise ValueError
-    except ValueError:
+    except (ValueError, RecursionError):
         # O convite pode ter sido consumido: aguarda outro, sem repetir a troca
         # nem incluir o corpo (que pode conter segredos) no diagnóstico.
         raise CredentialRejected("exchange_invalid_response") from None
@@ -140,7 +140,7 @@ def load_credential(state: Path) -> dict | None:
             or not payload["api"].rstrip("/")
         ):
             raise ValueError
-    except (ValueError, OSError):
+    except (ValueError, OSError, RecursionError):
         # Não confundir corrupção, perda durante leitura ou link quebrado com
         # primeira instalação; não incluir conteúdo/caminho no diagnóstico.
         raise CredentialStateError("executor_credential_invalid") from None

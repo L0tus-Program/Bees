@@ -33,7 +33,17 @@ def test_exchange_distinguishes_temporary_failure_from_rejection(tmp_path, monke
 
 @pytest.mark.parametrize(
     "content",
-    [None, b"\xff", b"{", b"null", b"[]", b"{}", b'{"token": 123}', b'{"token": " "}'],
+    [
+        None,
+        b"\xff",
+        b"{",
+        b"null",
+        b"[]",
+        b"{}",
+        b'{"token": 123}',
+        b'{"token": " "}',
+        pytest.param(b"[" * 100000 + b"0" + b"]" * 100000, id="deep"),
+    ],
 )
 def test_invite_ignores_invalid_file_and_prefers_cli(tmp_path, content):
     invite_file = tmp_path / "invite.json"
@@ -69,7 +79,7 @@ def test_executor_pairs_once_the_api_comes_up(tmp_path, monkeypatch, from_file, 
         invite = ExecutorService(database).invite({"kind": kind, "name": "Computador de teste"})
     invite_file = tmp_path / "invite.json"
     if from_file:
-        invite_file.write_text("[]", encoding="utf-8")
+        invite_file.write_text("[" * 100000 + '"private-invite"' + "]" * 100000, encoding="utf-8")
         arguments = [
             "--invite-file",
             str(invite_file),
