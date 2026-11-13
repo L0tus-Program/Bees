@@ -30,6 +30,15 @@ abre o journal, consome convites nem altera a credencial. Se a trava não puder 
 aberta, `executor_state_unavailable` orienta conferir o acesso ao estado privado.
 Use filesystem local; não há exclusividade entre diretórios de estado distintos.
 
+O journal existente é validado antes de recuperar comandos interrompidos.
+`executor_journal_invalid` encerra o conector antes de parear ou conectar quando
+o arquivo está vazio, ilegível, corrompido ou possui schema/registros incompatíveis.
+Preserve credencial, convite e journal; restaure o journal original de backup
+confiável. Não o apague para recriar um histórico vazio. A primeira instalação
+ainda cria um journal ausente: a checagem não detecta exclusão completa nem rollback
+para uma cópia antiga válida. No computador próprio, a mesma validação recusa a
+abertura do journal de cada computador antes de executar suas ferramentas.
+
 O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
 informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar
 a credencial. O arquivo é preservado; reinicie com a URL original. Uma barra
