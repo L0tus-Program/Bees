@@ -118,6 +118,10 @@ def _write_private(path: Path, payload: dict) -> None:
     descriptor = _create_private(temporary)
     with os.fdopen(descriptor, "w") as handle:
         json.dump(payload, handle)
+        # Detectar falha tardia antes de publicar a identidade e conectar.
+        # Erro conserva o temporário para reconciliação, sem repetir o convite.
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, path)
 
 
