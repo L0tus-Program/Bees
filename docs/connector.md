@@ -43,6 +43,11 @@ o arquivo indicado por `--invite-file` (ou reinicie com o novo `--invite`).
 O convite anterior pode ter sido consumido; revogue o cadastro sem conexão na
 interface. A checagem não repara credenciais incompatíveis já salvas.
 
+O WebSocket autenticado de comandos e o canal de visualização também recusam
+redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a credencial;
+o canal de comandos tenta novamente somente a API configurada, sem novo pareamento.
+Corrija o endpoint/proxy para servir a conexão diretamente.
+
 ## O que a abelha pode fazer
 
 | Recurso | Concessão | Política padrão |

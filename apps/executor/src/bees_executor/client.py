@@ -159,8 +159,9 @@ class ExecutorClient:
             # reinício. Este erro não autoriza apagar a credencial ou reparear.
             raise CredentialBindingError("executor_api_mismatch")
 
-        from websockets.asyncio.client import connect
         from websockets.exceptions import InvalidStatus
+
+        from bees_executor.websocket import AuthenticatedConnect as connect
 
         delay = 1.0
         self.credential = credential["credential"]
