@@ -32,6 +32,10 @@ class CredentialBindingError(RuntimeError):
     """Vínculo local inválido: preservar estado, sem tratar como revogação."""
 
 
+class CredentialKindError(CredentialBindingError):
+    """Modo local incompatível com a identidade salva: sem repareamento."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # O convite só pode ser trocado no endpoint escolhido pelo operador.
@@ -158,6 +162,12 @@ class ExecutorClient:
             # Nunca envia o segredo persistido a outro destino escolhido no
             # reinício. Este erro não autoriza apagar a credencial ou reparear.
             raise CredentialBindingError("executor_api_mismatch")
+
+        saved_kind = credential.get("kind")
+        if saved_kind not in ("personal", "computer_runtime") or saved_kind != self.kind:
+            # Tipo também pertence à identidade persistida. Trocar de modo não
+            # autoriza enviar o segredo, apagar o estado ou consumir outro convite.
+            raise CredentialKindError("executor_kind_mismatch")
 
         from websockets.exceptions import InvalidStatus
 

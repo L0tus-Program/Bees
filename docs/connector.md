@@ -41,7 +41,13 @@ diferente do modo iniciado (`personal` ou `computer`). O executor não salva ess
 credencial e aguarda outro convite: emita um convite do tipo correto e substitua
 o arquivo indicado por `--invite-file` (ou reinicie com o novo `--invite`).
 O convite anterior pode ter sido consumido; revogue o cadastro sem conexão na
-interface. A checagem não repara credenciais incompatíveis já salvas.
+interface.
+
+No reinício, `executor_kind_mismatch` recusa um tipo salvo incompatível ou ausente
+antes de enviar a credencial à API. Reinicie no modo original (`personal` ou
+`computer`); para outro pareamento, use um diretório `--state` separado.
+A credencial é preservada e nenhum novo convite é consumido. A checagem não
+repara credenciais incompatíveis já salvas.
 
 O WebSocket autenticado de comandos e o canal de visualização também recusam
 redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a credencial;

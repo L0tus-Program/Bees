@@ -22,6 +22,12 @@ preservando o estado. Restaure a URL original para reconectar à mesma identidad
 uma barra final é equivalente. Use um `--state` separado para outra instalação,
 sem apagar ou editar o estado anterior. Essa regra também vale para o conector pessoal.
 
+O tipo salvo também deve corresponder ao modo `computer`. Se aparecer
+`executor_kind_mismatch`, o runtime encerra antes de enviar a credencial,
+conservando o estado e o convite. Reinicie no modo original; para um pareamento
+diferente, use um diretório de estado separado. Tipo ausente/inválido também é
+bloqueado, sem reparo automático nem exclusão do estado privado.
+
 O WebSocket autenticado de comandos e o canal de visualização também recusam
 redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a credencial;
 o canal de comandos tenta novamente somente a API configurada, sem novo pareamento.

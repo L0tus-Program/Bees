@@ -9,6 +9,7 @@ from pathlib import Path
 
 from bees_executor.client import (
     CredentialBindingError,
+    CredentialKindError,
     CredentialRejected,
     ExecutorClient,
     exchange,
@@ -235,6 +236,12 @@ def main(argv=None) -> None:
                 args, handler, "computer_runtime" if args.kind == "computer" else "personal", roots
             )
         )
+    except CredentialKindError:
+        raise SystemExit(
+            "executor_kind_mismatch: credencial preservada. "
+            "Reinicie no modo original (personal ou computer) ou use um diretório "
+            "de estado separado para outro pareamento. Não apague o estado privado."
+        ) from None
     except CredentialBindingError:
         raise SystemExit(
             "executor_api_mismatch: credencial preservada. "

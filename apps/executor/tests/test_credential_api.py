@@ -57,7 +57,7 @@ def test_client_keeps_trailing_slash_equivalence(tmp_path, monkeypatch, saved_ap
         raise OSError("stop fixture")
 
     monkeypatch.setattr("bees_executor.websocket.AuthenticatedConnect", connect)
-    credential = {"api": saved_api, "credential": "be_" + "A" * 43}
+    credential = {"api": saved_api, "credential": "be_" + "A" * 43, "kind": "personal"}
     asyncio.run(client.run_forever(credential))
     assert len(calls) == 1
     assert calls[0][0] == ("ws://chosen.test/api/v1/executors/connect",)
