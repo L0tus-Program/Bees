@@ -69,7 +69,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def _write_private(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # A pendência pode surgir durante o HTTP, depois do preflight. A própria
+    # abertura deve recusar colisão, sem truncar arquivo nem seguir link.
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w") as handle:
         json.dump(payload, handle)
     os.replace(temporary, path)
