@@ -6,7 +6,7 @@ version = "0.1.0"
 description = "Executor remoto do Bees: computador próprio da abelha e conector pessoal"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["websockets>=13,<16"]
+dependencies = ["websockets>=15,<16"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
