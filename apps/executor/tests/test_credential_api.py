@@ -15,6 +15,7 @@ from test_executor_gateway import Server
 
 from bees_core.executors import ExecutorService
 from bees_executor.client import ExecutorClient, exchange
+from bees_executor.journal import Journal
 
 
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
@@ -94,6 +95,7 @@ def test_cli_preserves_identity_when_api_changes_and_restarts_with_original(tmp_
         credential = exchange(server.url, invite["token"], state, expected_kind=kind)
         path = state / "credential.json"
         before = path.read_bytes()
+        Journal(state / "journal.sqlite3").close()
         marker = state / "private-evidence"
         marker.write_bytes(b"preserve-private-evidence")
         invite_file = tmp_path / "invite.json"

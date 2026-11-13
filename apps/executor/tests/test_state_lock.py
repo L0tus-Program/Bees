@@ -66,6 +66,7 @@ def test_cli_excludes_second_process_and_recovers_after_crash(tmp_path, monkeypa
             invite = service.invite({"kind": kind, "name": "Original"})
             credential = exchange(server.url, invite["token"], state, expected_kind=kind)
             credential_before = path.read_bytes()
+            Journal(state / "journal.sqlite3").close()
         pending = service.invite({"kind": kind, "name": "Não consumir em paralelo"})
         invite_file = tmp_path / "invite.json"
         invite_file.write_text(json.dumps({"token": pending["token"]}))

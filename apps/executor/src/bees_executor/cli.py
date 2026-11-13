@@ -211,7 +211,7 @@ def main(argv=None) -> None:
             _start(args, parser)
     except JournalStateError:
         raise SystemExit(
-            "executor_journal_invalid: histórico de comandos inválido ou ilegível. "
+            "executor_journal_invalid: histórico de comandos ausente, inválido ou ilegível. "
             "Preserve o estado privado e restaure o journal original de um backup confiável. "
             "Não apague nem recrie o histórico para tentar novamente."
         ) from None
@@ -231,7 +231,7 @@ def main(argv=None) -> None:
 def _start(args, parser):
     try:
         # Verificar antes de abrir o journal ou preparar diretórios/recursos.
-        load_credential(Path(args.state))
+        credential = load_credential(Path(args.state))
     except CredentialStateError:
         raise SystemExit(INVALID_CREDENTIAL) from None
     if args.kind == "computer":
@@ -253,7 +253,9 @@ def _start(args, parser):
                 parser.error("Use --root Alias=Caminho")
             configured[alias] = Path(path).expanduser()
         state = Path(args.state)
-        journal = Journal(state / "journal.sqlite3")
+        # A CLI cria o journal antes do primeiro pareamento. Identidade sem
+        # histórico indica perda local, não uma instalação nova.
+        journal = Journal(state / "journal.sqlite3", allow_create=credential is None)
         (state / "files").mkdir(parents=True, exist_ok=True)
         home = Path.home()
         host = ToolHost(
