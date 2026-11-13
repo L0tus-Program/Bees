@@ -128,11 +128,10 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         attempts.append(True)
         identity = original_exchange(self, *args, **kwargs)
         identities.append(identity)
-        if phase == "replace":
-            # Criar após a leitura inicial, antes da resposta da API, para testar
-            # os.replace real sem tornar o arquivo local inválido no preflight.
-            obstacle.mkdir()
-            evidence.write_bytes(b"private-evidence")
+        # Criar após o preflight, antes da resposta da API, para testar falha
+        # real de open/replace após consumir o convite, sem pendência prévia.
+        obstacle.mkdir()
+        evidence.write_bytes(b"private-evidence")
         return identity
 
     monkeypatch.setattr(ExecutorService, "exchange", tracked_exchange)
@@ -149,10 +148,6 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         journal.finish("confirmed-command", {"status": "confirmed", "value": "preserved"})
         journal.close()
         journal_before = (state / "journal.sqlite3").read_bytes()
-        # Obstáculo real e portátil no filesystem, sem alterar permissões globais.
-        if phase == "open":
-            obstacle.mkdir()
-            evidence.write_bytes(b"private-evidence")
         arguments = (
             ["personal", "--root", f"Docs={tmp_path}"]
             if kind == "personal"
@@ -206,6 +201,34 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         registered = service.list(kind)
         assert len(registered) == 1
         assert not registered[0]["online"]
+        # Reiniciar com o mesmo volume também deve bloquear antes da API:
+        # não truncar o temporário nem repetir o convite já consumido.
+        restarted = subprocess.run(
+            process.args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=os.environ
+            | {
+                "BEES_EXECUTOR_INVITE": "",
+                "PYTHONPATH": os.pathsep.join(p for p in sys.path if p),
+            },
+            timeout=10,
+        )
+        restart_diagnostic = restarted.stdout.decode()
+        assert restarted.returncode != 0
+        assert "executor_credential_pending" in restart_diagnostic
+        assert "Traceback" not in restart_diagnostic
+        assert invite["token"] not in restart_diagnostic
+        assert identities[0]["credential"] not in restart_diagnostic
+        assert attempts == [True]
+        assert not service.list(kind)[0]["online"]
+        assert evidence.read_bytes() == b"private-evidence"
+        assert (state / "journal.sqlite3").read_bytes() == journal_before
+        assert invite_file.read_bytes() == invite_before
+        if phase == "replace":
+            assert json.loads((state / "credential.tmp").read_text()) == identities[0] | {
+                "api": server.url
+            }
     finally:
         if process is not None:
             if process.poll() is None:
