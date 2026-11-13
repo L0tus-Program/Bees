@@ -79,8 +79,12 @@ ou promovido automaticamente. Confira espaço e acesso ao diretório e o cadastr
 na interface antes de reiniciar. Se a identidade não puder ser recuperada com
 segurança, revogue o cadastro sem conexão e emita outro convite explicitamente.
 Não apague journal, marcador ou arquivos de trabalho para tentar parear.
-Esta recusa vale também para o runtime `computer`; não cobre perda de energia
-ou falhas de durabilidade que não produzam erro de gravação.
+Antes de publicar `credential.json`, o executor descarrega o buffer e sincroniza
+com `fsync` o conteúdo de `credential.tmp`. Falha nessa etapa também encerra com
+`executor_credential_save_failed`, preservando a identidade anterior e o temporário;
+o reinício exige a reconciliação descrita abaixo. Vale também para `computer`.
+Isso não garante durabilidade completa após perda de energia: o diretório não é
+sincronizado, e caches do dispositivo/filesystem continuam fora desta verificação.
 
 `executor_credential_pending` bloqueia o reinício se `credential.tmp` existir
 (inclusive vazio, parcial, diretório ou link quebrado) ou não puder ser inspecionado.

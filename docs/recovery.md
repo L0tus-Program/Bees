@@ -284,7 +284,9 @@ também é preservado e pode conter segredo. Não o publique em diagnósticos ne
 promova automaticamente. Confira espaço/permissões e o cadastro na interface;
 se não houver recuperação confiável da identidade recebida, revogue esse cadastro
 e escolha um novo convite. Preserve o histórico ao reiniciar. A recusa trata erros
-observáveis de filesystem, sem prometer durabilidade contra queda de energia.
+observáveis de filesystem, inclusive falhas ao descarregar o buffer ou sincronizar
+o conteúdo do temporário com `fsync` antes da substituição. Não há sincronização
+do diretório nem garantia completa de durabilidade contra queda de energia.
 
 
 `executor_credential_pending` bloqueia o reinício se `credential.tmp` existir

@@ -111,7 +111,7 @@ def test_cli_sanitizes_save_failure_and_releases_lock(tmp_path, monkeypatch, mod
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("phase", ["open", "collision", "replace"])
+@pytest.mark.parametrize("phase", ["open", "collision", "replace", "sync"])
 def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypatch, kind, phase):
     from test_executor_gateway import Server
 
@@ -130,9 +130,10 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         identities.append(identity)
         # Criar após o preflight, antes da resposta da API, para testar falha
         # real de open/replace após consumir o convite, sem pendência prévia.
-        if phase != "collision":
+        if phase not in ("collision", "sync"):
             obstacle.mkdir()
-        evidence.write_bytes(b"private-evidence")
+        if phase != "sync":
+            evidence.write_bytes(b"private-evidence")
         return identity
 
     monkeypatch.setattr(ExecutorService, "exchange", tracked_exchange)
@@ -154,11 +155,27 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
             if kind == "personal"
             else ["computer", "--computers", str(tmp_path / "computers"), "--mode", "single"]
         )
+        launcher = [sys.executable, "-m", "bees_executor.cli"]
+        if phase == "sync":
+            # Falha somente no descritor da credencial; journal/marcador usam
+            # o fsync real. O subprocesso executa a CLI e a API consome o convite.
+            launcher = [
+                sys.executable,
+                "-c",
+                "import os, pathlib, runpy, sys\n"
+                "original = os.fsync\n"
+                "def sync(fd):\n"
+                "    state = pathlib.Path(sys.argv[sys.argv.index('--state') + 1])\n"
+                "    pending = state / 'credential.tmp'\n"
+                "    if pending.exists() and os.fstat(fd).st_ino == pending.stat().st_ino:\n"
+                "        raise OSError('private-path-and-secret')\n"
+                "    original(fd)\n"
+                "os.fsync = sync\n"
+                "runpy.run_module('bees_executor.cli', run_name='__main__')\n",
+            ]
         process = subprocess.Popen(
             [
-                sys.executable,
-                "-m",
-                "bees_executor.cli",
+                *launcher,
                 *arguments,
                 "--api",
                 server.url,
@@ -196,7 +213,8 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
             assert json.loads((state / "credential.tmp").read_text()) == identities[0] | {
                 "api": server.url
             }
-        assert evidence.read_bytes() == b"private-evidence"
+        if phase != "sync":
+            assert evidence.read_bytes() == b"private-evidence"
         assert (state / "journal.sqlite3").read_bytes() == journal_before
         assert invite_file.read_bytes() == invite_before
         registered = service.list(kind)
@@ -223,10 +241,11 @@ def test_cli_stops_after_real_exchange_when_local_write_fails(tmp_path, monkeypa
         assert identities[0]["credential"] not in restart_diagnostic
         assert attempts == [True]
         assert not service.list(kind)[0]["online"]
-        assert evidence.read_bytes() == b"private-evidence"
+        if phase != "sync":
+            assert evidence.read_bytes() == b"private-evidence"
         assert (state / "journal.sqlite3").read_bytes() == journal_before
         assert invite_file.read_bytes() == invite_before
-        if phase == "replace":
+        if phase in ("replace", "sync"):
             assert json.loads((state / "credential.tmp").read_text()) == identities[0] | {
                 "api": server.url
             }
