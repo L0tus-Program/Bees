@@ -10,6 +10,7 @@ from pathlib import Path
 from bees_executor.client import (
     CredentialBindingError,
     CredentialKindError,
+    CredentialPersistenceError,
     CredentialRejected,
     CredentialStateError,
     ExecutorClient,
@@ -209,6 +210,13 @@ def main(argv=None) -> None:
     try:
         with state_lock(Path(args.state)):
             _start(args, parser)
+    except CredentialPersistenceError:
+        raise SystemExit(
+            "executor_credential_save_failed: não foi possível salvar a credencial recebida. "
+            "O convite pode ter sido consumido; o pareamento foi interrompido. "
+            "Preserve o estado privado e eventuais arquivos temporários; "
+            "confira o acesso ao diretório e o cadastro na interface antes de tentar novamente."
+        ) from None
     except JournalStateError:
         raise SystemExit(
             "executor_journal_invalid: histórico de comandos ausente, inválido ou ilegível. "

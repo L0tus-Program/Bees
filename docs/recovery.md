@@ -259,3 +259,15 @@ comandos interrompidos permanecem unknown. Não apague o marcador para reparear.
 Os limites de perda anterior à atualização sem marcador/credencial, perda
 conjunta de journal e marcador, rollback válido e exclusão durante conexão aberta
 continuam os mesmos; o marcador não é backup nem prova de conclusão do efeito.
+
+### Falha ao salvar identidade após pareamento
+
+`executor_credential_save_failed` encerra a CLI pessoal ou de computadores quando
+a API já retornou uma identidade válida, mas a gravação local falhou. Não há
+retry da troca, conexão autenticada nem limpeza do convite/journal. Uma credencial
+anterior permanece intacta se a substituição falhar; eventual `credential.tmp`
+também é preservado e pode conter segredo. Não o publique em diagnósticos nem o
+promova automaticamente. Confira espaço/permissões e o cadastro na interface;
+se não houver recuperação confiável da identidade recebida, revogue esse cadastro
+e escolha um novo convite. Preserve o histórico ao reiniciar. A recusa trata erros
+observáveis de filesystem, sem prometer durabilidade contra queda de energia.

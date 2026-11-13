@@ -64,6 +64,17 @@ Confira a API escolhida e emita um novo convite pela interface. A API pode ter c
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.
 
+`executor_credential_save_failed` indica que uma identidade válida foi recebida,
+mas sua gravação local falhou. A CLI encerra sem repetir o convite e sem abrir
+o canal autenticado. Preserve o estado privado, inclusive eventual
+`credential.tmp`: ele pode conter uma credencial e não deve ser compartilhado
+ou promovido automaticamente. Confira espaço e acesso ao diretório e o cadastro
+na interface antes de reiniciar. Se a identidade não puder ser recuperada com
+segurança, revogue o cadastro sem conexão e emita outro convite explicitamente.
+Não apague journal, marcador ou arquivos de trabalho para tentar parear.
+Esta recusa vale também para o runtime `computer`; não cobre perda de energia
+ou falhas de durabilidade que não produzam erro de gravação.
+
 Um arquivo `--invite-file` ilegível ou com JSON que excede o parser mantém a
 espera por um convite válido. Substitua-o pelo convite emitido pela interface;
 `--invite` explícito continua tendo precedência sobre o arquivo.
