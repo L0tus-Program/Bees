@@ -40,6 +40,10 @@ class CredentialStateError(RuntimeError):
     """Estado local ilegível ou inválido: não autoriza uma nova identidade."""
 
 
+class CredentialPersistenceError(RuntimeError):
+    """Identidade recebida sem persistência confirmada: não repetir a troca."""
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # O convite só pode ser trocado no endpoint escolhido pelo operador.
@@ -112,7 +116,12 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
         "kind": payload["kind"],
         "api": api,
     }
-    _write_private(state / "credential.json", credential)
+    try:
+        _write_private(state / "credential.json", credential)
+    except OSError:
+        # A API já respondeu: não classificar disco/permissão como rede instável
+        # nem repetir o convite consumido. Preservar também eventual temporário.
+        raise CredentialPersistenceError("executor_credential_save_failed") from None
     return credential
 
 
