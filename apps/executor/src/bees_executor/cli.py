@@ -17,6 +17,7 @@ from bees_executor.client import (
     ExecutorClient,
     exchange,
     load_credential,
+    validate_credential_binding,
 )
 from bees_executor.journal import JournalStateError, persistent_journal
 from bees_executor.state import StateLockError, state_lock
@@ -212,6 +213,18 @@ def main(argv=None) -> None:
     try:
         with state_lock(Path(args.state)):
             _start(args, parser)
+    except CredentialKindError:
+        raise SystemExit(
+            "executor_kind_mismatch: credencial preservada. "
+            "Reinicie no modo original (personal ou computer) ou use um diretório "
+            "de estado separado para outro pareamento. Não apague o estado privado."
+        ) from None
+    except CredentialBindingError:
+        raise SystemExit(
+            "executor_api_mismatch: credencial preservada. "
+            "Reinicie com a API original ou use um diretório de estado separado "
+            "para outra instalação. Não apague o estado privado."
+        ) from None
     except CredentialPendingError:
         raise SystemExit(
             "executor_credential_pending: temporário de credencial não reconciliado. "
@@ -251,6 +264,10 @@ def _start(args, parser):
         credential = load_credential(Path(args.state))
     except CredentialStateError:
         raise SystemExit(INVALID_CREDENTIAL) from None
+    if credential is not None:
+        validate_credential_binding(
+            credential, args.api, "computer_runtime" if args.kind == "computer" else "personal"
+        )
     if args.kind == "computer":
         from bees_executor.computers import MultiUserComputers, SingleComputers
 
@@ -294,18 +311,6 @@ def _start(args, parser):
         )
     except CredentialStateError:
         raise SystemExit(INVALID_CREDENTIAL) from None
-    except CredentialKindError:
-        raise SystemExit(
-            "executor_kind_mismatch: credencial preservada. "
-            "Reinicie no modo original (personal ou computer) ou use um diretório "
-            "de estado separado para outro pareamento. Não apague o estado privado."
-        ) from None
-    except CredentialBindingError:
-        raise SystemExit(
-            "executor_api_mismatch: credencial preservada. "
-            "Reinicie com a API original ou use um diretório de estado separado "
-            "para outra instalação. Não apague o estado privado."
-        ) from None
     except KeyboardInterrupt:
         pass
 

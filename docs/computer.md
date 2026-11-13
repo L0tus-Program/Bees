@@ -24,7 +24,9 @@ A troca do convite recusa redirecionamentos HTTP, inclusive na mesma origem. Con
 outro destino nem salvar a credencial devolvida por ele. Isso vale também para o
 conector pessoal.
 
-Ao reiniciar, o runtime confere a URL salva com a credencial antes da conexão.
+Ao reiniciar, o runtime confere a URL e o tipo salvos com a credencial antes
+de preparar computadores, abrir journals ou conectar. Uma configuração incompatível
+não inicia a recuperação de comandos interrompidos nem cria recursos locais.
 Outro `--api` (ou vínculo ausente/inválido) encerra com `executor_api_mismatch`,
 preservando o estado. Restaure a URL original para reconectar à mesma identidade;
 uma barra final é equivalente. Use um `--state` separado para outra instalação,

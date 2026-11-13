@@ -52,7 +52,9 @@ da detecção. O computador próprio usa o mesmo mecanismo por home privada; vej
 
 O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
 informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar
-a credencial. O arquivo é preservado; reinicie com a URL original. Uma barra
+a credencial e antes de preparar recursos ou recuperar o journal local.
+O histórico (inclusive comandos interrompidos), a credencial e o convite são
+preservados; reinicie com a URL original. Uma barra
 final é equivalente, mas outras diferenças de URL são recusadas. Para outra
 instalação, use outro `--state` e faça um pareamento próprio. Estado sem vínculo
 válido também é bloqueado: não edite nem apague a credencial para contornar o erro.
@@ -118,7 +120,8 @@ O convite anterior pode ter sido consumido; revogue o cadastro sem conexão na
 interface.
 
 No reinício, `executor_kind_mismatch` recusa um tipo salvo incompatível ou ausente
-antes de enviar a credencial à API. Reinicie no modo original (`personal` ou
+antes de preparar recursos, abrir o journal ou enviar a credencial à API.
+Reinicie no modo original (`personal` ou
 `computer`); para outro pareamento, use um diretório `--state` separado.
 A credencial é preservada e nenhum novo convite é consumido. A checagem não
 repara credenciais incompatíveis já salvas.
