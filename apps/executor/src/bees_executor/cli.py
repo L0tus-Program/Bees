@@ -11,6 +11,7 @@ from bees_executor.client import (
     CredentialBindingError,
     CredentialKindError,
     CredentialRejected,
+    CredentialStateError,
     ExecutorClient,
     exchange,
     load_credential,
@@ -19,6 +20,12 @@ from bees_executor.journal import Journal
 from bees_executor.tools import ToolHost
 
 log = logging.getLogger("bees_executor")
+
+INVALID_CREDENTIAL = (
+    "executor_credential_invalid: estado da credencial inválido ou ilegível. "
+    "Preserve o estado privado e restaure a credencial original de um backup confiável. "
+    "Não apague o estado nem use outro convite como recuperação."
+)
 
 
 class ComputerRuntime:
@@ -198,6 +205,11 @@ def main(argv=None) -> None:
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    try:
+        # Verificar antes de abrir o journal ou preparar diretórios/recursos.
+        load_credential(Path(args.state))
+    except CredentialStateError:
+        raise SystemExit(INVALID_CREDENTIAL) from None
     if args.kind == "computer":
         from bees_executor.computers import MultiUserComputers, SingleComputers
 
@@ -236,6 +248,8 @@ def main(argv=None) -> None:
                 args, handler, "computer_runtime" if args.kind == "computer" else "personal", roots
             )
         )
+    except CredentialStateError:
+        raise SystemExit(INVALID_CREDENTIAL) from None
     except CredentialKindError:
         raise SystemExit(
             "executor_kind_mismatch: credencial preservada. "
