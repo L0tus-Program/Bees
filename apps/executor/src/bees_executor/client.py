@@ -141,11 +141,13 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
     )
     try:
         with opener.open(request, timeout=20) as response:
-            raw = response.read()
-    except http.client.IncompleteRead:
-        # O servidor pode ter consumido o convite antes da interrupção. Não usa
-        # os bytes parciais nem repete o convite; outro pode ser fornecido à CLI.
-        raise CredentialRejected("exchange_invalid_response") from None
+            try:
+                raw = response.read()
+            except (http.client.IncompleteRead, OSError):
+                # Após HTTP de sucesso, timeout/reset também podem ocorrer depois
+                # do consumo. Não usar bytes parciais nem repetir este convite.
+                # Falhas ao abrir a resposta mantêm a política de indisponibilidade.
+                raise CredentialRejected("exchange_invalid_response") from None
     except urllib.error.HTTPError as error:
         if error.code == 429 or error.code >= 500:
             # Limitação temporária ou falha do servidor não confirma recusa do convite.

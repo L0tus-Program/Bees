@@ -83,7 +83,7 @@ def test_exchange_persists_valid_response(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "wrong_kind", "deep"])
+@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "timeout", "wrong_kind", "deep"])
 def test_executor_waits_for_new_invite_after_invalid_response(
     tmp_path, monkeypatch, kind, response_mode
 ):
@@ -109,10 +109,17 @@ def test_executor_waits_for_new_invite_after_invalid_response(
             response = await call_next(request)
             if len(attempts) == 1 and response_mode != "wrong_kind":
                 # A API consumiu o convite, mas a resposta recebida é inválida.
-                if response_mode == "truncated":
+                if response_mode in ("truncated", "timeout"):
 
                     async def interrupted_body():
                         yield b'{"credential":"private-response-secret"'
+                        if response_mode == "timeout":
+                            import asyncio
+
+                            # A CLI mantém seu timeout padrão de 20 s. A API já
+                            # consumiu o convite antes de bloquear esta leitura.
+                            await asyncio.sleep(25)
+                            return
                         raise RuntimeError("controlled transport interruption")
 
                     return StreamingResponse(interrupted_body(), media_type="application/json")
@@ -166,7 +173,7 @@ def test_executor_waits_for_new_invite_after_invalid_response(
                     "PYTHONPATH": os.pathsep.join(p for p in sys.path if p),
                 },
             )
-            deadline = time.monotonic() + 15
+            deadline = time.monotonic() + (40 if response_mode == "timeout" else 15)
             while time.monotonic() < deadline and process.poll() is None:
                 if "Aguardando convite" in log_path.read_text(encoding="utf-8"):
                     break
@@ -184,6 +191,9 @@ def test_executor_waits_for_new_invite_after_invalid_response(
             assert first["token"] not in diagnostic
             assert attempts == [first["token"]]
             assert not (state / "credential.json").exists()
+            assert not (state / "credential.tmp").exists()
+            assert len(service.list(first_kind)) == 1
+            assert not any(x["online"] for x in service.list(first_kind))
             second = service.invite({"kind": kind, "name": "Novo convite"})
             temporary = invite_file.with_suffix(".tmp")
             temporary.write_text(json.dumps(second), encoding="utf-8")

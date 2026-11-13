@@ -260,6 +260,17 @@ Os limites de perda anterior à atualização sem marcador/credencial, perda
 conjunta de journal e marcador, rollback válido e exclusão durante conexão aberta
 continuam os mesmos; o marcador não é backup nem prova de conclusão do efeito.
 
+### Resposta de pareamento interrompida
+
+Depois de obter uma resposta HTTP de sucesso, corpo truncado, timeout ou reset
+durante a leitura geram `exchange_invalid_response`. A API pode já ter consumido
+o convite: a CLI pessoal ou de computadores aguarda outro, sem repetir a troca,
+salvar o corpo parcial ou conectar. Confira o cadastro sem conexão pela interface
+e revogue-o antes de emitir outro convite, preservando o estado privado e o
+journal. A recusa vale durante a execução atual; não registra convites recusados
+entre reinícios. Falhas antes da resposta e HTTP 429/5xx conservam sua política
+de indisponibilidade; este recorte não resolve toda ambiguidade anterior aos headers.
+
 ### Falha ao salvar identidade após pareamento
 
 `executor_credential_save_failed` encerra a CLI pessoal ou de computadores quando
