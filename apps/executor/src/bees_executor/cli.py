@@ -134,7 +134,7 @@ def _invite(args) -> str | None:
         return None
     try:
         pending = json.loads(Path(args.invite_file).read_text(encoding="utf-8"))
-    except (ValueError, OSError):
+    except (ValueError, OSError, RecursionError):
         return None
     token = pending.get("token") if isinstance(pending, dict) else None
     return token if isinstance(token, str) and token.strip() else None

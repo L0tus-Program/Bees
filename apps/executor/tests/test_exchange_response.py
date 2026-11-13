@@ -17,6 +17,7 @@ INVALID = [
     b"\xff",
     b"null",
     b"[]",
+    pytest.param(b"[" * 100000 + b'"private-response-secret"' + b"]" * 100000, id="deep"),
     b'"secret-response"',
     *[json.dumps({k: v for k, v in VALID.items() if k != missing}).encode() for missing in VALID],
     *[
@@ -82,7 +83,7 @@ def test_exchange_persists_valid_response(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "wrong_kind"])
+@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "wrong_kind", "deep"])
 def test_executor_waits_for_new_invite_after_invalid_response(
     tmp_path, monkeypatch, kind, response_mode
 ):
@@ -115,6 +116,11 @@ def test_executor_waits_for_new_invite_after_invalid_response(
                         raise RuntimeError("controlled transport interruption")
 
                     return StreamingResponse(interrupted_body(), media_type="application/json")
+                if response_mode == "deep":
+                    return Response(
+                        b"[" * 100000 + b'"private-response-secret"' + b"]" * 100000,
+                        status_code=200,
+                    )
                 return Response(b'{"credential":"private-response-secret"}', status_code=200)
             return response
 

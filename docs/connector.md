@@ -58,11 +58,15 @@ instalação, use outro `--state` e faça um pareamento próprio. Estado sem ví
 válido também é bloqueado: não edite nem apague a credencial para contornar o erro.
 
 Se aparecer `exchange_invalid_response`, o executor recebeu uma resposta de pareamento
-inválida ou truncada no transporte e continua aguardando outro convite, sem salvar
-a resposta nem repetir a troca.
+inválida, excessivamente aninhada ou truncada no transporte e continua aguardando
+outro convite, sem salvar a resposta nem repetir a troca.
 Confira a API escolhida e emita um novo convite pela interface. A API pode ter consumido
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.
+
+Um arquivo `--invite-file` ilegível ou com JSON que excede o parser mantém a
+espera por um convite válido. Substitua-o pelo convite emitido pela interface;
+`--invite` explícito continua tendo precedência sobre o arquivo.
 
 Se aparecer `exchange_kind_mismatch`, o convite retornou uma identidade de tipo
 diferente do modo iniciado (`personal` ou `computer`). O executor não salva essa
@@ -100,8 +104,8 @@ Desmarque a concessão da abelha ou clique **Revogar conector**. A revogação i
 
 Se `credential.json` existir com conteúdo inválido ou estiver ilegível, o executor
 encerra com `executor_credential_invalid`, antes de preparar recursos ou abrir o
-journal. Isso inclui JSON `null`, arquivo truncado, identidade incompleta e link
-quebrado. O arquivo, o convite pendente e o journal são preservados; nenhum convite
+journal. Isso inclui JSON `null`, aninhamento que excede o parser, arquivo truncado,
+identidade incompleta e link quebrado. O arquivo, o convite pendente e o journal são preservados; nenhum convite
 substitui automaticamente uma credencial inválida. Preserve o estado privado e
 restaure o arquivo original de um backup confiável. Sem esse backup, a recuperação
 do cadastro exige avaliação humana; apagar o estado não é recuperação suportada.
