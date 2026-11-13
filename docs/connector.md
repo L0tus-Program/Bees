@@ -66,6 +66,11 @@ Confira a API escolhida e emita um novo convite pela interface. A API pode ter c
 o anterior: se houver um cadastro sem conexão correspondente, revogue-o pela interface.
 Não apague o estado privado para tentar recuperar o pareamento.
 
+Todos os convites recusados são lembrados durante a execução atual: alternar o
+arquivo entre convites antigos não os reenvia. Essa memória não persiste após
+reiniciar; forneça um convite novo. `--invite` explícito mantém precedência sobre
+o arquivo, inclusive quando já foi recusado.
+
 `executor_credential_save_failed` indica que uma identidade válida foi recebida,
 mas sua gravação local falhou. A CLI encerra sem repetir o convite e sem abrir
 o canal autenticado. Preserve o estado privado, inclusive eventual
