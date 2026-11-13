@@ -10,6 +10,7 @@ from pathlib import Path
 from bees_executor.client import (
     CredentialBindingError,
     CredentialKindError,
+    CredentialPendingError,
     CredentialPersistenceError,
     CredentialRejected,
     CredentialStateError,
@@ -210,6 +211,13 @@ def main(argv=None) -> None:
     try:
         with state_lock(Path(args.state)):
             _start(args, parser)
+    except CredentialPendingError:
+        raise SystemExit(
+            "executor_credential_pending: temporário de credencial não reconciliado. "
+            "Preserve o estado privado e confira o cadastro na interface antes de reiniciar. "
+            "Não apague, substitua nem adote automaticamente o temporário; "
+            "outro convite não resolve esta pendência."
+        ) from None
     except CredentialPersistenceError:
         raise SystemExit(
             "executor_credential_save_failed: não foi possível salvar a credencial recebida. "

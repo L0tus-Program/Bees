@@ -271,3 +271,17 @@ promova automaticamente. Confira espaço/permissões e o cadastro na interface;
 se não houver recuperação confiável da identidade recebida, revogue esse cadastro
 e escolha um novo convite. Preserve o histórico ao reiniciar. A recusa trata erros
 observáveis de filesystem, sem prometer durabilidade contra queda de energia.
+
+
+`executor_credential_pending` bloqueia o reinício se `credential.tmp` existir
+(inclusive vazio, parcial, diretório ou link quebrado) ou não puder ser inspecionado.
+A recusa ocorre antes de preparar recursos, abrir o journal, trocar convites ou
+conectar, mesmo com `credential.json` válido. O temporário pode ser a única cópia
+de uma identidade já emitida; não é adotado, apagado ou sobrescrito pelo executor.
+Preserve uma cópia privada de todo o estado, confira o cadastro na interface e
+reconcilie explicitamente qual identidade deve permanecer antes de reiniciar.
+Se o cadastro pendente for revogado, seu temporário ainda precisa ser separado
+do caminho ativo pelo operador, após preservação da evidência; emitir outro
+convite sozinho não libera a recusa. Não altere journal, marcador ou arquivos de
+trabalho. Esta proteção não detecta perda conjunta de credencial e temporário
+nem substitui backup ou garante persistência após perda de energia.

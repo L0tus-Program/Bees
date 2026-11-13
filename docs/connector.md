@@ -75,6 +75,19 @@ Não apague journal, marcador ou arquivos de trabalho para tentar parear.
 Esta recusa vale também para o runtime `computer`; não cobre perda de energia
 ou falhas de durabilidade que não produzam erro de gravação.
 
+`executor_credential_pending` bloqueia o reinício se `credential.tmp` existir
+(inclusive vazio, parcial, diretório ou link quebrado) ou não puder ser inspecionado.
+A recusa ocorre antes de preparar recursos, abrir o journal, trocar convites ou
+conectar, mesmo com `credential.json` válido. O temporário pode ser a única cópia
+de uma identidade já emitida; não é adotado, apagado ou sobrescrito pelo executor.
+Preserve uma cópia privada de todo o estado, confira o cadastro na interface e
+reconcilie explicitamente qual identidade deve permanecer antes de reiniciar.
+Se o cadastro pendente for revogado, seu temporário ainda precisa ser separado
+do caminho ativo pelo operador, após preservação da evidência; emitir outro
+convite sozinho não libera a recusa. Não altere journal, marcador ou arquivos de
+trabalho. Esta proteção não detecta perda conjunta de credencial e temporário
+nem substitui backup ou garante persistência após perda de energia.
+
 Um arquivo `--invite-file` ilegível ou com JSON que excede o parser mantém a
 espera por um convite válido. Substitua-o pelo convite emitido pela interface;
 `--invite` explícito continua tendo precedência sobre o arquivo.

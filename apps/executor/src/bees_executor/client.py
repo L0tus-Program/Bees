@@ -44,6 +44,22 @@ class CredentialPersistenceError(RuntimeError):
     """Identidade recebida sem persistência confirmada: não repetir a troca."""
 
 
+class CredentialPendingError(RuntimeError):
+    """Temporário não reconciliado: não conectar nem sobrescrever evidência."""
+
+
+def _check_pending_credential(state: Path) -> None:
+    try:
+        (state / "credential.tmp").lstat()
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise CredentialPendingError("executor_credential_pending") from None
+    # Não ler/adotar o conteúdo: mesmo vazio, parcial ou link quebrado pode ser
+    # evidência de uma troca já consumida. A CLI mantém o state_lock neste ponto.
+    raise CredentialPendingError("executor_credential_pending")
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         # O convite só pode ser trocado no endpoint escolhido pelo operador.
@@ -64,6 +80,7 @@ def _ssl_context(url: str):
 
 
 def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = None) -> dict:
+    _check_pending_credential(state)
     body = json.dumps(
         {"token": token, "version": VERSION, "platform": platform.platform()[:80]}
     ).encode()
@@ -126,6 +143,7 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
 
 
 def load_credential(state: Path) -> dict | None:
+    _check_pending_credential(state)
     path = state / "credential.json"
     try:
         path.lstat()

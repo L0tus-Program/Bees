@@ -36,6 +36,12 @@ conservando o estado e o convite. Reinicie no modo original; para um pareamento
 diferente, use um diretório de estado separado. Tipo ausente/inválido também é
 bloqueado, sem reparo automático nem exclusão do estado privado.
 
+`executor_credential_pending` impede iniciar com um temporário de credencial
+não reconciliado, mesmo se a identidade anterior for válida. Nenhum computador
+é preparado nem convite consumido nesse estado. Preserve os arquivos privados
+e siga a [reconciliação de pareamento](recovery.md#falha-ao-salvar-identidade-após-pareamento)
+antes de reiniciar.
+
 O WebSocket autenticado de comandos e o canal de visualização também recusam
 redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a credencial;
 o canal de comandos tenta novamente somente a API configurada, sem novo pareamento.
