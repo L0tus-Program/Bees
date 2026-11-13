@@ -16,7 +16,7 @@ from bees_executor.client import (
     exchange,
     load_credential,
 )
-from bees_executor.journal import Journal, JournalStateError
+from bees_executor.journal import JournalStateError, persistent_journal
 from bees_executor.state import StateLockError, state_lock
 from bees_executor.tools import ToolHost
 
@@ -253,9 +253,9 @@ def _start(args, parser):
                 parser.error("Use --root Alias=Caminho")
             configured[alias] = Path(path).expanduser()
         state = Path(args.state)
-        # A CLI cria o journal antes do primeiro pareamento. Identidade sem
-        # histórico indica perda local, não uma instalação nova.
-        journal = Journal(state / "journal.sqlite3", allow_create=credential is None)
+        # O marcador sobrevive à revogação (que remove a credencial). Ausência
+        # posterior do journal nunca equivale a uma primeira instalação.
+        journal = persistent_journal(state / "journal.sqlite3", allow_create=credential is None)
         (state / "files").mkdir(parents=True, exist_ok=True)
         home = Path.home()
         host = ToolHost(

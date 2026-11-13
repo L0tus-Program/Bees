@@ -33,16 +33,22 @@ Use filesystem local; não há exclusividade entre diretórios de estado distint
 O journal existente é validado antes de recuperar comandos interrompidos.
 `executor_journal_invalid` encerra o conector antes de parear ou conectar quando
 o arquivo está vazio, ilegível, corrompido ou possui schema/registros incompatíveis.
-Se já houver credencial salva, a ausência do journal também bloqueia a inicialização,
-sem criar um histórico novo nem preparar pastas, perfil ou ferramentas.
-Preserve credencial, convite e journal; restaure o journal original de backup
-confiável. Não o apague para recriar um histórico vazio. A primeira instalação
-sem credencial ainda cria um journal ausente, antes de trocar o convite. A checagem
-não detecta perda conjunta de credencial e journal, exclusão de todo o estado, nem
-rollback para uma cópia antiga válida. Revogação remove a credencial: perda posterior
-do journal sem essa identidade também fica fora desta detecção. No computador
-próprio, a validação recusa journals existentes inválidos antes de executar as
-ferramentas, mas ainda não detecta a ausência completa do histórico por computador.
+A primeira abertura grava `journal.required` no estado privado antes de criar o
+journal. A ausência posterior do histórico bloqueia a inicialização enquanto esse
+marcador existir, mesmo após a revogação remover a credencial ou durante a espera
+pelo primeiro convite. Credencial salva sem journal também bloqueia, inclusive em
+estado legado sem marcador. Nenhum histórico novo, pasta, perfil ou ferramenta é
+preparado nesses casos.
+
+Preserve credencial, convite, marcador e journal; restaure o journal original de
+backup confiável após parar os processos. Não apague o histórico nem o marcador
+para reparear. A primeira instalação sem credencial nem marcador ainda cria o
+journal antes de trocar o convite; um journal legado válido recebe o marcador.
+A restauração do histórico não reativa credencial revogada. Perda anterior à
+atualização sem marcador/credencial, perda conjunta de journal/marcador, exclusão
+de todo o estado, rollback válido e exclusão durante conexão aberta ficam fora
+da detecção. O computador próprio usa o mesmo mecanismo por home privada; veja
+[recuperação dos journals](recovery.md#journal-dos-computadores-no-runtime-container).
 
 O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
 informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar
