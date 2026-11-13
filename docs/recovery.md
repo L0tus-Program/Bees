@@ -267,9 +267,12 @@ durante a leitura geram `exchange_invalid_response`. A API pode já ter consumid
 o convite: a CLI pessoal ou de computadores aguarda outro, sem repetir a troca,
 salvar o corpo parcial ou conectar. Confira o cadastro sem conexão pela interface
 e revogue-o antes de emitir outro convite, preservando o estado privado e o
-journal. A recusa vale durante a execução atual; não registra convites recusados
-entre reinícios. Falhas antes da resposta e HTTP 429/5xx conservam sua política
-de indisponibilidade; este recorte não resolve toda ambiguidade anterior aos headers.
+journal. A CLI lembra todos os convites recusados na execução atual: reapresentar
+A depois de recusar B não repete A. Não registra convites recusados entre reinícios;
+forneça outro convite novo após reiniciar. `--invite` explícito mantém precedência
+sobre o arquivo mesmo depois de recusado. Falhas antes da resposta e HTTP 429/5xx
+conservam sua política de indisponibilidade; este recorte não resolve toda
+ambiguidade anterior aos headers.
 
 ### Falha ao salvar identidade após pareamento
 

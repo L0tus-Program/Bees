@@ -144,12 +144,12 @@ def _invite(args) -> str | None:
 
 async def _run(args, handler, kind, roots=()):
     state = Path(args.state)
-    used = None
+    rejected: set[str] = set()
     while True:
         credential = load_credential(state)
         if credential is None:
             token = _invite(args)
-            if token is None or token == used:
+            if token is None or token in rejected:
                 log.info("Aguardando convite do Bees…")
                 await asyncio.sleep(3)
                 continue
@@ -157,8 +157,9 @@ async def _run(args, handler, kind, roots=()):
                 credential = exchange(args.api, token, state, expected_kind=kind)
                 log.info("Executor pareado.")
             except CredentialRejected as error:
-                # Recusado pela API: não tenta de novo o mesmo convite.
-                used = token
+                # Não repetir nenhum convite recusado nesta execução, mesmo
+                # quando o arquivo alternar entre convites antigos.
+                rejected.add(token)
                 log.warning("Convite recusado: %s", error)
                 await asyncio.sleep(3)
                 continue
