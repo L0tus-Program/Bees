@@ -16,7 +16,7 @@ from bees_executor.client import (
     exchange,
     load_credential,
 )
-from bees_executor.journal import Journal
+from bees_executor.journal import Journal, JournalStateError
 from bees_executor.state import StateLockError, state_lock
 from bees_executor.tools import ToolHost
 
@@ -209,6 +209,12 @@ def main(argv=None) -> None:
     try:
         with state_lock(Path(args.state)):
             _start(args, parser)
+    except JournalStateError:
+        raise SystemExit(
+            "executor_journal_invalid: histórico de comandos inválido ou ilegível. "
+            "Preserve o estado privado e restaure o journal original de um backup confiável. "
+            "Não apague nem recrie o histórico para tentar novamente."
+        ) from None
     except StateLockError as error:
         if str(error) == "executor_state_in_use":
             raise SystemExit(
@@ -247,12 +253,13 @@ def _start(args, parser):
                 parser.error("Use --root Alias=Caminho")
             configured[alias] = Path(path).expanduser()
         state = Path(args.state)
+        journal = Journal(state / "journal.sqlite3")
         (state / "files").mkdir(parents=True, exist_ok=True)
         home = Path.home()
         host = ToolHost(
             configured or {"Bees": state / "files"},
             home,
-            Journal(state / "journal.sqlite3"),
+            journal,
             named=True,
             env=ToolHost.default_env(home),
             browser_profile=state / "browser-profile",
