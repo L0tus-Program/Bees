@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 import sqlite3
 import stat
 import threading
@@ -126,3 +127,43 @@ class Journal:
 
     def close(self):
         self.connection.close()
+
+
+def computer_journal(home: Path) -> Journal:
+    """Marca a primeira abertura; ausência posterior nunca autoriza histórico vazio.
+
+    Um journal legado válido recebe o marcador antes da abertura em escrita.
+    Marcador sem journal também pode ser uma criação interrompida: não reparar.
+    """
+    path = home / ".bees" / "journal.sqlite3"
+    marker = path.with_suffix(".required")
+    created = False
+    try:
+        try:
+            metadata = marker.lstat()
+        except FileNotFoundError:
+            # Recusar corrupção legada antes de criar qualquer arquivo auxiliar.
+            existing = _validate(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with marker.open("xb") as stream:
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                # Persistir a entrada de diretório antes de permitir criar o SQLite.
+                if os.name == "posix":
+                    descriptor = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY)
+                    try:
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                created = not existing
+            except FileExistsError:
+                # Outro abridor ganhou: só aceitar o journal se já estiver íntegro.
+                if not stat.S_ISREG(marker.lstat().st_mode):
+                    raise ValueError from None
+        else:
+            if not stat.S_ISREG(metadata.st_mode):
+                raise ValueError
+        return Journal(path, allow_create=created)
+    except (OSError, sqlite3.Error, ValueError, RecursionError):
+        raise JournalStateError("executor_journal_invalid") from None
