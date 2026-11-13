@@ -14,7 +14,7 @@ RUN if [ -n "$APT_MIRROR" ]; then \
       xfce4 xfce4-terminal dbus-x11 x11vnc xvfb libreoffice-writer libreoffice-calc \
       pandoc iptables libcap2-bin fonts-dejavu fonts-liberation tzdata procps curl \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
-RUN python3 -m pip install --no-cache-dir --break-system-packages "websockets>=13,<16" "pypdf>=5,<7" "playwright==1.64.1" \
+RUN python3 -m pip install --no-cache-dir --break-system-packages "websockets>=15,<16" "pypdf>=5,<7" "playwright==1.64.1" \
  && sed -i 's/^UID_MIN.*/UID_MIN 20000/; s/^UID_MAX.*/UID_MAX 29999/; s/^GID_MIN.*/GID_MIN 20000/; s/^GID_MAX.*/GID_MAX 29999/' /etc/login.defs \
  && chmod 755 /ms-playwright
 COPY LICENSE NOTICE runtime/computer/README.md /usr/share/doc/bees/

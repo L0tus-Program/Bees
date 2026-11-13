@@ -128,6 +128,16 @@ redirecionamentos, inclusive na mesma origem. Uma resposta 3xx preserva a creden
 o canal de comandos tenta novamente somente a API configurada, sem novo pareamento.
 Corrija o endpoint/proxy para servir a conexão diretamente.
 
+Pareamento HTTP, comandos e visualização conectam diretamente à URL configurada,
+sem descobrir proxies no ambiente ou nas configurações do sistema. Variáveis como
+`HTTP_PROXY`, `HTTPS_PROXY`, `WS_PROXY` e `WSS_PROXY` não encaminham esses canais.
+O executor exige `websockets>=15,<16` para desativar proxy explicitamente; essa
+faixa também é usada pelo workspace e pela imagem do computador próprio.
+Não há opção de proxy de saída: a API precisa ser alcançável diretamente pela
+máquina que executa o conector/runtime. Um reverse proxy já presente na URL da
+API continua possível, servindo HTTP e WebSocket sem redirecionamento. Isso não
+contorna proxies transparentes, resolução DNS ou a confiança TLS do sistema.
+
 ## O que a abelha pode fazer
 
 | Recurso | Concessão | Política padrão |

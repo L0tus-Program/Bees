@@ -141,7 +141,9 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
         method="POST",
     )
     opener = urllib.request.build_opener(
-        _NoRedirect(), urllib.request.HTTPSHandler(context=_ssl_context(api))
+        urllib.request.ProxyHandler({}),
+        _NoRedirect(),
+        urllib.request.HTTPSHandler(context=_ssl_context(api)),
     )
     try:
         with opener.open(request, timeout=20) as response:
