@@ -36,7 +36,7 @@ def test_exchange_preserves_state_on_persistence_failure(tmp_path, monkeypatch, 
 
     monkeypatch.setattr("urllib.request.OpenerDirector.open", response)
     if phase == "open":
-        monkeypatch.setattr(client.os, "open", fail)
+        monkeypatch.setattr(client, "_create_private", fail)
     elif phase == "write":
         monkeypatch.setattr(client.json, "dump", fail)
     else:

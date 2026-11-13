@@ -287,6 +287,8 @@ trabalho. Esta proteção não detecta perda conjunta de credencial e temporári
 nem substitui backup ou garante persistência após perda de energia.
 Se o temporário surgir durante a chamada de pareamento, a criação exclusiva
 recusa a colisão com `executor_credential_save_failed`, sem truncar o arquivo
-ou seguir links. A API pode já ter consumido o convite; preserve a evidência
+ou seguir links. No Windows, usa `CreateFileW` com `CREATE_NEW` e
+`FILE_FLAG_OPEN_REPARSE_POINT`, inclusive para links sem destino. A API pode
+já ter consumido o convite; preserve a evidência
 e reconcilie o cadastro antes de reiniciar. Isso não protege contra adulteração
 arbitrária do diretório por outro processo após a abertura do arquivo.

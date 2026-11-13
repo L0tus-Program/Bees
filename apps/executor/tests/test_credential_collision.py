@@ -1,6 +1,7 @@
 """Uma pendência publicada durante o HTTP não autoriza truncamento local."""
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler
 
 import pytest
@@ -8,6 +9,34 @@ from test_exchange_redirect import endpoint
 from test_exchange_response import VALID
 
 from bees_executor import client
+
+
+def test_private_creation_writes_and_closes_descriptor(tmp_path):
+    path = tmp_path / "credential.json"
+    client._write_private(path, VALID)
+    assert json.loads(path.read_text()) == VALID
+    assert not path.with_suffix(".tmp").exists()
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
+    # O replace anterior também exige que o HANDLE Windows tenha sido fechado.
+    path.unlink()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Transferência de HANDLE nativa Windows.")
+def test_windows_descriptor_failure_releases_handle_and_preserves_file(tmp_path, monkeypatch):
+    import msvcrt
+
+    path = tmp_path / "credential.tmp"
+
+    def fail(*args):
+        raise OSError("descriptor unavailable")
+
+    monkeypatch.setattr(msvcrt, "open_osfhandle", fail)
+    with pytest.raises(OSError, match="descriptor unavailable"):
+        client._create_private(path)
+    assert path.read_bytes() == b""
+    # Falharia com sharing violation se o HANDLE exclusivo continuasse aberto.
+    path.unlink()
 
 
 @pytest.mark.parametrize("existing", [False, True])
