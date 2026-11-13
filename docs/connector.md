@@ -22,6 +22,14 @@ O conector deixa a abelha trabalhar no seu computador **somente** nas pastas e r
 
 A credencial fica em `executor-state/credential.json` (permissão restrita). Reiniciar o conector reconecta sem novo convite.
 
+Somente uma CLI pode usar cada diretório `--state`, inclusive enquanto aguarda
+convite ou reconexão. `executor_state_in_use` indica outra instância em execução:
+encerre-a antes de reiniciar. Não apague `executor.lock`; ele permanece no diretório,
+mas a trava é liberada pelo sistema após saída ou crash. A segunda instância não
+abre o journal, consome convites nem altera a credencial. Se a trava não puder ser
+aberta, `executor_state_unavailable` orienta conferir o acesso ao estado privado.
+Use filesystem local; não há exclusividade entre diretórios de estado distintos.
+
 O estado é vinculado à URL da API usada no pareamento. Se outro `--api` for
 informado no reinício, `executor_api_mismatch` encerra o executor antes de enviar
 a credencial. O arquivo é preservado; reinicie com a URL original. Uma barra

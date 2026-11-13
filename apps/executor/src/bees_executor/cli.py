@@ -17,6 +17,7 @@ from bees_executor.client import (
     load_credential,
 )
 from bees_executor.journal import Journal
+from bees_executor.state import StateLockError, state_lock
 from bees_executor.tools import ToolHost
 
 log = logging.getLogger("bees_executor")
@@ -205,6 +206,23 @@ def main(argv=None) -> None:
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    try:
+        with state_lock(Path(args.state)):
+            _start(args, parser)
+    except StateLockError as error:
+        if str(error) == "executor_state_in_use":
+            raise SystemExit(
+                "executor_state_in_use: outro executor já usa este estado. "
+                "Encerre a instância anterior antes de reiniciar. "
+                "Não apague o estado privado nem o arquivo de trava."
+            ) from None
+        raise SystemExit(
+            "executor_state_unavailable: não foi possível obter exclusividade do estado. "
+            "Confira o acesso ao diretório privado e preserve seus arquivos."
+        ) from None
+
+
+def _start(args, parser):
     try:
         # Verificar antes de abrir o journal ou preparar diretórios/recursos.
         load_credential(Path(args.state))
