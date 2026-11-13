@@ -11,7 +11,7 @@ import logging
 import os
 from pathlib import Path
 
-from bees_executor.journal import Journal
+from bees_executor.journal import JournalStateError, computer_journal
 from bees_executor.tools import ToolHost
 
 
@@ -19,7 +19,7 @@ async def serve(socket_path: Path, home: Path) -> None:
     host = ToolHost(
         {"workspace": home / "workspace"},
         home,
-        Journal(home / ".bees" / "journal.sqlite3"),
+        computer_journal(home),
         named=False,
         screenshots=home / "workspace" / "screenshots",
     )
@@ -58,7 +58,11 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    asyncio.run(serve(Path(args.socket), Path(args.home)))
+    try:
+        asyncio.run(serve(Path(args.socket), Path(args.home)))
+    except JournalStateError:
+        logging.getLogger("bees_executor").error("executor_journal_invalid")
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

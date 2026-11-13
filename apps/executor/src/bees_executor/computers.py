@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from bees_executor.journal import Journal
+from bees_executor.journal import computer_journal
 from bees_executor.tools import ToolHost
 
 log = logging.getLogger("bees_executor")
@@ -53,7 +53,7 @@ class SingleComputers:
             self.hosts[computer_id] = ToolHost(
                 {"workspace": home / "workspace"},
                 home,
-                Journal(home / ".bees" / "journal.sqlite3"),
+                computer_journal(home),
                 named=False,
                 screenshots=home / "workspace" / "screenshots",
             )
@@ -290,9 +290,12 @@ class MultiUserComputers:
         agent_log.close()
         self.processes[computer_id] = processes
         for _ in range(100):
+            if processes[-1].poll() is not None:
+                raise RuntimeError("computer_agent_unavailable")
             if socket_path.exists():
-                break
+                return
             await asyncio.sleep(0.1)
+        raise RuntimeError("computer_agent_unavailable")
 
     async def restart(self, computer_id: str) -> None:
         """Encerra toda a sessão da conta e sobe de novo; home, arquivos e perfil ficam.

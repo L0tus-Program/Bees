@@ -213,3 +213,29 @@ nunca substitui evidência suficiente do executor antigo.
 | `mcp_call` | Resposta perdida após o envio | `mcp_outcome_unknown`, sem repetição automática. |
 | Webhook | Reenvio do serviço externo | Com `Idempotency-Key`, o mesmo evento devolve o recibo anterior sem nova execução; sem chave, vale o intervalo mínimo. |
 | Computador `removing`/`failed` | — | Remoção humana conclui; criação nova exige Bees em execução. |
+
+
+### Journal dos computadores no runtime container
+
+Após a primeira abertura nesta versão, cada computador mantém em sua home privada
+`.bees/journal.required`, criado exclusivamente e sincronizado antes de permitir a
+criação de `.bees/journal.sqlite3`. O marcador registra intenção, inclusive se a
+primeira criação for interrompida; não é uma prova de journal completo. No Linux,
+a entrada do diretório também é sincronizada antes da criação do SQLite.
+
+Se o journal desaparecer e o marcador permanecer, o modo single e o processo agente
+multiuser recusam a abertura com `executor_journal_invalid`, sem recriar histórico.
+O agente não abre seu socket e o supervisor não anuncia preparação concluída se o
+agente encerrar ou não ficar disponível no prazo. Preserve a home, o marcador e os
+arquivos de trabalho. Após quiescer os processos, restaure somente o journal
+original de backup confiável, com os mesmos vínculos; abrir de novo preserva os
+recibos e conserva comandos interrompidos como unknown. Não remova o marcador
+para tentar novamente, nem crie um SQLite vazio.
+
+Um journal legado válido recebe o marcador na primeira abertura com esta versão.
+Sem marcador anterior não é possível distinguir primeiro uso de perda de um
+journal legado; a proteção não detecta essa perda anterior à atualização, perda
+conjunta de journal e marcador, rollback para journal válido, ou exclusão durante
+uma conexão já aberta. Não substitui backup consistente nem reconciliação humana.
+A criação exclusiva do marcador evita duas primeiras criações simultâneas, mas
+não substitui a exclusividade de processos do supervisor/estado privado.
