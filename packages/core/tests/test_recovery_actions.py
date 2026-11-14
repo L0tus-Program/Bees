@@ -427,3 +427,66 @@ def test_missing_queue_refuses_page_without_reading_substitute_or_repairing(
     page = RecoveryInventoryService(db).actions(agent, task)
     assert (page.items == []) if empty else (str(page.items[0].id) == command)
     assert queue.get(command) == before
+
+
+def test_orphan_executor_refuses_its_page_without_reading_private_fields(tmp_path, monkeypatch):
+    from bees_core.storage.store import IntegrityError, StateStore
+
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    service = RecoveryInventoryService(db)
+    original = service.actions(agent, task).items[0]
+    with StateStore(db).transaction() as unit:
+        earlier = unit.actions.create(
+            Action(
+                run_id=original.run_id,
+                tool_name="fixture",
+                created_at=original.created_at - timedelta(seconds=1),
+            )
+        )
+    # Model externally corrupted history; production connections keep foreign keys ON.
+    orphan = str(uuid4())
+    connection = db.connect()
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "UPDATE executor_commands SET executor_id=? WHERE id=?", (orphan, command)
+        )
+    finally:
+        connection.close()
+    before = queue.get(command)
+    original_connect = db.connect
+
+    def connect():
+        connection = original_connect()
+
+        def authorize(operation, table, column, database, trigger):
+            if operation == apsw.SQLITE_READ and column in {
+                "credential_hash",
+                "arguments_json",
+                "result_json",
+                "metadata_json",
+            }:
+                return apsw.SQLITE_DENY
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        return connection
+
+    monkeypatch.setattr(db, "connect", connect)
+    page = service.actions(agent, task, limit=1)
+    assert page.items[0].id == earlier.id and page.next_cursor == earlier.id
+    for _ in range(2):
+        with pytest.raises(IntegrityError, match="Invalid recovery command binding"):
+            service.actions(agent, task, after=page.next_cursor, limit=1)
+        with pytest.raises(IntegrityError):
+            service.actions(agent, task)
+    monkeypatch.setattr(db, "connect", original_connect)
+    assert queue.get(command) == before
+    # Explicitly restore the exact original binding; the query never repairs it.
+    with db.transaction() as connection:
+        connection.execute(
+            "UPDATE executor_commands SET executor_id=? WHERE id=?", (executor, command)
+        )
+    assert service.actions(agent, task).items[-1].executor_command == "sent"

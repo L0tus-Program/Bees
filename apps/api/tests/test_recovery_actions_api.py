@@ -199,3 +199,57 @@ def test_missing_command_store_returns_conflict_even_for_empty_page(state, subst
             connection.execute("DROP VIEW executor_commands")
         connection.execute("ALTER TABLE preserved_commands RENAME TO executor_commands")
     assert client.get(path + "/recovery/actions").status_code == 200
+
+
+@pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
+def test_orphan_executor_returns_sanitized_conflict_without_partial_page(state, kind):
+    client, agent, other, _, _ = state
+    db = client.app.state.database
+    path, task = paused_task(client, agent)
+    journal(client, task)
+    action = journal(client, task)
+    service = ExecutorService(db)
+    invite = service.invite({"kind": kind, "name": "private-executor"})
+    executor = service.exchange({"token": invite["token"]})["executor_id"]
+    stamp, command = action.created_at.isoformat(), str(action.id)
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO executor_commands(id,created_at,updated_at,executor_id,agent_id,"
+            "tool_name,arguments_json,deadline_at,status) VALUES(?,?,?,?,?,?,?,?,'sent')",
+            (command, stamp, stamp, executor, str(agent.id), action.tool_name, "{}", stamp),
+        )
+    orphan = str(uuid4())
+    connection = db.connect()
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "UPDATE executor_commands SET executor_id=? WHERE id=?", (orphan, command)
+        )
+    finally:
+        connection.close()
+    queue = CommandQueue(db)
+    before = queue.get(command)
+    for _ in range(2):
+        response = client.get(path + "/recovery/actions")
+        assert response.status_code == 409
+        assert response.json() == {
+            "error": {
+                "code": "state_conflict",
+                "message": "Registro ausente ou alterado; atualize a tela.",
+            }
+        }
+        assert orphan not in response.text and command not in response.text
+    assert queue.get(command) == before
+    assert client.get(path + "/recovery/actions?after=" + str(uuid4())).status_code == 404
+    assert (
+        client.get(path.replace(str(agent.id), str(other.id)) + "/recovery/actions").status_code
+        == 404
+    )
+    with db.transaction() as connection:
+        connection.execute(
+            "UPDATE executor_commands SET executor_id=? WHERE id=?", (executor, command)
+        )
+        connection.execute("UPDATE executors SET status='revoked' WHERE id=?", (executor,))
+    response = client.get(path + "/recovery/actions")
+    assert response.status_code == 200
+    assert response.json()["items"][-1]["executor_command"] == "sent"
