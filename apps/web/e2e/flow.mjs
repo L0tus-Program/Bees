@@ -859,6 +859,25 @@ try {
   await badTask.getByText(reason, { exact: false }).waitFor()
   await badTask.click()
   await page.locator('.task-detail').getByText(reason, { exact: true }).waitFor()
+  // Consulta canônica real: não gera nem tenta reconciliar a chamada inválida.
+  const callsBeforeDiagnosis = model.requests
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    const records = page.locator('.recovery-model-calls')
+    const firstPage = records.getByRole('button', { name: 'Consultar primeira página', exact: true })
+    await firstPage.focus()
+    await page.keyboard.press('Enter')
+    await records.locator('li').first().waitFor()
+    if (await records.locator('li').count() !== 1) throw new Error('Diagnóstico não encontrou a única chamada da tarefa.')
+    await records.locator('summary').first().focus()
+    await page.keyboard.press('Enter')
+    if (!await records.getByRole('button', { name: 'Próxima página', exact: true }).isDisabled()) throw new Error('Diagnóstico criou página adicional sem cursor.')
+    if (!await records.getByText('ID da chamada', { exact: true }).isVisible()) throw new Error('IDs do diagnóstico inacessíveis por teclado.')
+    if ((await records.textContent()).includes('INVALID-PRIVATE-ARGUMENTS')) throw new Error('Diagnóstico expôs conteúdo privado.')
+    // Fecha o detalhe para exercitar o mesmo caminho na próxima largura.
+    await records.locator('summary').first().press('Enter')
+  }
+  if (model.requests !== callsBeforeDiagnosis) throw new Error('Consulta de diagnóstico gerou nova chamada.')
   await auditWidths(page, '16-causa-na-tarefa')
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.locator('.appearance-select select').first().selectOption('dark')
