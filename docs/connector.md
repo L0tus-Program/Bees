@@ -62,6 +62,11 @@ válido também é bloqueado: não edite nem apague a credencial para contornar 
 Se aparecer `exchange_invalid_response`, o executor recebeu uma resposta de pareamento
 inválida, excessivamente aninhada ou interrompida no transporte e continua aguardando
 outro convite, sem salvar a resposta nem repetir a troca.
+O corpo tem limite de 65.536 bytes; o executor lê no máximo um byte adicional
+para detectar excesso e fecha a resposta sem esperar o restante. JSON válido
+acima do limite também é recusado. O enquadramento HTTP precisa estar completo:
+um JSON completo em resposta truncada não confirma o pareamento. Esse limite
+não define um prazo total para a resposta nem protege contra toda exaustão de recursos.
 Isso inclui timeout e reset durante a leitura após uma resposta HTTP de sucesso;
 falhas antes de obter a resposta e HTTP 429/5xx mantêm a política de indisponibilidade.
 Confira a API escolhida e emita um novo convite pela interface. A API pode ter consumido

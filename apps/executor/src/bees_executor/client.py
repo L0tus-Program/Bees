@@ -23,6 +23,8 @@ from bees_executor import PROTOCOL, VERSION
 
 log = logging.getLogger("bees_executor")
 
+EXCHANGE_RESPONSE_LIMIT = 65_536
+
 
 class CredentialRejected(RuntimeError):
     pass
@@ -148,7 +150,12 @@ def exchange(api: str, token: str, state: Path, *, expected_kind: str | None = N
     try:
         with opener.open(request, timeout=20) as response:
             try:
-                raw = response.read()
+                raw = response.read(EXCHANGE_RESPONSE_LIMIT + 1)
+                # read(size) não lança IncompleteRead por Content-Length curto.
+                # Exigir o fim do enquadramento, além do limite de memória.
+                remaining = getattr(response, "length", None)
+                if len(raw) > EXCHANGE_RESPONSE_LIMIT or (remaining is not None and remaining > 0):
+                    raise CredentialRejected("exchange_invalid_response")
             except (http.client.IncompleteRead, OSError):
                 # Após HTTP de sucesso, timeout/reset também podem ocorrer depois
                 # do consumo. Não usar bytes parciais nem repetir este convite.

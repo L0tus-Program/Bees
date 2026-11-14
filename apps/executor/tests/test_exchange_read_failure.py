@@ -31,7 +31,7 @@ def test_failed_read_rejects_response_preserving_state(tmp_path, monkeypatch, er
         def __exit__(self, *args):
             closed.append(True)
 
-        def read(self):
+        def read(self, size=-1):
             raise error_type("private-response-secret")
 
     monkeypatch.setattr("urllib.request.OpenerDirector.open", lambda *a, **kw: Response())
