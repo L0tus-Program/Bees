@@ -159,9 +159,10 @@ def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(st
     assert client.get(other_path + "/recovery/actions").status_code == 200
 
 
+@pytest.mark.parametrize("table", ["executor_commands", "executors", "computers"])
 @pytest.mark.parametrize("substitute", [False, True], ids=["missing", "view"])
 @pytest.mark.parametrize("empty", [False, True], ids=["history", "empty"])
-def test_missing_command_store_returns_conflict_even_for_empty_page(state, substitute, empty):
+def test_missing_canonical_store_returns_conflict_for_empty_page(state, table, substitute, empty):
     client, agent, other, _, _ = state
     db = client.app.state.database
     path, task = paused_task(client, agent)
@@ -169,9 +170,9 @@ def test_missing_command_store_returns_conflict_even_for_empty_page(state, subst
         journal(client, task)
     before = client.get(path).json()
     with db.transaction() as connection:
-        connection.execute("ALTER TABLE executor_commands RENAME TO preserved_commands")
+        connection.execute(f"ALTER TABLE {table} RENAME TO preserved_records")
         if substitute:
-            connection.execute("CREATE VIEW executor_commands AS SELECT * FROM preserved_commands")
+            connection.execute(f"CREATE VIEW {table} AS SELECT * FROM preserved_records")
         schema = connection.execute(
             "SELECT type,name,sql FROM sqlite_schema ORDER BY name"
         ).fetchall()
@@ -183,7 +184,7 @@ def test_missing_command_store_returns_conflict_even_for_empty_page(state, subst
             "message": "Registro ausente ou alterado; atualize a tela.",
         }
     }
-    assert "preserved_commands" not in response.text and "executor_commands" not in response.text
+    assert "preserved_records" not in response.text and table not in response.text
     assert client.get(path).json() == before
     assert (
         client.get(path.replace(str(agent.id), str(other.id)) + "/recovery/actions").status_code
@@ -196,8 +197,8 @@ def test_missing_command_store_returns_conflict_even_for_empty_page(state, subst
             == schema
         )
         if substitute:
-            connection.execute("DROP VIEW executor_commands")
-        connection.execute("ALTER TABLE preserved_commands RENAME TO executor_commands")
+            connection.execute(f"DROP VIEW {table}")
+        connection.execute(f"ALTER TABLE preserved_records RENAME TO {table}")
     assert client.get(path + "/recovery/actions").status_code == 200
 
 

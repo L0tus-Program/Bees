@@ -81,10 +81,12 @@ sem página vazia fictícia. A ordenação é por criação/ID. Cada página usa
 transação query_only própria, com instante/revisão e escopo
 `all_canonical_task_actions`, sempre `executor_evidence: not_inspected`.
 
-A tabela canônica de comandos precisa existir, inclusive ao consultar uma página
-vazia. Ausência ou substituição por view retorna HTTP 409 `state_conflict`, sem
-apresentar comandos como ausentes, ler a view ou recriar tabelas. Preserve o estado
-privado para investigar e restaurar explicitamente; a consulta não repara dados.
+As tabelas canônicas de comandos, executores e computadores precisam existir,
+inclusive ao consultar uma página vazia ou ações sem comando/computador associado.
+Ausência ou substituição de qualquer uma por view retorna HTTP 409 `state_conflict`,
+antes de preparar a projeção, sem apresentar vínculos como íntegros, ler a view ou
+recriar tabelas. Preserve o estado privado para investigar e restaurar explicitamente;
+a consulta não repara dados.
 Essa verificação não detecta exclusão de linhas individuais nem substituição por
 outra tabela válida.
 
