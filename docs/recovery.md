@@ -81,6 +81,13 @@ sem página vazia fictícia. A ordenação é por criação/ID. Cada página usa
 transação query_only própria, com instante/revisão e escopo
 `all_canonical_task_actions`, sempre `executor_evidence: not_inspected`.
 
+A tabela canônica de comandos precisa existir, inclusive ao consultar uma página
+vazia. Ausência ou substituição por view retorna HTTP 409 `state_conflict`, sem
+apresentar comandos como ausentes, ler a view ou recriar tabelas. Preserve o estado
+privado para investigar e restaurar explicitamente; a consulta não repara dados.
+Essa verificação não detecta exclusão de linhas individuais nem substituição por
+outra tabela válida.
+
 Antes de publicar o estado da fila, a página confere se o comando pertence à
 mesma abelha e ferramenta da ação. Quando há computador, seu cadastro precisa
 conservar a mesma abelha e executor do comando. Divergência recusa a página inteira

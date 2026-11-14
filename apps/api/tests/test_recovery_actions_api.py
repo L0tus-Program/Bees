@@ -157,3 +157,45 @@ def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(st
     # Other valid tasks remain inspectable; refusal does not become global authority.
     other_path, _ = paused_task(client, agent)
     assert client.get(other_path + "/recovery/actions").status_code == 200
+
+
+@pytest.mark.parametrize("substitute", [False, True], ids=["missing", "view"])
+@pytest.mark.parametrize("empty", [False, True], ids=["history", "empty"])
+def test_missing_command_store_returns_conflict_even_for_empty_page(state, substitute, empty):
+    client, agent, other, _, _ = state
+    db = client.app.state.database
+    path, task = paused_task(client, agent)
+    if not empty:
+        journal(client, task)
+    before = client.get(path).json()
+    with db.transaction() as connection:
+        connection.execute("ALTER TABLE executor_commands RENAME TO preserved_commands")
+        if substitute:
+            connection.execute("CREATE VIEW executor_commands AS SELECT * FROM preserved_commands")
+        schema = connection.execute(
+            "SELECT type,name,sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+    response = client.get(path + "/recovery/actions")
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "state_conflict",
+            "message": "Registro ausente ou alterado; atualize a tela.",
+        }
+    }
+    assert "preserved_commands" not in response.text and "executor_commands" not in response.text
+    assert client.get(path).json() == before
+    assert (
+        client.get(path.replace(str(agent.id), str(other.id)) + "/recovery/actions").status_code
+        == 404
+    )
+    assert client.get(path + "/recovery/actions?after=" + str(uuid4())).status_code == 404
+    with db.transaction() as connection:
+        assert (
+            connection.execute("SELECT type,name,sql FROM sqlite_schema ORDER BY name").fetchall()
+            == schema
+        )
+        if substitute:
+            connection.execute("DROP VIEW executor_commands")
+        connection.execute("ALTER TABLE preserved_commands RENAME TO executor_commands")
+    assert client.get(path + "/recovery/actions").status_code == 200

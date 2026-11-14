@@ -256,6 +256,8 @@ class RecoveryInventoryService:
             queue = connection.execute(
                 "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
             ).fetchone()
+            if queue is None:
+                raise IntegrityError("Invalid recovery command store")
             command = (
                 "c.status,c.error_code,"
                 "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name "
@@ -265,8 +267,6 @@ class RecoveryInventoryService:
                 "FROM actions x LEFT JOIN executor_commands c ON c.id=x.id "
                 "LEFT JOIN computers b ON b.id=c.computer_id "
                 "LEFT JOIN executors e ON e.id=c.executor_id "
-                if queue
-                else "NULL,NULL,1 FROM actions x "
             )
             records = connection.execute(
                 "SELECT x.id,x.run_id,x.revision,x.tool_name,x.status,x.created_at,x.updated_at,"
@@ -274,7 +274,7 @@ class RecoveryInventoryService:
                 + command
                 + f"JOIN runs r ON r.id=x.run_id WHERE {' AND '.join(clauses)} "
                 "ORDER BY x.created_at,x.id LIMIT ?",
-                tuple(([agent] if queue else []) + parameters),
+                tuple([agent] + parameters),
             ).fetchall()
             # Never hide an inconsistent command as absent or publish its state.
             # Validate only returned records; a later page has its own snapshot.
