@@ -210,6 +210,14 @@ class RecoveryInventoryService:
             ).fetchone()
             if row is None:
                 raise NotFoundError("Task not found")
+            # Counts must describe canonical history, never a replacement view
+            # that can conceal records. Check before preparing any history read.
+            stores = connection.execute(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' "
+                "AND name IN ('runs','actions','model_calls')"
+            ).get
+            if stores != 3:
+                raise IntegrityError("Invalid recovery history store")
             return RecoveryInventory(
                 agent_id=UUID(agent),
                 task_id=UUID(task),

@@ -241,3 +241,75 @@ def test_model_states_are_counted_without_publishing_or_opening_response(tmp_pat
         assert getattr(result.model_calls, status) == 1
     assert result.model_calls.unknown_unacknowledged == 1
     assert PRIVATE not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("table", ["runs", "actions", "model_calls"])
+@pytest.mark.parametrize("substitute", ["missing", "view", "empty_view"])
+def test_inventory_requires_canonical_history_without_reading_or_repairing(
+    tmp_path, monkeypatch, table, substitute
+):
+    from bees_core.storage.store import IntegrityError
+
+    db, store, agent, task, run = inventory_fixture(tmp_path)
+    with store.transaction() as unit:
+        unit.actions.create(Action(run_id=run.id, tool_name="fixture", status="outcome_unknown"))
+        model_call(unit, agent, run)
+    service = RecoveryInventoryService(db)
+    before = service.inspect(agent.id, task.id)
+    with db.transaction() as connection:
+        connection.execute(f"ALTER TABLE {table} RENAME TO preserved_records")
+        if substitute != "missing":
+            condition = " WHERE 0" if substitute == "empty_view" else ""
+            connection.execute(f"CREATE VIEW {table} AS SELECT * FROM preserved_records{condition}")
+        schema = connection.execute(
+            "SELECT type,name,sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+        tables = [
+            "preserved_records" if name == table else name
+            for name in ("runs", "actions", "model_calls")
+        ]
+        history = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY id").fetchall()
+            for name in tables
+        }
+    # Without an authorizer the base either accepts concealed history or raises raw SQL errors.
+    with pytest.raises(IntegrityError, match="Invalid recovery history store"):
+        service.inspect(agent.id, task.id)
+    original = db.connect
+
+    def connect():
+        connection = original()
+
+        def authorize(operation, read_table, column, database, trigger):
+            if operation == apsw.SQLITE_READ and read_table in {table, "preserved_records"}:
+                return apsw.SQLITE_DENY
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        return connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "connect", connect)
+        for _ in range(2):
+            with pytest.raises(IntegrityError, match="Invalid recovery history store"):
+                service.inspect(agent.id, task.id)
+        for owner, identity in [(uuid4(), task.id), (agent.id, uuid4())]:
+            with pytest.raises(NotFoundError):
+                service.inspect(owner, identity)
+    with db.transaction() as connection:
+        assert (
+            connection.execute("SELECT type,name,sql FROM sqlite_schema ORDER BY name").fetchall()
+            == schema
+        )
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY id").fetchall()
+            for name in tables
+        } == history
+        if substitute != "missing":
+            connection.execute(f"DROP VIEW {table}")
+        connection.execute(f"ALTER TABLE preserved_records RENAME TO {table}")
+    assert service.inspect(agent.id, task.id).model_dump(
+        exclude={"observed_at"}
+    ) == before.model_dump(exclude={"observed_at"})
