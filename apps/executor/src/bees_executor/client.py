@@ -228,6 +228,25 @@ def load_credential(state: Path) -> dict | None:
     return payload
 
 
+def validate_credential_binding(credential: dict, api: str, kind: str) -> None:
+    """Confere a configuração antes de recursos locais ou transporte autenticado."""
+    saved_api = credential.get("api")
+    if (
+        not isinstance(saved_api, str)
+        or not saved_api.rstrip("/")
+        or saved_api.rstrip("/") != api.rstrip("/")
+    ):
+        # Nunca envia o segredo persistido a outro destino escolhido no
+        # reinício. Este erro não autoriza apagar a credencial ou reparear.
+        raise CredentialBindingError("executor_api_mismatch")
+
+    saved_kind = credential.get("kind")
+    if saved_kind not in ("personal", "computer_runtime") or saved_kind != kind:
+        # Tipo também pertence à identidade persistida. Trocar de modo não
+        # autoriza enviar o segredo, apagar o estado ou consumir outro convite.
+        raise CredentialKindError("executor_kind_mismatch")
+
+
 class ExecutorClient:
     def __init__(self, api: str, state: Path, kind: str, handler, *, capabilities=(), roots=()):
         self.api = api.rstrip("/")
@@ -264,21 +283,7 @@ class ExecutorClient:
             pass
 
     async def run_forever(self, credential: dict) -> None:
-        saved_api = credential.get("api")
-        if (
-            not isinstance(saved_api, str)
-            or not saved_api.rstrip("/")
-            or saved_api.rstrip("/") != self.api
-        ):
-            # Nunca envia o segredo persistido a outro destino escolhido no
-            # reinício. Este erro não autoriza apagar a credencial ou reparear.
-            raise CredentialBindingError("executor_api_mismatch")
-
-        saved_kind = credential.get("kind")
-        if saved_kind not in ("personal", "computer_runtime") or saved_kind != self.kind:
-            # Tipo também pertence à identidade persistida. Trocar de modo não
-            # autoriza enviar o segredo, apagar o estado ou consumir outro convite.
-            raise CredentialKindError("executor_kind_mismatch")
+        validate_credential_binding(credential, self.api, self.kind)
 
         from websockets.exceptions import InvalidStatus
 
