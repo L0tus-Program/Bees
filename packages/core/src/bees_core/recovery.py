@@ -114,6 +114,32 @@ class RecoveryModelCallPage(BaseModel):
     next_cursor: UUID | None
 
 
+class RecoveryRun(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: UUID
+    revision: int = Field(ge=1, strict=True)
+    status: TaskStatus
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    started_at: AwareDatetime | None
+    finished_at: AwareDatetime | None
+
+
+class RecoveryRunPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    agent_id: UUID
+    task_id: UUID
+    task_revision: int = Field(ge=1, strict=True)
+    observed_at: AwareDatetime
+    scope: Literal["all_canonical_task_runs"] = "all_canonical_task_runs"
+    executor_evidence: Literal["not_inspected"] = "not_inspected"
+    items: list[RecoveryRun]
+    has_more: bool = Field(strict=True)
+    next_cursor: UUID | None
+
+
 class RecoveryInventoryService:
     """One query-only snapshot; never open or initialize executor-owned stores."""
 
@@ -292,6 +318,66 @@ class RecoveryInventoryService:
             ]
             has_more = len(records) > limit
             return RecoveryModelCallPage(
+                agent_id=UUID(agent),
+                task_id=UUID(task),
+                task_revision=row[0],
+                observed_at=utc_now(),
+                items=items,
+                has_more=has_more,
+                next_cursor=items[-1].id if has_more else None,
+            )
+
+    def runs(
+        self,
+        agent_id: UUID | str,
+        task_id: UUID | str,
+        *,
+        after: UUID | str | None = None,
+        limit: int = 50,
+    ) -> RecoveryRunPage:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ValueError("Invalid recovery page limit")
+        agent, task = str(UUID(str(agent_id))), str(UUID(str(task_id)))
+        cursor = str(UUID(str(after))) if after is not None else None
+        with self.database.transaction(write=False) as connection:
+            row = connection.execute(
+                "SELECT revision FROM tasks WHERE id=? AND agent_id=?", (task, agent)
+            ).fetchone()
+            if row is None:
+                raise NotFoundError("Task not found")
+            clauses, parameters = ["x.task_id=?"], [task]
+            if cursor is not None:
+                reference = connection.execute(
+                    "SELECT x.created_at,x.id FROM runs x WHERE x.task_id=? AND x.id=?",
+                    (task, cursor),
+                ).fetchone()
+                if reference is None:
+                    raise NotFoundError("Run not found")
+                clauses.append("(x.created_at>? OR (x.created_at=? AND x.id>?))")
+                parameters.extend([reference[0], reference[0], reference[1]])
+            parameters.append(limit + 1)
+            # Read only the public projection, never Run checkpoints/configuration/errors.
+            records = connection.execute(
+                "SELECT x.id,x.revision,x.status,x.created_at,x.updated_at,"
+                "x.started_at,x.finished_at "
+                "FROM runs x "
+                f"WHERE {' AND '.join(clauses)} ORDER BY x.created_at,x.id LIMIT ?",
+                tuple(parameters),
+            ).fetchall()
+            items = [
+                RecoveryRun(
+                    id=record[0],
+                    revision=record[1],
+                    status=record[2],
+                    created_at=record[3],
+                    updated_at=record[4],
+                    started_at=record[5],
+                    finished_at=record[6],
+                )
+                for record in records[:limit]
+            ]
+            has_more = len(records) > limit
+            return RecoveryRunPage(
                 agent_id=UUID(agent),
                 task_id=UUID(task),
                 task_revision=row[0],

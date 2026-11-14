@@ -18,6 +18,7 @@ from bees_core.recovery import (
     RecoveryInventory,
     RecoveryInventoryService,
     RecoveryModelCallPage,
+    RecoveryRunPage,
 )
 from bees_core.resource_tools import MODEL_TASK_KIND, TASK_KIND
 from bees_core.security.identity import Session
@@ -361,6 +362,20 @@ def recovery_model_calls(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
     return RecoveryInventoryService(request.app.state.database).model_calls(
+        agent_id, task_id, after=after, limit=limit
+    )
+
+
+@router.get("/{agent_id}/tasks/{task_id}/recovery/runs", response_model=RecoveryRunPage)
+def recovery_runs(
+    agent_id: UUID,
+    task_id: UUID,
+    request: Request,
+    session: _SESSION,
+    after: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+):
+    return RecoveryInventoryService(request.app.state.database).runs(
         agent_id, task_id, after=after, limit=limit
     )
 
