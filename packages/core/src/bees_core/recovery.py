@@ -3,11 +3,31 @@
 from typing import Literal, get_args
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from bees_core.models import ActionStatus, TaskStatus, utc_now
 from bees_core.storage.database import Database
 from bees_core.storage.store import NotFoundError
+from bees_core.tool_diagnostics import PUBLIC_TOOL_ERRORS
+
+_QUEUE_CODES = PUBLIC_TOOL_ERRORS | {
+    "executor_timeout",
+    "global_stop",
+    "action_closed",
+    "tool_grant_revoked",
+    "task_cancelled",
+    "agent_inactive",
+    "grant_revoked",
+}
+_LATE_CODES = frozenset({"late_confirmed", "late_failed", "late_unknown"})
 
 
 class RecoveryCounts(BaseModel):
@@ -65,6 +85,16 @@ class RecoveryAction(BaseModel):
         Literal["queued", "sent", "confirmed", "failed", "unknown", "expired"] | None
     ) = None
     executor_code: str | None = Field(default=None, max_length=64)
+
+    @field_validator("executor_code", mode="before")
+    @classmethod
+    def public_executor_code(cls, value: object, info: ValidationInfo) -> str | None:
+        command = info.data.get("executor_command")
+        if command is None or not isinstance(value, str):
+            return None
+        if value in _LATE_CODES:
+            return value if command == "unknown" else None
+        return value if value in _QUEUE_CODES else None
 
 
 class RecoveryActionPage(BaseModel):
@@ -250,7 +280,7 @@ class RecoveryInventoryService:
                     updated_at=record[6],
                     unknown_acknowledged=bool(record[7]),
                     executor_command=record[8],
-                    executor_code=(record[9] or None) and str(record[9])[:64],
+                    executor_code=record[9],
                 )
                 for record in records[:limit]
             ]

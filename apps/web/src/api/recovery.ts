@@ -44,6 +44,16 @@ export interface RecoveryActionPage {
 }
 const date = (value: unknown): value is string => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value))
 const executorCommands = ['queued', 'sent', 'confirmed', 'failed', 'unknown', 'expired'] as const
+const lateExecutorCodes = ['late_confirmed', 'late_failed', 'late_unknown'] as const
+export function lateExecutorStatus(item: Pick<RecoveryAction, 'executor_command' | 'executor_code'>): 'confirmed' | 'failed' | 'unknown' | null {
+  if (item.executor_command !== 'unknown') return null
+  switch (item.executor_code) {
+    case 'late_confirmed': return 'confirmed'
+    case 'late_failed': return 'failed'
+    case 'late_unknown': return 'unknown'
+    default: return null
+  }
+}
 
 export function checkedRecoveryActions(value: unknown, agentId: string, taskId: string, limit = 50): RecoveryActionPage {
   const keys = ['agent_id', 'task_id', 'task_revision', 'observed_at', 'scope', 'executor_evidence', 'items', 'has_more', 'next_cursor']
@@ -58,6 +68,7 @@ export function checkedRecoveryActions(value: unknown, agentId: string, taskId: 
     const code = item && (item as Record<string, unknown>).executor_code
     if (!record(item) || Object.keys(item).length !== 10 || !uuid(item.id)
       || !(command === null || executorCommands.includes(command as typeof executorCommands[number])) || !(code === null || (typeof code === 'string' && code.length <= 64)) || !uuid(item.run_id) || seen.has(item.id)
+      || (typeof code === 'string' && code.startsWith('late_') && (command !== 'unknown' || !lateExecutorCodes.includes(code as typeof lateExecutorCodes[number])))
       || !integer(item.revision) || item.revision < 1 || typeof item.tool_name !== 'string' || item.tool_name.trim().length === 0 || Array.from(item.tool_name).length > 200
       || !actionStatuses.includes(item.status as typeof actionStatuses[number]) || !date(item.created_at) || !date(item.updated_at) || typeof item.unknown_acknowledged !== 'boolean') throw new ApiError('invalid_response')
     seen.add(item.id)
