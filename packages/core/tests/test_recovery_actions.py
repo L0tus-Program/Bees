@@ -210,3 +210,138 @@ def test_page_reader_is_query_only_and_does_not_access_private_columns(tmp_path,
     monkeypatch.setattr(db, "connect", connect)
     page = RecoveryInventoryService(db).actions(agent.id, task.id)
     assert len(page.items) == 1 and PRIVATE not in page.model_dump_json()
+
+
+@pytest.mark.parametrize("mismatch", ["agent", "tool", "computer_agent", "computer_executor"])
+def test_inconsistent_queue_binding_refuses_page_without_changing_history(tmp_path, mismatch):
+    from bees_core.executors import ExecutorService
+    from bees_core.models import Agent
+    from bees_core.storage.store import IntegrityError, StateStore
+
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    agent = str(agent)
+    with StateStore(db).transaction() as unit:
+        other = unit.agents.create(
+            Agent(name="Other", provider_config=unit.agents.get(agent).provider_config)
+        )
+    other_executor = ExecutorService(db).exchange(
+        {
+            "token": ExecutorService(db).invite({"kind": "computer_runtime", "name": "Other"})[
+                "token"
+            ]
+        }
+    )["executor_id"]
+    with db.transaction() as connection:
+        if mismatch == "agent":
+            connection.execute(
+                "UPDATE executor_commands SET agent_id=? WHERE id=?", (str(other.id), command)
+            )
+        elif mismatch == "tool":
+            connection.execute(
+                "UPDATE executor_commands SET tool_name=? WHERE id=?", (PRIVATE, command)
+            )
+        else:
+            computer = str(uuid4())
+            stamp = utc_now().isoformat()
+            connection.execute(
+                "INSERT INTO computers(id,created_at,updated_at,agent_id,executor_id,name,status) "
+                "VALUES(?,?,?,?,?,?,'removed')",
+                (
+                    computer,
+                    stamp,
+                    stamp,
+                    str(other.id) if mismatch == "computer_agent" else agent,
+                    other_executor if mismatch == "computer_executor" else executor,
+                    PRIVATE,
+                ),
+            )
+            connection.execute(
+                "UPDATE executor_commands SET computer_id=? WHERE id=?", (computer, command)
+            )
+    before = queue.get(command)
+    with pytest.raises(IntegrityError, match="Invalid recovery command binding"):
+        RecoveryInventoryService(db).actions(agent, task)
+    assert queue.get(command) == before
+
+
+def test_valid_historical_computer_binding_is_read_only_and_survives_revocation(
+    tmp_path, monkeypatch
+):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    agent = str(agent)
+    stamp, computer = utc_now().isoformat(), str(uuid4())
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO computers(id,created_at,updated_at,agent_id,executor_id,name,status) "
+            "VALUES(?,?,?,?,?,?,'removed')",
+            (computer, stamp, stamp, agent, executor, PRIVATE),
+        )
+        connection.execute(
+            "UPDATE executor_commands SET computer_id=? WHERE id=?", (computer, command)
+        )
+        connection.execute("UPDATE executors SET status='revoked' WHERE id=?", (executor,))
+    queue.report(executor, command, "unknown", code="executor_timeout")
+    original = db.connect
+
+    def connect():
+        connection = original()
+
+        def authorize(operation, table, column, database, trigger):
+            if (
+                operation == apsw.SQLITE_READ
+                and column
+                in {
+                    "result_json",
+                    "arguments_json",
+                    "metadata_json",
+                    "execution_binding_json",
+                    "credential_hash",
+                }
+                or (
+                    operation == apsw.SQLITE_READ
+                    and table in {"computers", "executors"}
+                    and column == "name"
+                )
+            ):
+                return apsw.SQLITE_DENY
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        return connection
+
+    monkeypatch.setattr(db, "connect", connect)
+    page = RecoveryInventoryService(db).actions(agent, task)
+    assert page.items[0].executor_command == "unknown"
+    assert page.items[0].executor_code == "executor_timeout"
+    assert PRIVATE not in page.model_dump_json()
+
+
+def test_inconsistent_later_record_refuses_its_page_and_preserves_cursor(tmp_path):
+    from bees_core.storage.store import IntegrityError, StateStore
+
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    service = RecoveryInventoryService(db)
+    original = service.actions(agent, task).items[0]
+    # Put an ordinary action before the inconsistent command, in the same run.
+    with StateStore(db).transaction() as unit:
+        earlier = unit.actions.create(
+            Action(
+                run_id=original.run_id,
+                tool_name="fixture",
+                created_at=original.created_at - timedelta(seconds=1),
+            )
+        )
+    with db.transaction() as connection:
+        connection.execute(
+            "UPDATE executor_commands SET tool_name=? WHERE id=?", (PRIVATE, command)
+        )
+    before = queue.get(command)
+    page = service.actions(agent, task, limit=1)
+    assert page.items[0].id == earlier.id and page.items[0].executor_command is None
+    assert page.has_more and page.next_cursor == earlier.id
+    for _ in range(2):
+        with pytest.raises(IntegrityError):
+            service.actions(agent, task, limit=1, after=page.next_cursor)
+    assert queue.get(command) == before

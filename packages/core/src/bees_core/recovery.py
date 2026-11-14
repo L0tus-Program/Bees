@@ -15,7 +15,7 @@ from pydantic import (
 
 from bees_core.models import ActionStatus, TaskStatus, utc_now
 from bees_core.storage.database import Database
-from bees_core.storage.store import NotFoundError
+from bees_core.storage.store import IntegrityError, NotFoundError
 from bees_core.tool_diagnostics import PUBLIC_TOOL_ERRORS
 
 _QUEUE_CODES = PUBLIC_TOOL_ERRORS | {
@@ -257,9 +257,14 @@ class RecoveryInventoryService:
                 "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
             ).fetchone()
             command = (
-                "c.status,c.error_code FROM actions x LEFT JOIN executor_commands c ON c.id=x.id "
+                "c.status,c.error_code,"
+                "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name "
+                "AND (c.computer_id IS NULL OR (b.id IS NOT NULL "
+                "AND b.agent_id=c.agent_id AND b.executor_id=c.executor_id)))) "
+                "FROM actions x LEFT JOIN executor_commands c ON c.id=x.id "
+                "LEFT JOIN computers b ON b.id=c.computer_id "
                 if queue
-                else "NULL,NULL FROM actions x "
+                else "NULL,NULL,1 FROM actions x "
             )
             records = connection.execute(
                 "SELECT x.id,x.run_id,x.revision,x.tool_name,x.status,x.created_at,x.updated_at,"
@@ -267,8 +272,12 @@ class RecoveryInventoryService:
                 + command
                 + f"JOIN runs r ON r.id=x.run_id WHERE {' AND '.join(clauses)} "
                 "ORDER BY x.created_at,x.id LIMIT ?",
-                tuple(parameters),
+                tuple(([agent] if queue else []) + parameters),
             ).fetchall()
+            # Never hide an inconsistent command as absent or publish its state.
+            # Validate only returned records; a later page has its own snapshot.
+            if any(not record[10] for record in records[:limit]):
+                raise IntegrityError("Invalid recovery command binding")
             items = [
                 RecoveryAction(
                     id=record[0],

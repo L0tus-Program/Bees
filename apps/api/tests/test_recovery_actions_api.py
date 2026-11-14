@@ -89,3 +89,66 @@ def test_bounds_and_authentication_without_mutation(state):
     assert client.post(route, json={}).status_code in (403, 405)
     client.cookies.clear()
     assert client.get(route).status_code == 401
+
+
+@pytest.mark.parametrize("mismatch", ["agent", "tool", "computer_agent", "computer_executor"])
+def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(state, mismatch):
+    client, agent, other, _, _ = state
+    db = client.app.state.database
+    path, task = paused_task(client, agent)
+    journal(client, task)  # A valid record must not leak as a partial page.
+    action = journal(client, task)
+    service = ExecutorService(db)
+    invite = service.invite({"kind": "computer_runtime", "name": "Fixture"})
+    executor = service.exchange({"token": invite["token"]})["executor_id"]
+    other_invite = service.invite({"kind": "computer_runtime", "name": "Other"})
+    other_executor = service.exchange({"token": other_invite["token"]})["executor_id"]
+    command, stamp, computer = str(action.id), action.created_at.isoformat(), None
+    secret = "private-tool-path-token"
+    with db.transaction() as connection:
+        if mismatch.startswith("computer_"):
+            computer = str(uuid4())
+            connection.execute(
+                "INSERT INTO computers(id,created_at,updated_at,agent_id,executor_id,name,status) "
+                "VALUES(?,?,?,?,?,?,'removed')",
+                (
+                    computer,
+                    stamp,
+                    stamp,
+                    str(other.id) if mismatch == "computer_agent" else str(agent.id),
+                    other_executor if mismatch == "computer_executor" else executor,
+                    secret,
+                ),
+            )
+        connection.execute(
+            "INSERT INTO executor_commands(id,created_at,updated_at,executor_id,agent_id,"
+            "computer_id,tool_name,arguments_json,deadline_at,status,error_code) "
+            "VALUES(?,?,?,?,?,?,?,?,?,'unknown',?)",
+            (
+                command,
+                stamp,
+                stamp,
+                executor,
+                str(other.id) if mismatch == "agent" else str(agent.id),
+                computer,
+                secret if mismatch == "tool" else action.tool_name,
+                "{}",
+                stamp,
+                secret,
+            ),
+        )
+    queue = CommandQueue(db)
+    before = queue.get(command)
+    response = client.get(path + "/recovery/actions")
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {
+            "code": "state_conflict",
+            "message": "Registro ausente ou alterado; atualize a tela.",
+        }
+    }
+    assert secret not in response.text and command not in response.text
+    assert queue.get(command) == before
+    # Other valid tasks remain inspectable; refusal does not become global authority.
+    other_path, _ = paused_task(client, agent)
+    assert client.get(other_path + "/recovery/actions").status_code == 200
