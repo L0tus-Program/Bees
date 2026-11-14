@@ -136,6 +136,16 @@ Cada seção tem cursor/instante próprios. Erro descarta a página, repetição
 o mesmo cursor e troca de tarefa/revisão/fechamento descarta respostas tardias.
 Esta consulta não retoma, repete ou reconcilia operações.
 
+As três páginas exigem as tabelas canônicas que consultam, antes de ler o cursor
+ou os registros: `runs` e `actions` nas ações, `runs` e `model_calls` nas chamadas,
+e `runs` nas execuções. Ausência ou substituição por view (mesmo vazia) produz
+`409 state_conflict`, sem ler o substituto ou reparar o estado. A verificação usa
+o mesmo snapshot `query_only` da página e ocorre depois de validar a tarefa/abelha.
+Um cursor não pode ser validado enquanto seu histórico estiver indisponível;
+após restaurar explicitamente o original, cursores inexistentes/estrangeiros
+continuam retornando 404. Isso não detecta exclusão de linhas ou substituição por
+outra tabela válida, nem certifica o journal externo.
+
 ## Conter e preservar
 
 1. Confirme **Parar tudo** quando precisar impedir novos despachos. Consulte

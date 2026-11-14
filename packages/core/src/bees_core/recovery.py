@@ -177,6 +177,18 @@ class RecoveryInventoryService:
         self.database = database
 
     @staticmethod
+    def _require_history(connection, tables: tuple[str, ...]) -> None:
+        # Check before preparing records or cursors: a view can conceal lost
+        # evidence, including on an empty page. Names come from internal callers.
+        placeholders = ",".join("?" for _ in tables)
+        count = connection.execute(
+            f"SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ({placeholders})",
+            tables,
+        ).get
+        if count != len(tables):
+            raise IntegrityError("Invalid recovery history store")
+
+    @staticmethod
     def _counts(connection, task_id: str, *, models: bool) -> RecoveryCounts:
         # Both table names are trusted constants, never supplied by a caller.
         table = "model_calls" if models else "actions"
@@ -210,14 +222,7 @@ class RecoveryInventoryService:
             ).fetchone()
             if row is None:
                 raise NotFoundError("Task not found")
-            # Counts must describe canonical history, never a replacement view
-            # that can conceal records. Check before preparing any history read.
-            stores = connection.execute(
-                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' "
-                "AND name IN ('runs','actions','model_calls')"
-            ).get
-            if stores != 3:
-                raise IntegrityError("Invalid recovery history store")
+            self._require_history(connection, ("runs", "actions", "model_calls"))
             return RecoveryInventory(
                 agent_id=UUID(agent),
                 task_id=UUID(task),
@@ -249,6 +254,7 @@ class RecoveryInventoryService:
             ).fetchone()
             if row is None:
                 raise NotFoundError("Task not found")
+            self._require_history(connection, ("runs", "actions"))
             clauses, parameters = ["r.task_id=?"], [task]
             if cursor is not None:
                 reference = connection.execute(
@@ -335,6 +341,7 @@ class RecoveryInventoryService:
             ).fetchone()
             if row is None:
                 raise NotFoundError("Task not found")
+            self._require_history(connection, ("runs", "model_calls"))
             clauses, parameters = ["r.task_id=?"], [task]
             if cursor is not None:
                 reference = connection.execute(
@@ -397,6 +404,7 @@ class RecoveryInventoryService:
             ).fetchone()
             if row is None:
                 raise NotFoundError("Task not found")
+            self._require_history(connection, ("runs",))
             clauses, parameters = ["x.task_id=?"], [task]
             if cursor is not None:
                 reference = connection.execute(
