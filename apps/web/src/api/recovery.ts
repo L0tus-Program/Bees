@@ -70,3 +70,38 @@ export async function getRecoveryActions(agentId: string, taskId: string, after:
   const query = new URLSearchParams({ limit: '50' }); if (after !== null) query.set('after', after)
   return checkedRecoveryActions(await request(`/agents/${agentId}/tasks/${taskId}/recovery/actions?${query}`, { authenticated: true, signal }), agentId, taskId)
 }
+
+export const recoveryModelStatuses = ['prepared', 'dispatch_started', 'confirmed', 'failed_no_effect', 'outcome_unknown', 'cancelled'] as const
+export interface RecoveryModelCall {
+  id: string; run_id: string; revision: number; status: typeof recoveryModelStatuses[number]
+  created_at: string; updated_at: string; unknown_acknowledged: boolean
+}
+export interface RecoveryModelCallPage {
+  agent_id: string; task_id: string; task_revision: number; observed_at: string
+  scope: 'all_canonical_task_model_calls'; executor_evidence: 'not_inspected'
+  items: RecoveryModelCall[]; has_more: boolean; next_cursor: string | null
+}
+export function checkedRecoveryModelCalls(value: unknown, agentId: string, taskId: string, limit = 50): RecoveryModelCallPage {
+  const keys = ['agent_id', 'task_id', 'task_revision', 'observed_at', 'scope', 'executor_evidence', 'items', 'has_more', 'next_cursor']
+  if (!record(value) || Object.keys(value).length !== keys.length || !keys.every(key => key in value)
+    || !uuid(value.agent_id) || value.agent_id !== agentId || !uuid(value.task_id) || value.task_id !== taskId
+    || !integer(value.task_revision) || value.task_revision < 1 || !date(value.observed_at)
+    || value.scope !== 'all_canonical_task_model_calls' || value.executor_evidence !== 'not_inspected'
+    || !Array.isArray(value.items) || value.items.length > limit || typeof value.has_more !== 'boolean') throw new ApiError('invalid_response')
+  const seen = new Set<string>()
+  for (const item of value.items) {
+    const fields = ['id', 'run_id', 'revision', 'status', 'created_at', 'updated_at', 'unknown_acknowledged']
+    if (!record(item) || Object.keys(item).length !== fields.length || !fields.every(key => key in item)
+      || !uuid(item.id) || !uuid(item.run_id) || seen.has(item.id) || !integer(item.revision) || item.revision < 1
+      || !recoveryModelStatuses.includes(item.status as typeof recoveryModelStatuses[number])
+      || !date(item.created_at) || !date(item.updated_at) || typeof item.unknown_acknowledged !== 'boolean') throw new ApiError('invalid_response')
+    seen.add(item.id)
+  }
+  if (value.has_more ? value.items.length !== limit || !uuid(value.next_cursor) || value.next_cursor !== value.items.at(-1)?.id : value.next_cursor !== null) throw new ApiError('invalid_response')
+  return value as unknown as RecoveryModelCallPage
+}
+export async function getRecoveryModelCalls(agentId: string, taskId: string, after: string | null = null, signal?: AbortSignal): Promise<RecoveryModelCallPage> {
+  if (!uuid(agentId) || !uuid(taskId) || after !== null && !uuid(after)) throw new ApiError('invalid_request')
+  const query = new URLSearchParams({ limit: '50' }); if (after !== null) query.set('after', after)
+  return checkedRecoveryModelCalls(await request(`/agents/${agentId}/tasks/${taskId}/recovery/model-calls?${query}`, { authenticated: true, signal }), agentId, taskId)
+}

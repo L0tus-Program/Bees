@@ -1,4 +1,8 @@
 const pt = {
+  modelRecords: 'Registros de chamadas de modelo', modelCall: 'Chamada de modelo', modelCallId: 'ID da chamada',
+  modelHistoryScope: 'Consulte até 50 chamadas por página, de todas as execuções da tarefa. Cada página tem seu próprio instante de consulta. Prompts, respostas e configurações privadas não são abertos. Não consulta o provedor, gera conteúdo nem repete chamadas.',
+  modelHelp: { prepared: 'A intenção foi registrada; este estado não confirma envio ao provedor.', dispatch_started: 'O envio foi iniciado. A chamada pode continuar no provedor; preserve a evidência antes de decidir.', confirmed: 'A resposta foi persistida. Isso não avalia sua qualidade nem conclui o objetivo da tarefa.', failed_no_effect: 'O contrato registrou falha sem efeito; uma próxima chamada exige os controles atuais.', outcome_unknown: 'Pode ter ocorrido geração ou consumo. Reconhecer o risco mantém o resultado desconhecido e não autoriza repetição automática.', cancelled: 'O registro foi cancelado. Isso não comprova cancelamento de uma geração externa já aceita.' },
+
   records: 'Registros de ações e autorizações', first: 'Consultar primeira página', next: 'Próxima página', previous: 'Página anterior', retryPage: 'Repetir consulta desta página', historyLoading: 'Consultando registros…',
   historyScope: 'Consulte até 50 registros por página, incluindo os que não aparecem no histórico resumido. Cada página tem seu próprio instante de consulta; mudanças e novos registros podem exigir voltar à primeira página. Os registros não inspecionam o executor nem autorizam ações.',
   historyError: 'Não foi possível confirmar esta página. Ela não será exibida como vazia. Repita a mesma consulta ou volte à primeira página.',
@@ -17,6 +21,10 @@ const pt = {
   failure: 'Não foi possível confirmar este diagnóstico. A ausência de resposta não significa histórico vazio; consulte novamente.',
 }
 const en: typeof pt = {
+  modelRecords: 'Model call records', modelCall: 'Model call', modelCallId: 'Call ID',
+  modelHistoryScope: 'Check up to 50 calls per page across all task runs. Each page has its own query time. Private prompts, responses and configuration are not opened. This does not query the provider, generate content or repeat calls.',
+  modelHelp: { prepared: 'The intent was recorded; this state does not confirm dispatch to the provider.', dispatch_started: 'Dispatch started. The call may continue at the provider; preserve evidence before deciding.', confirmed: 'The response was persisted. This does not assess its quality or complete the task objective.', failed_no_effect: 'The contract recorded a failure without effect; another call requires current controls.', outcome_unknown: 'Generation or consumption may have occurred. Acknowledging risk keeps the outcome unknown and does not authorize automatic repetition.', cancelled: 'The record was cancelled. This does not prove cancellation of an external generation already accepted.' },
+
   records: 'Action and authorization records', first: 'Check first page', next: 'Next page', previous: 'Previous page', retryPage: 'Retry this page query', historyLoading: 'Checking records…',
   historyScope: 'Check up to 50 records per page, including records outside the brief history. Each page has its own query time; changes and new records may require returning to the first page. These records do not inspect the executor or authorize actions.',
   historyError: 'This page could not be confirmed. It will not be displayed as empty. Retry the same query or return to the first page.',
@@ -35,6 +43,10 @@ const en: typeof pt = {
   failure: 'This diagnosis could not be confirmed. No response does not mean empty history; check again.',
 }
 const es: typeof pt = {
+  modelRecords: 'Registros de llamadas de modelo', modelCall: 'Llamada de modelo', modelCallId: 'ID de la llamada',
+  modelHistoryScope: 'Consulta hasta 50 llamadas por página de todas las ejecuciones de la tarea. Cada página tiene su propio instante de consulta. No se abren prompts, respuestas ni configuraciones privadas. No consulta al proveedor, genera contenido ni repite llamadas.',
+  modelHelp: { prepared: 'La intención fue registrada; este estado no confirma el envío al proveedor.', dispatch_started: 'El envío comenzó. La llamada puede continuar en el proveedor; conserva la evidencia antes de decidir.', confirmed: 'La respuesta fue persistida. Esto no evalúa su calidad ni completa el objetivo de la tarea.', failed_no_effect: 'El contrato registró un fallo sin efecto; otra llamada requiere los controles actuales.', outcome_unknown: 'Puede haber ocurrido generación o consumo. Reconocer el riesgo mantiene el resultado desconocido y no autoriza repetición automática.', cancelled: 'El registro fue cancelado. Esto no demuestra la cancelación de una generación externa ya aceptada.' },
+
   records: 'Registros de acciones y autorizaciones', first: 'Consultar primera página', next: 'Página siguiente', previous: 'Página anterior', retryPage: 'Repetir consulta de esta página', historyLoading: 'Consultando registros…',
   historyScope: 'Consulta hasta 50 registros por página, incluidos los que quedan fuera del historial resumido. Cada página tiene su propio instante de consulta; los cambios y nuevos registros pueden requerir volver a la primera página. Los registros no inspeccionan el ejecutor ni autorizan acciones.',
   historyError: 'No se pudo confirmar esta página. No se mostrará como vacía. Repite la misma consulta o vuelve a la primera página.',

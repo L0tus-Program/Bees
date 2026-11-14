@@ -78,9 +78,18 @@ novos registros podem exigir atualizar a primeira página; contagem e página t�
 instantes próprios. A interface mostra só a página confirmada, descarta a anterior
 durante a consulta, preserva o cursor solicitado para repetir um GET que falhou e
 ignora resposta de tarefa/revisão antiga. Erro ou cursor inválido não significam
-que o histórico está vazio nem que algum efeito não ocorreu. Esta listagem cobre
-registros de ações/autorizações; os agregados de chamadas de modelo continuam no
-diagnóstico, sem abrir suas solicitações ou respostas privadas.
+que o histórico está vazio nem que algum efeito não ocorreu. A seção **Registros de chamadas de modelo** permite a mesma navegação para todas
+as chamadas, pelo endpoint humano
+`GET /api/v1/agents/{agent_id}/tasks/{task_id}/recovery/model-calls`.
+Ela usa os mesmos limites e validação de cursor, com escopo
+`all_canonical_task_model_calls`. A projeção fechada contém somente ID da chamada,
+ID da execução, revisão do registro, estado, datas de criação/atualização e
+reconhecimento de unknown. A consulta SQL não lê prompt, resposta, configuração
+do provedor, snapshot, hash, erro bruto ou referência de credencial. Não consulta
+o provedor e não gera conteúdo. Confirmação significa resposta persistida, sem
+avaliar qualidade; reconhecimento de risco conserva unknown. Cada página usa uma
+transação query_only e o mesmo descarte por revisão/fechamento. As listas de ações
+e de modelos têm cursores e instantes independentes.
 
 ## Conter e preservar
 
