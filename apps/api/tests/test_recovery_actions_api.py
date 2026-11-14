@@ -91,7 +91,9 @@ def test_bounds_and_authentication_without_mutation(state):
     assert client.get(route).status_code == 401
 
 
-@pytest.mark.parametrize("mismatch", ["agent", "tool", "computer_agent", "computer_executor"])
+@pytest.mark.parametrize(
+    "mismatch", ["agent", "tool", "computer_agent", "computer_executor", "executor_kind"]
+)
 def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(state, mismatch):
     client, agent, other, _, _ = state
     db = client.app.state.database
@@ -106,7 +108,7 @@ def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(st
     command, stamp, computer = str(action.id), action.created_at.isoformat(), None
     secret = "private-tool-path-token"
     with db.transaction() as connection:
-        if mismatch.startswith("computer_"):
+        if mismatch.startswith("computer_") or mismatch == "executor_kind":
             computer = str(uuid4())
             connection.execute(
                 "INSERT INTO computers(id,created_at,updated_at,agent_id,executor_id,name,status) "
@@ -137,6 +139,9 @@ def test_inconsistent_command_returns_sanitized_conflict_without_partial_page(st
                 secret,
             ),
         )
+    if mismatch == "executor_kind":
+        with db.transaction() as connection:
+            connection.execute("UPDATE executors SET kind='personal' WHERE id=?", (executor,))
     queue = CommandQueue(db)
     before = queue.get(command)
     response = client.get(path + "/recovery/actions")
