@@ -83,7 +83,9 @@ def test_exchange_persists_valid_response(tmp_path, kind):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Processo POSIX simples.")
 @pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
-@pytest.mark.parametrize("response_mode", ["invalid", "truncated", "timeout", "wrong_kind", "deep"])
+@pytest.mark.parametrize(
+    "response_mode", ["invalid", "truncated", "timeout", "wrong_kind", "deep", "oversized"]
+)
 def test_executor_waits_for_new_invite_after_invalid_response(
     tmp_path, monkeypatch, kind, response_mode
 ):
@@ -123,6 +125,12 @@ def test_executor_waits_for_new_invite_after_invalid_response(
                         raise RuntimeError("controlled transport interruption")
 
                     return StreamingResponse(interrupted_body(), media_type="application/json")
+                if response_mode == "oversized":
+                    # JSON válido, mas acima do limite, após consumo real.
+                    return Response(
+                        json.dumps(VALID | {"kind": kind}).encode() + b" " * 65_536,
+                        status_code=200,
+                    )
                 if response_mode == "deep":
                     return Response(
                         b"[" * 100000 + b'"private-response-secret"' + b"]" * 100000,
