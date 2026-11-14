@@ -217,6 +217,7 @@ class RecoveryInventoryService:
     def inspect(self, agent_id: UUID | str, task_id: UUID | str) -> RecoveryInventory:
         agent, task = str(UUID(str(agent_id))), str(UUID(str(task_id)))
         with self.database.transaction(write=False) as connection:
+            self._require_history(connection, ("tasks",))
             row = connection.execute(
                 "SELECT revision,status FROM tasks WHERE id=? AND agent_id=?", (task, agent)
             ).fetchone()
@@ -249,6 +250,7 @@ class RecoveryInventoryService:
         agent, task = str(UUID(str(agent_id))), str(UUID(str(task_id)))
         cursor = str(UUID(str(after))) if after is not None else None
         with self.database.transaction(write=False) as connection:
+            self._require_history(connection, ("tasks",))
             row = connection.execute(
                 "SELECT revision FROM tasks WHERE id=? AND agent_id=?", (task, agent)
             ).fetchone()
@@ -336,6 +338,7 @@ class RecoveryInventoryService:
         agent, task = str(UUID(str(agent_id))), str(UUID(str(task_id)))
         cursor = str(UUID(str(after))) if after is not None else None
         with self.database.transaction(write=False) as connection:
+            self._require_history(connection, ("tasks",))
             row = connection.execute(
                 "SELECT revision FROM tasks WHERE id=? AND agent_id=?", (task, agent)
             ).fetchone()
@@ -399,6 +402,7 @@ class RecoveryInventoryService:
         agent, task = str(UUID(str(agent_id))), str(UUID(str(task_id)))
         cursor = str(UUID(str(after))) if after is not None else None
         with self.database.transaction(write=False) as connection:
+            self._require_history(connection, ("tasks",))
             row = connection.execute(
                 "SELECT revision FROM tasks WHERE id=? AND agent_id=?", (task, agent)
             ).fetchone()
