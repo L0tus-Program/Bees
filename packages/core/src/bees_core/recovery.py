@@ -260,10 +260,10 @@ class RecoveryInventoryService:
                 raise IntegrityError("Invalid recovery command store")
             command = (
                 "c.status,c.error_code,"
-                "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name "
+                "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name AND e.id IS NOT NULL "
                 "AND (c.computer_id IS NULL OR (b.id IS NOT NULL "
                 "AND b.agent_id=c.agent_id AND b.executor_id=c.executor_id "
-                "AND e.id IS NOT NULL AND e.kind='computer_runtime')))) "
+                "AND e.kind='computer_runtime')))) "
                 "FROM actions x LEFT JOIN executor_commands c ON c.id=x.id "
                 "LEFT JOIN computers b ON b.id=c.computer_id "
                 "LEFT JOIN executors e ON e.id=c.executor_id "
