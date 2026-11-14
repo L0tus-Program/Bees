@@ -1,4 +1,8 @@
 const pt = {
+  runRecords: 'Registros de execuções', run: 'Execução', runStarted: 'Início registrado', runFinished: 'Fim registrado', runDateAbsent: 'Sem data registrada',
+  runHistoryScope: 'Consulte até 50 execuções por página, incluindo as que não aparecem no detalhe resumido. Cada página tem seu próprio instante de consulta. Checkpoints, configurações e erros privados não são abertos.',
+  runMeaning: 'Este é o estado registrado da execução. Consulte também suas ações e chamadas: conclusão ou cancelamento não comprova o resultado de todos os efeitos externos. A consulta não retoma nem repete operações.',
+  runStatus: { queued: 'Na fila', running: 'Em execução', waiting_approval: 'Aguardando decisão', waiting_resource: 'Aguardando recurso', paused: 'Pausada', completed: 'Concluída', failed: 'Falhou', cancelled: 'Cancelada' },
   modelRecords: 'Registros de chamadas de modelo', modelCall: 'Chamada de modelo', modelCallId: 'ID da chamada',
   modelHistoryScope: 'Consulte até 50 chamadas por página, de todas as execuções da tarefa. Cada página tem seu próprio instante de consulta. Prompts, respostas e configurações privadas não são abertos. Não consulta o provedor, gera conteúdo nem repete chamadas.',
   modelHelp: { prepared: 'A intenção foi registrada; este estado não confirma envio ao provedor.', dispatch_started: 'O envio foi iniciado. A chamada pode continuar no provedor; preserve a evidência antes de decidir.', confirmed: 'A resposta foi persistida. Isso não avalia sua qualidade nem conclui o objetivo da tarefa.', failed_no_effect: 'O contrato registrou falha sem efeito; uma próxima chamada exige os controles atuais.', outcome_unknown: 'Pode ter ocorrido geração ou consumo. Reconhecer o risco mantém o resultado desconhecido e não autoriza repetição automática.', cancelled: 'O registro foi cancelado. Isso não comprova cancelamento de uma geração externa já aceita.' },
@@ -21,6 +25,10 @@ const pt = {
   failure: 'Não foi possível confirmar este diagnóstico. A ausência de resposta não significa histórico vazio; consulte novamente.',
 }
 const en: typeof pt = {
+  runRecords: 'Run records', run: 'Run', runStarted: 'Recorded start', runFinished: 'Recorded finish', runDateAbsent: 'No date recorded',
+  runHistoryScope: 'Query up to 50 runs per page, including those outside the summary. Each page has its own observation time. Private checkpoints, configuration and errors are not opened.',
+  runMeaning: 'This is the recorded run state. Also inspect its actions and calls: completion or cancellation does not prove the outcome of every external effect. This query does not resume or repeat operations.',
+  runStatus: { queued: 'Queued', running: 'Running', waiting_approval: 'Awaiting decision', waiting_resource: 'Awaiting resource', paused: 'Paused', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' },
   modelRecords: 'Model call records', modelCall: 'Model call', modelCallId: 'Call ID',
   modelHistoryScope: 'Check up to 50 calls per page across all task runs. Each page has its own query time. Private prompts, responses and configuration are not opened. This does not query the provider, generate content or repeat calls.',
   modelHelp: { prepared: 'The intent was recorded; this state does not confirm dispatch to the provider.', dispatch_started: 'Dispatch started. The call may continue at the provider; preserve evidence before deciding.', confirmed: 'The response was persisted. This does not assess its quality or complete the task objective.', failed_no_effect: 'The contract recorded a failure without effect; another call requires current controls.', outcome_unknown: 'Generation or consumption may have occurred. Acknowledging risk keeps the outcome unknown and does not authorize automatic repetition.', cancelled: 'The record was cancelled. This does not prove cancellation of an external generation already accepted.' },
@@ -43,6 +51,10 @@ const en: typeof pt = {
   failure: 'This diagnosis could not be confirmed. No response does not mean empty history; check again.',
 }
 const es: typeof pt = {
+  runRecords: 'Registros de ejecuciones', run: 'Ejecución', runStarted: 'Inicio registrado', runFinished: 'Fin registrado', runDateAbsent: 'Sin fecha registrada',
+  runHistoryScope: 'Consulta hasta 50 ejecuciones por página, incluidas las que quedan fuera del resumen. Cada página tiene su propio instante de consulta. No se abren checkpoints, configuraciones ni errores privados.',
+  runMeaning: 'Este es el estado registrado de la ejecución. Consulta también sus acciones y llamadas: la finalización o cancelación no demuestra el resultado de todos los efectos externos. La consulta no reanuda ni repite operaciones.',
+  runStatus: { queued: 'En cola', running: 'En ejecución', waiting_approval: 'Esperando decisión', waiting_resource: 'Esperando recurso', paused: 'Pausada', completed: 'Completada', failed: 'Falló', cancelled: 'Cancelada' },
   modelRecords: 'Registros de llamadas de modelo', modelCall: 'Llamada de modelo', modelCallId: 'ID de la llamada',
   modelHistoryScope: 'Consulta hasta 50 llamadas por página de todas las ejecuciones de la tarea. Cada página tiene su propio instante de consulta. No se abren prompts, respuestas ni configuraciones privadas. No consulta al proveedor, genera contenido ni repite llamadas.',
   modelHelp: { prepared: 'La intención fue registrada; este estado no confirma el envío al proveedor.', dispatch_started: 'El envío comenzó. La llamada puede continuar en el proveedor; conserva la evidencia antes de decidir.', confirmed: 'La respuesta fue persistida. Esto no evalúa su calidad ni completa el objetivo de la tarea.', failed_no_effect: 'El contrato registró un fallo sin efecto; otra llamada requiere los controles actuales.', outcome_unknown: 'Puede haber ocurrido generación o consumo. Reconocer el riesgo mantiene el resultado desconocido y no autoriza repetición automática.', cancelled: 'El registro fue cancelado. Esto no demuestra la cancelación de una generación externa ya aceptada.' },

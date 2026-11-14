@@ -7,6 +7,7 @@ import { actionStatuses } from '../../api/tasks'
 import type { TaskRecord } from '../../api/tasks'
 import './recovery.css'
 import { RecoveryActions } from './RecoveryActions'
+import { RecoveryRuns } from './RecoveryRuns'
 import { RecoveryModelCalls } from './RecoveryModelCalls'
 
 export function TaskRecovery({ task, onRefresh }: { task: TaskRecord; onRefresh: () => void }) {
@@ -41,6 +42,7 @@ export function TaskRecovery({ task, onRefresh }: { task: TaskRecord; onRefresh:
       <p className="transfer-notice">{t('meaning')}</p>
     </>}
     <p className="quiet-note">{t('limits')}</p>
+    <RecoveryRuns task={task} onRefresh={onRefresh} />
     <RecoveryActions task={task} onRefresh={onRefresh} />
     <RecoveryModelCalls task={task} onRefresh={onRefresh} />
   </section>

@@ -863,6 +863,18 @@ try {
   const callsBeforeDiagnosis = model.requests
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 })
+    const runs = page.locator('.recovery-runs')
+    await runs.getByRole('button', { name: 'Consultar primeira página', exact: true }).focus()
+    await page.keyboard.press('Enter')
+    await runs.locator('li').first().waitFor()
+    if (await runs.locator('li').count() !== 1) throw new Error('Diagnóstico não encontrou a única execução da tarefa.')
+    await runs.locator('summary').first().focus()
+    await page.keyboard.press('Enter')
+    if (!await runs.getByText('ID da execução', { exact: true }).isVisible()) throw new Error('ID da execução inacessível por teclado.')
+    if (!await runs.getByRole('button', { name: 'Próxima página', exact: true }).isDisabled()) throw new Error('Diagnóstico criou página de execuções sem cursor.')
+    if ((await runs.textContent()).includes('INVALID-PRIVATE-ARGUMENTS')) throw new Error('Execução expôs conteúdo privado.')
+    const canonicalRun = await runs.locator('code').first().textContent()
+    await runs.locator('summary').first().press('Enter')
     const records = page.locator('.recovery-model-calls')
     const firstPage = records.getByRole('button', { name: 'Consultar primeira página', exact: true })
     await firstPage.focus()
@@ -874,6 +886,7 @@ try {
     if (!await records.getByRole('button', { name: 'Próxima página', exact: true }).isDisabled()) throw new Error('Diagnóstico criou página adicional sem cursor.')
     if (!await records.getByText('ID da chamada', { exact: true }).isVisible()) throw new Error('IDs do diagnóstico inacessíveis por teclado.')
     if ((await records.textContent()).includes('INVALID-PRIVATE-ARGUMENTS')) throw new Error('Diagnóstico expôs conteúdo privado.')
+    if (await records.locator('code').nth(1).textContent() !== canonicalRun) throw new Error('Chamada não está vinculada à execução consultada.')
     // Fecha o detalhe para exercitar o mesmo caminho na próxima largura.
     await records.locator('summary').first().press('Enter')
   }

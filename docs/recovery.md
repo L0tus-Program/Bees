@@ -91,6 +91,23 @@ avaliar qualidade; reconhecimento de risco conserva unknown. Cada página usa um
 transação query_only e o mesmo descarte por revisão/fechamento. As listas de ações
 e de modelos têm cursores e instantes independentes.
 
+### Consultar todas as execuções
+
+**Registros de execuções** permite primeira/próxima/anterior com 50 registros por
+página, inclusive além das 1.000 execuções do detalhe resumido. O endpoint humano
+`GET /api/v1/agents/{agent_id}/tasks/{task_id}/recovery/runs` aceita os mesmos
+limites (1–100, padrão 50) e cursor `after` limitado à tarefa/abelha. Ordena por
+criação/ID e usa snapshot query_only próprio, com revisão da tarefa e instante.
+O escopo é `all_canonical_task_runs`; o executor continua `not_inspected`.
+
+A projeção lê somente ID, revisão, estado e datas de criação/alteração/início/fim.
+Não lê checkpoint, metadados, configuração, provedor/modelo, erro ou ambiente.
+Data ausente aparece como não registrada; estado concluído/cancelado não confirma
+todos os efeitos externos. IDs permitem relacionar execuções às ações e chamadas.
+Cada seção tem cursor/instante próprios. Erro descarta a página, repetição consulta
+o mesmo cursor e troca de tarefa/revisão/fechamento descarta respostas tardias.
+Esta consulta não retoma, repete ou reconcilia operações.
+
 ## Conter e preservar
 
 1. Confirme **Parar tudo** quando precisar impedir novos despachos. Consulte

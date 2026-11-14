@@ -105,3 +105,37 @@ export async function getRecoveryModelCalls(agentId: string, taskId: string, aft
   const query = new URLSearchParams({ limit: '50' }); if (after !== null) query.set('after', after)
   return checkedRecoveryModelCalls(await request(`/agents/${agentId}/tasks/${taskId}/recovery/model-calls?${query}`, { authenticated: true, signal }), agentId, taskId)
 }
+
+export interface RecoveryRun {
+  id: string; revision: number; status: TaskStatus
+  created_at: string; updated_at: string; started_at: string | null; finished_at: string | null
+}
+export interface RecoveryRunPage {
+  agent_id: string; task_id: string; task_revision: number; observed_at: string
+  scope: 'all_canonical_task_runs'; executor_evidence: 'not_inspected'
+  items: RecoveryRun[]; has_more: boolean; next_cursor: string | null
+}
+export function checkedRecoveryRuns(value: unknown, agentId: string, taskId: string, limit = 50): RecoveryRunPage {
+  const keys = ['agent_id', 'task_id', 'task_revision', 'observed_at', 'scope', 'executor_evidence', 'items', 'has_more', 'next_cursor']
+  if (!record(value) || Object.keys(value).length !== keys.length || !keys.every(key => key in value)
+    || !uuid(value.agent_id) || value.agent_id !== agentId || !uuid(value.task_id) || value.task_id !== taskId
+    || !integer(value.task_revision) || value.task_revision < 1 || !date(value.observed_at)
+    || value.scope !== 'all_canonical_task_runs' || value.executor_evidence !== 'not_inspected'
+    || !Array.isArray(value.items) || value.items.length > limit || typeof value.has_more !== 'boolean') throw new ApiError('invalid_response')
+  const seen = new Set<string>()
+  for (const item of value.items) {
+    const fields = ['id', 'revision', 'status', 'created_at', 'updated_at', 'started_at', 'finished_at']
+    if (!record(item) || Object.keys(item).length !== fields.length || !fields.every(key => key in item)
+      || !uuid(item.id) || seen.has(item.id) || !integer(item.revision) || item.revision < 1
+      || !taskStatuses.includes(item.status as TaskStatus)
+      || !date(item.created_at) || !date(item.updated_at) || !(item.started_at === null || date(item.started_at)) || !(item.finished_at === null || date(item.finished_at))) throw new ApiError('invalid_response')
+    seen.add(item.id)
+  }
+  if (value.has_more ? value.items.length !== limit || !uuid(value.next_cursor) || value.next_cursor !== value.items.at(-1)?.id : value.next_cursor !== null) throw new ApiError('invalid_response')
+  return value as unknown as RecoveryRunPage
+}
+export async function getRecoveryRuns(agentId: string, taskId: string, after: string | null = null, signal?: AbortSignal): Promise<RecoveryRunPage> {
+  if (!uuid(agentId) || !uuid(taskId) || after !== null && !uuid(after)) throw new ApiError('invalid_request')
+  const query = new URLSearchParams({ limit: '50' }); if (after !== null) query.set('after', after)
+  return checkedRecoveryRuns(await request(`/agents/${agentId}/tasks/${taskId}/recovery/runs?${query}`, { authenticated: true, signal }), agentId, taskId)
+}
