@@ -81,6 +81,17 @@ sem página vazia fictícia. A ordenação é por criação/ID. Cada página usa
 transação query_only própria, com instante/revisão e escopo
 `all_canonical_task_actions`, sempre `executor_evidence: not_inspected`.
 
+Antes de publicar o estado da fila, a página confere se o comando pertence à
+mesma abelha e ferramenta da ação. Quando há computador, seu cadastro precisa
+conservar a mesma abelha e executor do comando. Divergência recusa a página inteira
+com HTTP 409 `state_conflict`, sem devolver resultados parciais ou reparar dados.
+Preserve o estado privado e investigue os vínculos antes de repetir a consulta;
+atualizar a tela não corrige a inconsistência. Cada página verifica somente seus
+registros retornados, sem certificar páginas ainda não consultadas. Comando ausente
+continua sem projeção de fila. Computador removido e executor revogado não impedem
+consulta de histórico com vínculos válidos. Essa conferência canônica não lê
+argumentos, resultados ou bindings privados nem comprova identidade/journal externo.
+
 As páginas não formam uma fotografia única entre pedidos. Mudanças de estado ou
 novos registros podem exigir atualizar a primeira página; contagem e página têm
 instantes próprios. A interface mostra só a página confirmada, descarta a anterior
