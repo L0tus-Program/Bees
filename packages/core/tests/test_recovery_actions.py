@@ -212,7 +212,9 @@ def test_page_reader_is_query_only_and_does_not_access_private_columns(tmp_path,
     assert len(page.items) == 1 and PRIVATE not in page.model_dump_json()
 
 
-@pytest.mark.parametrize("mismatch", ["agent", "tool", "computer_agent", "computer_executor"])
+@pytest.mark.parametrize(
+    "mismatch", ["agent", "tool", "computer_agent", "computer_executor", "executor_kind"]
+)
 def test_inconsistent_queue_binding_refuses_page_without_changing_history(tmp_path, mismatch):
     from bees_core.executors import ExecutorService
     from bees_core.models import Agent
@@ -258,6 +260,9 @@ def test_inconsistent_queue_binding_refuses_page_without_changing_history(tmp_pa
             connection.execute(
                 "UPDATE executor_commands SET computer_id=? WHERE id=?", (computer, command)
             )
+    if mismatch == "executor_kind":
+        with db.transaction() as connection:
+            connection.execute("UPDATE executors SET kind='personal' WHERE id=?", (executor,))
     before = queue.get(command)
     with pytest.raises(IntegrityError, match="Invalid recovery command binding"):
         RecoveryInventoryService(db).actions(agent, task)
@@ -344,4 +349,19 @@ def test_inconsistent_later_record_refuses_its_page_and_preserves_cursor(tmp_pat
     for _ in range(2):
         with pytest.raises(IntegrityError):
             service.actions(agent, task, limit=1, after=page.next_cursor)
+    assert queue.get(command) == before
+
+
+@pytest.mark.parametrize("kind", ["personal", "computer_runtime"])
+@pytest.mark.parametrize("status", ["active", "revoked"])
+def test_executor_without_computer_keeps_historical_projection(tmp_path, kind, status):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    with db.transaction() as connection:
+        connection.execute(
+            "UPDATE executors SET kind=?,status=? WHERE id=?", (kind, status, executor)
+        )
+    before = queue.get(command)
+    page = RecoveryInventoryService(db).actions(agent, task)
+    assert str(page.items[0].id) == command
+    assert page.items[0].executor_command == "sent"
     assert queue.get(command) == before
