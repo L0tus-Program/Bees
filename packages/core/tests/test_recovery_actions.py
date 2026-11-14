@@ -367,35 +367,56 @@ def test_executor_without_computer_keeps_historical_projection(tmp_path, kind, s
     assert queue.get(command) == before
 
 
+@pytest.mark.parametrize("table", ["executor_commands", "executors", "computers"])
 @pytest.mark.parametrize("substitute", [False, True], ids=["missing", "view"])
 @pytest.mark.parametrize("empty", [False, True], ids=["history", "empty"])
-def test_missing_queue_refuses_page_without_reading_substitute_or_repairing(
-    tmp_path, monkeypatch, substitute, empty
+def test_missing_canonical_store_refuses_page_without_reading_substitute_or_repairing(
+    tmp_path, monkeypatch, table, substitute, empty
 ):
     from bees_core.storage.store import IntegrityError, StateStore
 
     db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    # Keep real linked rows behind the substituted stores, even for an empty task.
+    computer, stamp = str(uuid4()), utc_now().isoformat()
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO computers(id,created_at,updated_at,agent_id,executor_id,name,status) "
+            "VALUES(?,?,?,?,?,?,'removed')",
+            (computer, stamp, stamp, str(agent), executor, PRIVATE),
+        )
+        connection.execute(
+            "UPDATE executor_commands SET computer_id=? WHERE id=?", (computer, command)
+        )
     before = queue.get(command)
     if empty:
         with StateStore(db).transaction() as unit:
             task = str(unit.tasks.create(Task(agent_id=agent, title="Empty", objective="Empty")).id)
     with db.transaction() as connection:
-        connection.execute("ALTER TABLE executor_commands RENAME TO preserved_commands")
+        connection.execute(f"ALTER TABLE {table} RENAME TO preserved_records")
         if substitute:
-            connection.execute("CREATE VIEW executor_commands AS SELECT * FROM preserved_commands")
+            connection.execute(f"CREATE VIEW {table} AS SELECT * FROM preserved_records")
         schema = connection.execute(
             "SELECT type,name,sql FROM sqlite_schema ORDER BY name"
         ).fetchall()
-        history = connection.execute("SELECT * FROM preserved_commands").fetchall()
+        history_tables = [
+            "preserved_records" if name == table else name
+            for name in ("actions", "executor_commands", "executors", "computers")
+        ]
+        history = {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY id").fetchall()
+            for name in history_tables
+        }
+    with pytest.raises(IntegrityError, match="Invalid recovery command store"):
+        RecoveryInventoryService(db).actions(agent, task)
     original = db.connect
 
     def connect():
         connection = original()
 
-        def authorize(operation, table, column, database, trigger):
-            if operation == apsw.SQLITE_READ and table in {
-                "executor_commands",
-                "preserved_commands",
+        def authorize(operation, read_table, column, database, trigger):
+            if operation == apsw.SQLITE_READ and read_table in {
+                table,
+                "preserved_records",
             }:
                 return apsw.SQLITE_DENY
             if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
@@ -419,11 +440,14 @@ def test_missing_queue_refuses_page_without_reading_substitute_or_repairing(
             connection.execute("SELECT type,name,sql FROM sqlite_schema ORDER BY name").fetchall()
             == schema
         )
-        assert connection.execute("SELECT * FROM preserved_commands").fetchall() == history
+        assert {
+            name: connection.execute(f"SELECT * FROM {name} ORDER BY id").fetchall()
+            for name in history_tables
+        } == history
         if substitute:
-            connection.execute("DROP VIEW executor_commands")
+            connection.execute(f"DROP VIEW {table}")
         # Explicit fixture restoration, never performed by the diagnostic reader.
-        connection.execute("ALTER TABLE preserved_commands RENAME TO executor_commands")
+        connection.execute(f"ALTER TABLE preserved_records RENAME TO {table}")
     page = RecoveryInventoryService(db).actions(agent, task)
     assert (page.items == []) if empty else (str(page.items[0].id) == command)
     assert queue.get(command) == before

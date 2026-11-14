@@ -253,10 +253,13 @@ class RecoveryInventoryService:
                 clauses.append("(x.created_at>? OR (x.created_at=? AND x.id>?))")
                 parameters.extend([reference[0], reference[0], reference[1]])
             parameters.append(limit + 1)
-            queue = connection.execute(
-                "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='executor_commands'"
-            ).fetchone()
-            if queue is None:
+            # Every joined store must be canonical before preparing the projection.
+            # Views can conceal lost evidence, even when the requested page is empty.
+            stores = connection.execute(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' "
+                "AND name IN ('executor_commands','executors','computers')"
+            ).get
+            if stores != 3:
                 raise IntegrityError("Invalid recovery command store")
             command = (
                 "c.status,c.error_code,"
