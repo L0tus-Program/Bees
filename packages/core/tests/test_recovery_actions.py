@@ -365,3 +365,65 @@ def test_executor_without_computer_keeps_historical_projection(tmp_path, kind, s
     assert str(page.items[0].id) == command
     assert page.items[0].executor_command == "sent"
     assert queue.get(command) == before
+
+
+@pytest.mark.parametrize("substitute", [False, True], ids=["missing", "view"])
+@pytest.mark.parametrize("empty", [False, True], ids=["history", "empty"])
+def test_missing_queue_refuses_page_without_reading_substitute_or_repairing(
+    tmp_path, monkeypatch, substitute, empty
+):
+    from bees_core.storage.store import IntegrityError, StateStore
+
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    before = queue.get(command)
+    if empty:
+        with StateStore(db).transaction() as unit:
+            task = str(unit.tasks.create(Task(agent_id=agent, title="Empty", objective="Empty")).id)
+    with db.transaction() as connection:
+        connection.execute("ALTER TABLE executor_commands RENAME TO preserved_commands")
+        if substitute:
+            connection.execute("CREATE VIEW executor_commands AS SELECT * FROM preserved_commands")
+        schema = connection.execute(
+            "SELECT type,name,sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+        history = connection.execute("SELECT * FROM preserved_commands").fetchall()
+    original = db.connect
+
+    def connect():
+        connection = original()
+
+        def authorize(operation, table, column, database, trigger):
+            if operation == apsw.SQLITE_READ and table in {
+                "executor_commands",
+                "preserved_commands",
+            }:
+                return apsw.SQLITE_DENY
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        return connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "connect", connect)
+        for _ in range(2):
+            with pytest.raises(IntegrityError, match="Invalid recovery command store"):
+                RecoveryInventoryService(db).actions(agent, task)
+        with pytest.raises(NotFoundError):
+            RecoveryInventoryService(db).actions(uuid4(), task)
+        with pytest.raises(NotFoundError):
+            RecoveryInventoryService(db).actions(agent, task, after=uuid4())
+    with db.transaction() as connection:
+        assert (
+            connection.execute("SELECT type,name,sql FROM sqlite_schema ORDER BY name").fetchall()
+            == schema
+        )
+        assert connection.execute("SELECT * FROM preserved_commands").fetchall() == history
+        if substitute:
+            connection.execute("DROP VIEW executor_commands")
+        # Explicit fixture restoration, never performed by the diagnostic reader.
+        connection.execute("ALTER TABLE preserved_commands RENAME TO executor_commands")
+    page = RecoveryInventoryService(db).actions(agent, task)
+    assert (page.items == []) if empty else (str(page.items[0].id) == command)
+    assert queue.get(command) == before
