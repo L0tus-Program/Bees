@@ -59,3 +59,11 @@ it('explains executor queue state and late answers as evidence only', async () =
   expect(container.textContent).toContain('Não se sabe se o comando foi executado no computador')
   expect(container.textContent).toContain('Uma resposta do computador chegou depois (O computador confirmou o comando.)')
 })
+it('rejects private late prefixes without rendering or confirming an effect', async () => {
+  const value = page(1, 1); value.items[0].executor_code = 'late_PRIVATE'
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(value))); await render(); await click(pt.first)
+  expect(container.textContent).toContain(pt.historyError)
+  expect(container.textContent).not.toContain('PRIVATE')
+  expect(container.querySelector('.transfer-notice')).toBeNull()
+  expect(container.querySelectorAll('li')).toHaveLength(0)
+})

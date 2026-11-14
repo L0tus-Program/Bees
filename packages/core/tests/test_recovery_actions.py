@@ -12,6 +12,86 @@ from bees_core.recovery import RecoveryInventoryService
 from bees_core.storage.store import NotFoundError
 
 
+def command_fixture(tmp_path):
+    from test_executors import pair, queued
+
+    from bees_core.executors import CommandQueue, ExecutorService
+
+    db, store, agent, _, _ = inventory_fixture(tmp_path)
+    paired = pair(ExecutorService(db))
+    with store.transaction(write=False) as unit:
+        generation = unit.safety.state().generation
+    command_id = queued(
+        store, paired["executor_id"], agent, "computer.shell.run", generation=generation
+    )
+    queue = CommandQueue(db)
+    assert len(queue.claim(paired["executor_id"], "conn-1")) == 1
+    with db.transaction(write=False) as connection:
+        task_id = connection.execute(
+            "SELECT r.task_id FROM actions a JOIN runs r ON r.id=a.run_id WHERE a.id=?",
+            (command_id,),
+        ).get
+    return db, agent.id, task_id, queue, paired["executor_id"], command_id
+
+
+@pytest.mark.parametrize(
+    "code",
+    [PRIVATE, "late_" + PRIVATE, "late_confirmed " + PRIVATE, "x" * 100, "", None],
+)
+def test_executor_free_text_never_becomes_public_even_when_short(tmp_path, code):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    assert queue.report(executor, command, "failed", result={"private": PRIVATE}, code=code)
+    before = queue.get(command)
+    page = RecoveryInventoryService(db).actions(agent, task)
+    assert page.items[0].executor_command == "failed"
+    assert page.items[0].executor_code is None
+    assert PRIVATE not in page.model_dump_json()
+    assert queue.get(command) == before
+
+
+@pytest.mark.parametrize("code", ["worker_restart", "executor_timeout", "element_not_found"])
+def test_executor_public_codes_are_preserved(tmp_path, code):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    queue.report(executor, command, "unknown", code=code)
+    assert RecoveryInventoryService(db).actions(agent, task).items[0].executor_code == code
+
+
+@pytest.mark.parametrize("status", ["confirmed", "failed", "unknown"])
+def test_exact_late_receipts_remain_unknown_without_reading_private_results(
+    tmp_path, monkeypatch, status
+):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    queue.report(executor, command, "unknown", code="executor_timeout")
+    assert not queue.report(executor, command, status, result={"private": PRIVATE})
+    original = db.connect
+
+    def connect():
+        connection = original()
+
+        def authorize(operation, table, column, database, trigger):
+            if operation == apsw.SQLITE_READ and column in {"result_json", "arguments_json"}:
+                return apsw.SQLITE_DENY
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        return connection
+
+    monkeypatch.setattr(db, "connect", connect)
+    item = RecoveryInventoryService(db).actions(agent, task).items[0]
+    assert item.executor_command == "unknown" and item.executor_code == "late_" + status
+    assert PRIVATE not in item.model_dump_json()
+
+
+@pytest.mark.parametrize("status", ["confirmed", "failed"])
+@pytest.mark.parametrize("code", ["late_confirmed", "late_failed", "late_unknown"])
+def test_late_codes_on_terminal_commands_are_not_presented_as_late_receipts(tmp_path, status, code):
+    db, agent, task, queue, executor, command = command_fixture(tmp_path)
+    queue.report(executor, command, status, code=code)
+    assert RecoveryInventoryService(db).actions(agent, task).items[0].executor_code is None
+
+
 def test_pages_include_all_runs_and_keep_ties_stable_without_private_payloads(tmp_path):
     db, store, agent, task, run = inventory_fixture(tmp_path)
     stamp = utc_now()

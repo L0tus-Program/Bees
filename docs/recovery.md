@@ -66,6 +66,14 @@ ação/execução, revisão e datas sem consultar parâmetros, resultados, metad
 bindings. Tool names são texto inerte; autorizações usadas e unknown reconhecido
 conservam a explicação de seu estado. Não são acrescentados botões de decisão.
 
+Os códigos de comando do executor passam por uma lista pública fechada. Texto
+livre, inclusive texto curto ou com prefixo `late_`, é omitido, sem truncar nem
+alterar o registro privado. Somente `late_confirmed`, `late_failed` e
+`late_unknown` em comando `unknown` aparecem como resposta tardia. São marcadores
+da fila do servidor, não inspeção autenticada do recurso ou confirmação do efeito;
+um código informado pelo executor não é, sozinho, prova de resultado. A projeção
+não lê argumentos ou resultados privados nem reconcilia o estado.
+
 `GET /api/v1/agents/{agent_id}/tasks/{task_id}/recovery/actions` aceita `limit` entre
 1 e 100 (padrão 50) e `after` com o UUID do registro anterior. A referência do cursor
 precisa existir na mesma tarefa/abelha; estrangeira ou inexistente retorna 404,

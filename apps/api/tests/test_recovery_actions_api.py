@@ -2,8 +2,39 @@
 
 from uuid import uuid4
 
+import pytest
 from test_task_actions_api import journal, paused_task
 from test_tasks import state as state
+
+from bees_core.executors import CommandQueue, ExecutorService
+
+
+@pytest.mark.parametrize("code", ["private-path-token", "late_private-path-token", "x" * 100])
+def test_executor_text_is_not_published_by_authenticated_action_page(state, code):
+    client, agent, _, _, _ = state
+    db = client.app.state.database
+    path, task = paused_task(client, agent)
+    action = journal(client, task)
+    service = ExecutorService(db)
+    invite = service.invite({"kind": "computer_runtime", "name": "Fixture"})
+    executor = service.exchange({"token": invite["token"]})["executor_id"]
+    command = str(action.id)
+    stamp = action.created_at.isoformat()
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO executor_commands(id,created_at,updated_at,executor_id,agent_id,"
+            "tool_name,arguments_json,deadline_at,status) VALUES(?,?,?,?,?,?,?,?,'sent')",
+            (command, stamp, stamp, executor, str(agent.id), action.tool_name, "{}", stamp),
+        )
+    queue = CommandQueue(db)
+    assert queue.report(executor, command, "failed", code=code)
+    before = queue.get(command)
+    response = client.get(path + "/recovery/actions")
+    assert response.status_code == 200
+    assert response.json()["items"][0]["executor_code"] is None
+    assert response.json()["items"][0]["executor_command"] == "failed"
+    assert code not in response.text
+    assert queue.get(command) == before
 
 
 def test_scoped_action_pages_and_cursor_rejection(state):
