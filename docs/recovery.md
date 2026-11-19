@@ -49,6 +49,20 @@ lida e nenhum dado é reparado. Com a tabela íntegra, tarefa/abelha incompatív
 continuam retornando 404. A verificação não detecta substituição por outra tabela
 válida nem adulteração de linhas.
 
+Também são exigidas as colunas públicas usadas pelo conjunto de projeções de
+recuperação de cada tabela. Tabela existente com uma dessas colunas ausente retorna
+o mesmo conflito sanitizado, inclusive se estiver vazia, sem ler seus registros.
+A conferência lê apenas metadados do schema na mesma transação `query_only`;
+não valida tipos, constraints, equivalência completa do schema ou conteúdo das
+linhas e não reconstitui evidências. Preserve o estado privado, pare os processos
+e investigue a perda antes de restaurar explicitamente o original confiável.
+Não crie colunas vazias ou repita gerações para tentar liberar a consulta.
+Na tabela `tasks`, essa recusa precede a validação de tarefa/abelha; nas demais,
+o isolamento da tarefa continua sendo verificado primeiro. As colunas de
+`executor_commands`, `executors` e `computers` são verificadas após o pertencimento
+do cursor de ações, antes de preparar a projeção dos comandos. Um cursor inválido
+continua retornando 404 nessa etapa.
+
 A consulta usa uma única transação SQLite `query_only`. Os agregados não dependem
 dos limites de 100 ações ou 1.000 execuções do detalhe. Conta também registros de
 autorização: um `confirmed` não equivale à contagem de efeitos físicos concluídos.

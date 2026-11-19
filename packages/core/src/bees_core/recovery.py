@@ -29,6 +29,51 @@ _QUEUE_CODES = PUBLIC_TOOL_ERRORS | {
 }
 _LATE_CODES = frozenset({"late_confirmed", "late_failed", "late_unknown"})
 
+# Minimum columns used by the recovery projections, not a full schema attestation.
+_HISTORY_COLUMNS = {
+    "tasks": {"id", "agent_id", "revision", "status"},
+    "runs": {
+        "id",
+        "task_id",
+        "revision",
+        "status",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "finished_at",
+    },
+    "actions": {
+        "id",
+        "run_id",
+        "revision",
+        "tool_name",
+        "status",
+        "created_at",
+        "updated_at",
+        "unknown_acknowledged_at",
+    },
+    "model_calls": {
+        "id",
+        "run_id",
+        "revision",
+        "status",
+        "created_at",
+        "updated_at",
+        "unknown_acknowledged_at",
+    },
+    "executor_commands": {
+        "id",
+        "agent_id",
+        "tool_name",
+        "executor_id",
+        "computer_id",
+        "status",
+        "error_code",
+    },
+    "executors": {"id", "kind"},
+    "computers": {"id", "agent_id", "executor_id"},
+}
+
 
 class RecoveryCounts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
@@ -177,7 +222,12 @@ class RecoveryInventoryService:
         self.database = database
 
     @staticmethod
-    def _require_history(connection, tables: tuple[str, ...]) -> None:
+    def _require_history(
+        connection,
+        tables: tuple[str, ...],
+        *,
+        store_error: str = "Invalid recovery history store",
+    ) -> None:
         # Check before preparing records or cursors: a view can conceal lost
         # evidence, including on an empty page. Names come from internal callers.
         placeholders = ",".join("?" for _ in tables)
@@ -186,7 +236,14 @@ class RecoveryInventoryService:
             tables,
         ).get
         if count != len(tables):
-            raise IntegrityError("Invalid recovery history store")
+            raise IntegrityError(store_error)
+        for table in tables:
+            columns = {
+                row[0]
+                for row in connection.execute("SELECT name FROM pragma_table_info(?)", (table,))
+            }
+            if not _HISTORY_COLUMNS[table] <= columns:
+                raise IntegrityError("Invalid recovery history columns")
 
     @staticmethod
     def _counts(connection, task_id: str, *, models: bool) -> RecoveryCounts:
@@ -271,12 +328,11 @@ class RecoveryInventoryService:
             parameters.append(limit + 1)
             # Every joined store must be canonical before preparing the projection.
             # Views can conceal lost evidence, even when the requested page is empty.
-            stores = connection.execute(
-                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' "
-                "AND name IN ('executor_commands','executors','computers')"
-            ).get
-            if stores != 3:
-                raise IntegrityError("Invalid recovery command store")
+            self._require_history(
+                connection,
+                ("executor_commands", "executors", "computers"),
+                store_error="Invalid recovery command store",
+            )
             command = (
                 "c.status,c.error_code,"
                 "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name AND e.id IS NOT NULL "
