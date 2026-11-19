@@ -67,6 +67,12 @@ A consulta usa uma única transação SQLite `query_only`. Os agregados não dep
 dos limites de 100 ações ou 1.000 execuções do detalhe. Conta também registros de
 autorização: um `confirmed` não equivale à contagem de efeitos físicos concluídos.
 Unknown reconhecido continua em unknown, separado de unknown sem reconhecimento.
+Os totais validam os estados pelo tipo de registro: `awaiting_approval` e `ready`
+são estados de ações, não de chamadas de modelo. Estado persistido inválido,
+inclusive nulo ou fora dos limites do histórico resumido, recusa o inventário
+inteiro com HTTP 409 `state_conflict`; não retorna contagens parciais nem converte
+o valor em zero. A consulta preserva os registros para investigação e restauração
+explícita. Essa validação dos estados não atesta o conteúdo completo das linhas.
 Nenhum registro fora da página é esquecido por isso. A interface informa o instante
 e a revisão consultados; uma revisão diferente pede atualizar os detalhes antes de
 mostrar o diagnóstico. Atualizar descarta a projeção anterior enquanto consulta;

@@ -13,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from bees_core.models import ActionStatus, TaskStatus, utc_now
+from bees_core.models import ActionStatus, ModelCall, TaskStatus, utc_now
 from bees_core.storage.database import Database
 from bees_core.storage.store import IntegrityError, NotFoundError
 from bees_core.tool_diagnostics import PUBLIC_TOOL_ERRORS
@@ -258,10 +258,11 @@ class RecoveryInventoryService:
             (task_id,),
         )
         counts = dict.fromkeys(get_args(ActionStatus), 0)
+        allowed = get_args(ModelCall.model_fields["status"].annotation) if models else counts
         acknowledged = 0
         for status, count, ack in rows:
-            if status not in counts:
-                raise ValueError("Invalid recovery status")
+            if status not in allowed:
+                raise IntegrityError("Invalid recovery status")
             counts[status] = count
             acknowledged += ack
         return RecoveryCounts(
