@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationError,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -73,6 +74,16 @@ _HISTORY_COLUMNS = {
     "executors": {"id", "kind"},
     "computers": {"id", "agent_id", "executor_id"},
 }
+
+
+def _project[T: BaseModel](model: type[T], **values) -> T:
+    # Only validation of persisted projections is translated. Caller arguments,
+    # SQL failures and programming errors retain their own contracts. Do not
+    # expose Pydantic input values (which may contain private stored data).
+    try:
+        return model(**values)
+    except ValidationError:
+        raise IntegrityError("Invalid recovery projection") from None
 
 
 class RecoveryCounts(BaseModel):
@@ -265,7 +276,8 @@ class RecoveryInventoryService:
                 raise IntegrityError("Invalid recovery status")
             counts[status] = count
             acknowledged += ack
-        return RecoveryCounts(
+        return _project(
+            RecoveryCounts,
             **counts,
             unknown_acknowledged=acknowledged,
             unknown_unacknowledged=counts["outcome_unknown"] - acknowledged,
@@ -282,7 +294,8 @@ class RecoveryInventoryService:
             if row is None:
                 raise NotFoundError("Task not found")
             self._require_history(connection, ("runs", "actions", "model_calls"))
-            return RecoveryInventory(
+            return _project(
+                RecoveryInventory,
                 agent_id=UUID(agent),
                 task_id=UUID(task),
                 task_revision=row[0],
@@ -357,7 +370,8 @@ class RecoveryInventoryService:
             if any(not record[10] for record in records[:limit]):
                 raise IntegrityError("Invalid recovery command binding")
             items = [
-                RecoveryAction(
+                _project(
+                    RecoveryAction,
                     id=record[0],
                     run_id=record[1],
                     revision=record[2],
@@ -372,7 +386,8 @@ class RecoveryInventoryService:
                 for record in records[:limit]
             ]
             has_more = len(records) > limit
-            return RecoveryActionPage(
+            return _project(
+                RecoveryActionPage,
                 agent_id=UUID(agent),
                 task_id=UUID(task),
                 task_revision=row[0],
@@ -424,7 +439,8 @@ class RecoveryInventoryService:
                 tuple(parameters),
             ).fetchall()
             items = [
-                RecoveryModelCall(
+                _project(
+                    RecoveryModelCall,
                     id=record[0],
                     run_id=record[1],
                     revision=record[2],
@@ -436,7 +452,8 @@ class RecoveryInventoryService:
                 for record in records[:limit]
             ]
             has_more = len(records) > limit
-            return RecoveryModelCallPage(
+            return _project(
+                RecoveryModelCallPage,
                 agent_id=UUID(agent),
                 task_id=UUID(task),
                 task_revision=row[0],
@@ -486,7 +503,8 @@ class RecoveryInventoryService:
                 tuple(parameters),
             ).fetchall()
             items = [
-                RecoveryRun(
+                _project(
+                    RecoveryRun,
                     id=record[0],
                     revision=record[1],
                     status=record[2],
@@ -498,7 +516,8 @@ class RecoveryInventoryService:
                 for record in records[:limit]
             ]
             has_more = len(records) > limit
-            return RecoveryRunPage(
+            return _project(
+                RecoveryRunPage,
                 agent_id=UUID(agent),
                 task_id=UUID(task),
                 task_revision=row[0],

@@ -129,6 +129,17 @@ continua sem projeção de fila. Computador removido e executor revogado não im
 consulta de histórico com vínculos válidos. Essa conferência canônica não lê
 argumentos, resultados ou bindings privados nem comprova identidade/journal externo.
 
+Inventário e páginas também recusam dados persistidos que não passam no contrato
+da projeção pública: por exemplo UUID, revisão, estado ou data inválidos nos campos
+exibidos, inclusive metadados da tarefa e estado de comando quando projetados.
+Essa falha retorna HTTP 409 `state_conflict` sanitizado, sem detalhes de validação,
+valores privados ou página parcial. Nenhum registro é alterado; preserve a evidência
+e investigue a origem da inconsistência antes de uma restauração explícita.
+Isso valida os campos efetivamente projetados, sem atestar o conteúdo integral do
+store. A linha adicional usada para indicar próxima página não é publicada nem
+validada como item; um erro nela será recusado quando entrar na página solicitada.
+Argumentos inválidos e cursores estrangeiros conservam seus erros próprios.
+
 As páginas não formam uma fotografia única entre pedidos. Mudanças de estado ou
 novos registros podem exigir atualizar a primeira página; contagem e página têm
 instantes próprios. A interface mostra só a página confirmada, descarta a anterior
