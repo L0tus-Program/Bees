@@ -1,11 +1,12 @@
 """Read-only canonical inventory, not executor inspection or recovery authority."""
 
-from typing import Literal, get_args
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     ValidationError,
@@ -86,6 +87,19 @@ def _project[T: BaseModel](model: type[T], **values) -> T:
         raise IntegrityError("Invalid recovery projection") from None
 
 
+def _canonical_record_id(value: object) -> UUID | str:
+    # IDs become cursors. Normalizing an alternate stored representation would
+    # publish a UUID which cannot locate the original row with SQL equality.
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str) and value == str(UUID(value)):
+        return value
+    raise ValueError("Invalid recovery record identity")
+
+
+_RecordID = Annotated[UUID, BeforeValidator(_canonical_record_id)]
+
+
 class _RecoveryCursor(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -134,7 +148,7 @@ class RecoveryInventory(BaseModel):
 class RecoveryAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: UUID
+    id: _RecordID
     run_id: UUID
     revision: int = Field(ge=1, strict=True)
     tool_name: str = Field(min_length=1, max_length=200)
@@ -176,7 +190,7 @@ class RecoveryActionPage(BaseModel):
 class RecoveryModelCall(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: UUID
+    id: _RecordID
     run_id: UUID
     revision: int = Field(ge=1, strict=True)
     status: Literal[
@@ -209,7 +223,7 @@ class RecoveryModelCallPage(BaseModel):
 class RecoveryRun(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: UUID
+    id: _RecordID
     revision: int = Field(ge=1, strict=True)
     status: TaskStatus
     created_at: AwareDatetime

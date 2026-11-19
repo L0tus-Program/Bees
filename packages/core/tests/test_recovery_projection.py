@@ -12,6 +12,13 @@ from bees_core.recovery import RecoveryInventoryService
 from bees_core.storage.store import IntegrityError, NotFoundError
 
 METHODS = ("inspect", "actions", "model_calls", "runs")
+NONCANONICAL_IDS = (
+    "ABCDEF01-2345-4678-9ABC-DEF012345678",
+    "abcdef01234546789abcdef012345678",
+    "{abcdef01-2345-4678-9abc-def012345678}",
+    "urn:uuid:abcdef01-2345-4678-9abc-def012345678",
+    b"abcdef01-2345-4678-9abc-def012345678",
+)
 CASES = (
     [
         (method, table, column, value)
@@ -29,6 +36,11 @@ CASES = (
             ("created_at", PRIVATE),
             ("updated_at", "2026-01-01T00:00:00"),
         )
+    ]
+    + [
+        (method, method, "id", value)
+        for method in ("actions", "model_calls", "runs")
+        for value in NONCANONICAL_IDS
     ]
     + [(method, "tasks", "revision", 0) for method in METHODS]
     + [
@@ -143,7 +155,11 @@ def test_invalid_command_projection_is_not_published_or_repaired(tmp_path, value
 
 
 @pytest.mark.parametrize("method", ["actions", "model_calls", "runs"])
-def test_projection_validation_stays_within_requested_page(tmp_path, method):
+@pytest.mark.parametrize(
+    "column,value",
+    [("status", PRIVATE), ("id", "ABCDEF01-2345-4678-9ABC-DEF012345678")],
+)
+def test_projection_validation_stays_within_requested_page(tmp_path, method, column, value):
     db, store, agent, task, run = inventory_fixture(tmp_path)
     with store.transaction() as unit:
         if method == "actions":
@@ -156,7 +172,7 @@ def test_projection_validation_stays_within_requested_page(tmp_path, method):
     query = getattr(RecoveryInventoryService(db), method)
     with db.transaction() as connection:
         connection.execute("PRAGMA ignore_check_constraints=ON")
-        connection.execute(f"UPDATE {method} SET status=? WHERE id=?", (PRIVATE, str(second.id)))
+        connection.execute(f'UPDATE {method} SET "{column}"=? WHERE id=?', (value, str(second.id)))
     first_page = query(agent.id, task.id, limit=1)
     assert [item.id for item in first_page.items] == [first.id]
     assert first_page.has_more and first_page.next_cursor == first.id
