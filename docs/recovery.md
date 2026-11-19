@@ -67,6 +67,12 @@ A consulta usa uma única transação SQLite `query_only`. Os agregados não dep
 dos limites de 100 ações ou 1.000 execuções do detalhe. Conta também registros de
 autorização: um `confirmed` não equivale à contagem de efeitos físicos concluídos.
 Unknown reconhecido continua em unknown, separado de unknown sem reconhecimento.
+Antes de publicar esse reconhecimento, o inventário valida as datas de todos os
+unknown da tarefa; as páginas de ações/modelos validam somente as datas dos itens
+retornados. Data inválida ou sem fuso recusa a consulta com HTTP 409
+`state_conflict`, sem expor o valor privado, devolver contagens parciais ou reparar
+o registro. Um campo apenas não nulo não comprova reconhecimento válido. Datas
+válidas continuam sendo reduzidas ao booleano público, sem confirmar o efeito.
 Os totais validam os estados pelo tipo de registro: `awaiting_approval` e `ready`
 são estados de ações, não de chamadas de modelo. Estado persistido inválido,
 inclusive nulo ou fora dos limites do histórico resumido, recusa o inventário

@@ -99,3 +99,55 @@ def test_invalid_model_state_beyond_detail_limit_is_not_hidden(tmp_path):
         connection.execute("UPDATE model_calls SET status='ready' WHERE id=?", (str(calls[-1].id),))
     with pytest.raises(IntegrityError, match="^Invalid recovery status$"):
         RecoveryInventoryService(db).inspect(agent.id, task.id)
+
+
+@pytest.mark.parametrize("table", ["actions", "model_calls"])
+def test_acknowledgement_groups_preserve_counts_and_validate_full_unknown_history(tmp_path, table):
+    db, store, agent, task, run = inventory_fixture(tmp_path)
+    with store.transaction() as unit:
+        if table == "actions":
+            records = [
+                unit.actions.create(Action(run_id=run.id, tool_name="fixture")) for _ in range(1002)
+            ]
+        else:
+            records = [model_call(unit, agent, run, n) for n in range(1, 1003)]
+    stamps = (None, "2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00-03:00")
+    with db.transaction() as connection:
+        # Extra schema columns must not shadow a grouping alias and hide dates.
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN ack TEXT")
+        for n, record in enumerate(records):
+            connection.execute(
+                f"UPDATE {table} SET status='outcome_unknown',unknown_acknowledged_at=? WHERE id=?",
+                (stamps[n % 3], str(record.id)),
+            )
+    service = RecoveryInventoryService(db)
+    before = service.inspect(agent.id, task.id)
+    counts = getattr(before, table)
+    assert counts.total == counts.outcome_unknown == 1002
+    assert counts.unknown_acknowledged == 668
+    assert counts.unknown_unacknowledged == 334
+    query = getattr(service, table)
+    page = query(agent.id, task.id, limit=1)
+    assert not page.items[0].unknown_acknowledged
+    page2 = query(agent.id, task.id, after=page.next_cursor, limit=1)
+    assert page2.items[0].unknown_acknowledged
+    assert all(item.status == "outcome_unknown" for item in [*page.items, *page2.items])
+    with db.transaction() as connection:
+        # External corruption must bypass the production immutability trigger
+        # through a replacement table, preserving the original for restoration.
+        connection.execute(f"ALTER TABLE {table} RENAME TO preserved_records")
+        connection.execute(f"CREATE TABLE {table} AS SELECT * FROM preserved_records")
+        connection.execute(
+            f"UPDATE {table} SET unknown_acknowledged_at=? WHERE id=?",
+            (PRIVATE, str(records[-1].id)),
+        )
+    # A corrupt later item is outside the page but inside the full inventory.
+    assert query(agent.id, task.id, limit=1).items == page.items
+    with pytest.raises(IntegrityError, match="^Invalid recovery projection$"):
+        service.inspect(agent.id, task.id)
+    with db.transaction() as connection:
+        connection.execute(f"DROP TABLE {table}")
+        connection.execute(f"ALTER TABLE preserved_records RENAME TO {table}")
+    assert service.inspect(agent.id, task.id).model_dump(
+        exclude={"observed_at"}
+    ) == before.model_dump(exclude={"observed_at"})

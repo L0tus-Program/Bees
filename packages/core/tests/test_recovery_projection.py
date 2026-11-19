@@ -42,6 +42,16 @@ CASES = (
         for method in ("actions", "model_calls", "runs")
         for value in NONCANONICAL_IDS
     ]
+    + [
+        (method, table, "unknown_acknowledged_at", value)
+        for method, table in (
+            ("inspect", "actions"),
+            ("inspect", "model_calls"),
+            ("actions", "actions"),
+            ("model_calls", "model_calls"),
+        )
+        for value in (PRIVATE, "2026-01-01T00:00:00", b"invalid-date")
+    ]
     + [(method, "tasks", "revision", 0) for method in METHODS]
     + [
         ("inspect", "tasks", "status", PRIVATE),
@@ -84,6 +94,8 @@ def test_invalid_projection_is_readonly_scoped_and_restorable(
     before = query(agent.id, task.id)
     with db.transaction() as connection:
         replace_value(connection, table, column, value)
+        if column == "unknown_acknowledged_at":
+            connection.execute(f"UPDATE {table} SET status='outcome_unknown'")
     with db.transaction(write=False) as connection:
         snapshot = connection.serialize("main")
     original = db.connect
@@ -154,10 +166,18 @@ def test_invalid_command_projection_is_not_published_or_repaired(tmp_path, value
     assert public(service.actions(agent, task)) == public(before)
 
 
-@pytest.mark.parametrize("method", ["actions", "model_calls", "runs"])
 @pytest.mark.parametrize(
-    "column,value",
-    [("status", PRIVATE), ("id", "ABCDEF01-2345-4678-9ABC-DEF012345678")],
+    "method,column,value",
+    [
+        (method, column, value)
+        for method in ("actions", "model_calls", "runs")
+        for column, value in (
+            ("status", PRIVATE),
+            ("id", "ABCDEF01-2345-4678-9ABC-DEF012345678"),
+            ("unknown_acknowledged_at", PRIVATE),
+        )
+        if method != "runs" or column != "unknown_acknowledged_at"
+    ],
 )
 def test_projection_validation_stays_within_requested_page(tmp_path, method, column, value):
     db, store, agent, task, run = inventory_fixture(tmp_path)

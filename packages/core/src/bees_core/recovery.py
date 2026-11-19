@@ -106,6 +106,18 @@ class _RecoveryCursor(BaseModel):
     created_at: AwareDatetime
 
 
+class _RecoveryAcknowledgement(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    acknowledged_at: AwareDatetime | None
+
+
+def _acknowledged(value: object) -> bool:
+    # Validate before reducing stored evidence to a public boolean. Keep the
+    # timestamp private and preserve unknown regardless of acknowledgement.
+    return _project(_RecoveryAcknowledgement, acknowledged_at=value).acknowledged_at is not None
+
+
 class RecoveryCounts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -281,11 +293,9 @@ class RecoveryInventoryService:
         # Both table names are trusted constants, never supplied by a caller.
         table = "model_calls" if models else "actions"
         rows = connection.execute(
-            f"SELECT x.status, COUNT(*), "
-            "SUM(CASE WHEN x.status='outcome_unknown' "
-            "AND x.unknown_acknowledged_at IS NOT NULL THEN 1 ELSE 0 END) "
+            "SELECT x.status, COUNT(*), x.unknown_acknowledged_at "
             f"FROM {table} x JOIN runs r ON r.id=x.run_id "
-            "WHERE r.task_id=? GROUP BY x.status",
+            "WHERE r.task_id=? GROUP BY x.status,x.unknown_acknowledged_at",
             (task_id,),
         )
         counts = dict.fromkeys(get_args(ActionStatus), 0)
@@ -294,8 +304,9 @@ class RecoveryInventoryService:
         for status, count, ack in rows:
             if status not in allowed:
                 raise IntegrityError("Invalid recovery status")
-            counts[status] = count
-            acknowledged += ack
+            counts[status] += count
+            if status == "outcome_unknown" and _acknowledged(ack):
+                acknowledged += count
         return _project(
             RecoveryCounts,
             **counts,
@@ -382,7 +393,7 @@ class RecoveryInventoryService:
             )
             records = connection.execute(
                 "SELECT x.id,x.run_id,x.revision,x.tool_name,x.status,x.created_at,x.updated_at,"
-                "x.unknown_acknowledged_at IS NOT NULL,"
+                "x.unknown_acknowledged_at,"
                 + command
                 + f"JOIN runs r ON r.id=x.run_id WHERE {' AND '.join(clauses)} "
                 "ORDER BY x.created_at,x.id LIMIT ?",
@@ -402,7 +413,7 @@ class RecoveryInventoryService:
                     status=record[4],
                     created_at=record[5],
                     updated_at=record[6],
-                    unknown_acknowledged=bool(record[7]),
+                    unknown_acknowledged=_acknowledged(record[7]),
                     executor_command=record[8],
                     executor_code=record[9],
                 )
@@ -459,7 +470,7 @@ class RecoveryInventoryService:
             # which would also read request/response/configuration/snapshot.
             records = connection.execute(
                 "SELECT x.id,x.run_id,x.revision,x.status,x.created_at,x.updated_at,"
-                "x.unknown_acknowledged_at IS NOT NULL "
+                "x.unknown_acknowledged_at "
                 "FROM model_calls x JOIN runs r ON r.id=x.run_id "
                 f"WHERE {' AND '.join(clauses)} ORDER BY x.created_at,x.id LIMIT ?",
                 tuple(parameters),
@@ -473,7 +484,7 @@ class RecoveryInventoryService:
                     status=record[3],
                     created_at=record[4],
                     updated_at=record[5],
-                    unknown_acknowledged=bool(record[6]),
+                    unknown_acknowledged=_acknowledged(record[6]),
                 )
                 for record in records[:limit]
             ]

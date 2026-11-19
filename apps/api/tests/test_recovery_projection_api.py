@@ -34,6 +34,16 @@ CASES = (
             "urn:uuid:abcdef01-2345-4678-9abc-def012345678",
         )
     ]
+    + [
+        (route, table, "unknown_acknowledged_at", value)
+        for route, table in (
+            ("", "actions"),
+            ("", "model_calls"),
+            ("actions", "actions"),
+            ("model-calls", "model_calls"),
+        )
+        for value in (PRIVATE, "2026-01-01T00:00:00")
+    ]
     + [(route, "tasks", "revision", 0) for route in ("", "actions", "model-calls", "runs")]
     + [
         ("", "tasks", "status", PRIVATE),
@@ -82,6 +92,8 @@ def test_projection_conflict_is_sanitized_preserved_and_restorable(
         connection.execute(f"ALTER TABLE {table} RENAME TO preserved_records")
         connection.execute(f"CREATE TABLE {table} AS SELECT * FROM preserved_records")
         connection.execute(f'UPDATE {table} SET "{column}"=?', (value,))
+        if column == "unknown_acknowledged_at":
+            connection.execute(f"UPDATE {table} SET status='outcome_unknown'")
     with db.transaction(write=False) as connection:
         snapshot = connection.serialize("main")
     for _ in range(2):
