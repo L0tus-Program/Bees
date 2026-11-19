@@ -138,6 +138,11 @@ e investigue a origem da inconsistência antes de uma restauração explícita.
 Isso valida os campos efetivamente projetados, sem atestar o conteúdo integral do
 store. A linha adicional usada para indicar próxima página não é publicada nem
 validada como item; um erro nela será recusado quando entrar na página solicitada.
+A data de criação do registro usado como cursor também precisa passar no contrato
+público antes da comparação SQL: data inválida não vira uma página vazia ou
+truncada. A validação ocorre após conferir que o cursor pertence à tarefa e não
+normaliza a data nem muda a ordenação existente. Ela não valida outros campos do
+registro anterior, que não são publicados na página seguinte.
 Argumentos inválidos e cursores estrangeiros conservam seus erros próprios.
 
 As páginas não formam uma fotografia única entre pedidos. Mudanças de estado ou

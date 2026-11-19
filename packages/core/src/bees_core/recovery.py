@@ -86,6 +86,12 @@ def _project[T: BaseModel](model: type[T], **values) -> T:
         raise IntegrityError("Invalid recovery projection") from None
 
 
+class _RecoveryCursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    created_at: AwareDatetime
+
+
 class RecoveryCounts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
@@ -337,6 +343,9 @@ class RecoveryInventoryService:
                 ).fetchone()
                 if reference is None:
                     raise NotFoundError("Action not found")
+                # The cursor itself is not returned, but its date controls which
+                # evidence is visible. Refuse corruption before comparing in SQL.
+                _project(_RecoveryCursor, created_at=reference[0])
                 clauses.append("(x.created_at>? OR (x.created_at=? AND x.id>?))")
                 parameters.extend([reference[0], reference[0], reference[1]])
             parameters.append(limit + 1)
@@ -426,6 +435,9 @@ class RecoveryInventoryService:
                 ).fetchone()
                 if reference is None:
                     raise NotFoundError("Model call not found")
+                # The cursor itself is not returned, but its date controls which
+                # evidence is visible. Refuse corruption before comparing in SQL.
+                _project(_RecoveryCursor, created_at=reference[0])
                 clauses.append("(x.created_at>? OR (x.created_at=? AND x.id>?))")
                 parameters.extend([reference[0], reference[0], reference[1]])
             parameters.append(limit + 1)
@@ -491,6 +503,9 @@ class RecoveryInventoryService:
                 ).fetchone()
                 if reference is None:
                     raise NotFoundError("Run not found")
+                # The cursor itself is not returned, but its date controls which
+                # evidence is visible. Refuse corruption before comparing in SQL.
+                _project(_RecoveryCursor, created_at=reference[0])
                 clauses.append("(x.created_at>? OR (x.created_at=? AND x.id>?))")
                 parameters.extend([reference[0], reference[0], reference[1]])
             parameters.append(limit + 1)
