@@ -20,6 +20,20 @@ CASES = (
         )
         for column, value in (("status", PRIVATE), ("revision", 0), ("updated_at", PRIVATE))
     ]
+    + [
+        (route, table, "id", value)
+        for route, table in (
+            ("actions", "actions"),
+            ("model-calls", "model_calls"),
+            ("runs", "runs"),
+        )
+        for value in (
+            "ABCDEF01-2345-4678-9ABC-DEF012345678",
+            "abcdef01234546789abcdef012345678",
+            "{abcdef01-2345-4678-9abc-def012345678}",
+            "urn:uuid:abcdef01-2345-4678-9abc-def012345678",
+        )
+    ]
     + [(route, "tasks", "revision", 0) for route in ("", "actions", "model-calls", "runs")]
     + [
         ("", "tasks", "status", PRIVATE),

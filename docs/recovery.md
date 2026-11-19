@@ -143,6 +143,12 @@ público antes da comparação SQL: data inválida não vira uma página vazia o
 truncada. A validação ocorre após conferir que o cursor pertence à tarefa e não
 normaliza a data nem muda a ordenação existente. Ela não valida outros campos do
 registro anterior, que não são publicados na página seguinte.
+Os IDs de ações, chamadas de modelo e execuções publicados precisam ter a forma
+UUID canônica armazenada (minúsculas e hífens). Representações alternativas como
+maiúsculas, hexadecimal sem hífens, chaves, URN ou bytes são recusadas com o mesmo
+conflito sanitizado: normalizá-las ao publicar criaria um cursor que não encontra
+a linha original na próxima consulta. A regra vale para os itens publicados,
+inclusive na última página; não altera IDs armazenados nem valida itens futuros.
 Argumentos inválidos e cursores estrangeiros conservam seus erros próprios.
 
 As páginas não formam uma fotografia única entre pedidos. Mudanças de estado ou
