@@ -131,8 +131,9 @@ com HTTP 409 `state_conflict`, sem devolver resultados parciais ou reparar dados
 Preserve o estado privado e investigue os vínculos antes de repetir a consulta;
 atualizar a tela não corrige a inconsistência. Cada página verifica somente seus
 registros retornados, sem certificar páginas ainda não consultadas. Comando ausente
-continua sem projeção de fila. Computador removido e executor revogado não impedem
-consulta de histórico com vínculos válidos. Essa conferência canônica não lê
+continua sem projeção de fila. Um comando existente com estado SQL NULL é
+inconsistente e recusa a página; não equivale a comando ausente. Computador removido
+e executor revogado não impedem consulta de histórico com vínculos válidos. Essa conferência canônica não lê
 argumentos, resultados ou bindings privados nem comprova identidade/journal externo.
 
 Inventário e páginas também recusam dados persistidos que não passam no contrato

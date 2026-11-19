@@ -381,9 +381,11 @@ class RecoveryInventoryService:
                 ("executor_commands", "executors", "computers"),
                 store_error="Invalid recovery command store",
             )
+            # NULL status on an existing command must not look like a missing LEFT JOIN.
             command = (
                 "c.status,c.error_code,"
-                "(c.id IS NULL OR (c.agent_id=? AND c.tool_name=x.tool_name AND e.id IS NOT NULL "
+                "(c.id IS NULL OR (c.status IS NOT NULL AND c.agent_id=? "
+                "AND c.tool_name=x.tool_name AND e.id IS NOT NULL "
                 "AND (c.computer_id IS NULL OR (b.id IS NOT NULL "
                 "AND b.agent_id=c.agent_id AND b.executor_id=c.executor_id "
                 "AND e.kind='computer_runtime')))) "

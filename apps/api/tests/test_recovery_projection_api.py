@@ -48,6 +48,7 @@ CASES = (
     + [
         ("", "tasks", "status", PRIVATE),
         ("actions", "executor_commands", "status", PRIVATE),
+        ("actions", "executor_commands", "status", None),
     ]
 )
 

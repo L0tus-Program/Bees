@@ -1,13 +1,14 @@
 """Invalid public rows are sanitized conflicts, never repaired or partly returned."""
 
-from uuid import uuid4
+from datetime import timedelta
+from uuid import UUID, uuid4
 
 import apsw
 import pytest
 from test_recovery_actions import command_fixture
 from test_recovery_inventory import PRIVATE, inventory_fixture, model_call
 
-from bees_core.models import Action, Run
+from bees_core.models import Action, Run, Task
 from bees_core.recovery import RecoveryInventoryService
 from bees_core.storage.store import IntegrityError, NotFoundError
 
@@ -148,8 +149,8 @@ def test_invalid_projection_is_readonly_scoped_and_restorable(
     assert public(query(agent.id, task.id)) == public(before)
 
 
-@pytest.mark.parametrize("value", [PRIVATE, b"confirmed", 7])
-def test_invalid_command_projection_is_not_published_or_repaired(tmp_path, value):
+@pytest.mark.parametrize("value", [PRIVATE, b"confirmed", 7, None])
+def test_invalid_command_projection_is_not_published_or_repaired(tmp_path, monkeypatch, value):
     db, agent, task, _, _, _ = command_fixture(tmp_path)
     service = RecoveryInventoryService(db)
     before = service.actions(agent, task)
@@ -157,9 +158,40 @@ def test_invalid_command_projection_is_not_published_or_repaired(tmp_path, value
         replace_value(connection, "executor_commands", "status", value)
     with db.transaction(write=False) as connection:
         snapshot = connection.serialize("main")
-    for _ in range(2):
-        with pytest.raises(IntegrityError, match="^Invalid recovery projection$"):
-            service.actions(agent, task)
+    original = db.connect
+    traces = []
+
+    def connect():
+        connection = original()
+
+        def authorize(operation, table, column, database, trigger):
+            if operation in {apsw.SQLITE_INSERT, apsw.SQLITE_UPDATE, apsw.SQLITE_DELETE}:
+                return apsw.SQLITE_DENY
+            if operation == apsw.SQLITE_READ and (
+                table == "preserved_records"
+                or column in {"arguments_json", "parameters_json", "result_json", "metadata_json"}
+            ):
+                return apsw.SQLITE_DENY
+            return apsw.SQLITE_OK
+
+        connection.set_authorizer(authorize)
+        connection.set_exec_trace(lambda c, sql, bindings: traces.append(sql) or True)
+        return connection
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "connect", connect)
+        for _ in range(2):
+            message = (
+                "Invalid recovery command binding"
+                if value is None
+                else "Invalid recovery projection"
+            )
+            with pytest.raises(IntegrityError, match=f"^{message}$"):
+                service.actions(agent, task)
+        for owner, identity in [(uuid4(), task), (agent, uuid4())]:
+            with pytest.raises(NotFoundError):
+                service.actions(owner, identity)
+    assert any("PRAGMA query_only=ON" in sql for sql in traces)
     with db.transaction() as connection:
         assert connection.serialize("main") == snapshot
         restore(connection, "executor_commands")
@@ -203,3 +235,42 @@ def test_projection_validation_stays_within_requested_page(tmp_path, method, col
     for limit in [0, 101, True, "50"]:
         with pytest.raises(ValueError):
             query(agent.id, task.id, limit=limit)
+
+
+def test_missing_command_state_is_checked_only_within_returned_page(tmp_path):
+    from bees_core.storage.store import StateStore
+
+    db, agent, task, _, _, command = command_fixture(tmp_path)
+    service = RecoveryInventoryService(db)
+    item = service.actions(agent, task).items[0]
+    with StateStore(db).transaction() as unit:
+        first = unit.actions.create(
+            Action(
+                run_id=item.run_id,
+                tool_name="without-command",
+                created_at=item.created_at - timedelta(seconds=1),
+            )
+        )
+        other_task = unit.tasks.create(
+            Task(agent_id=UUID(str(agent)), title="Other", objective="Fixture")
+        )
+    with db.transaction() as connection:
+        replace_value(connection, "executor_commands", "status", None)
+    with db.transaction(write=False) as connection:
+        snapshot = connection.serialize("main")
+    page = service.actions(agent, task, limit=1)
+    assert page.items[0].id == first.id
+    assert page.items[0].executor_command is None
+    assert page.items[0].executor_code is None
+    assert page.has_more and page.next_cursor == first.id
+    for _ in range(2):
+        with pytest.raises(IntegrityError, match="^Invalid recovery command binding$"):
+            service.actions(agent, task, after=page.next_cursor, limit=1)
+    assert service.actions(agent, other_task.id).items == []
+    assert service.actions(agent, task, after=command).items == []
+    with db.transaction() as connection:
+        assert connection.serialize("main") == snapshot
+        restore(connection, "executor_commands")
+    following = service.actions(agent, task, after=page.next_cursor, limit=1)
+    assert following.items == [item]
+    assert not following.has_more and following.next_cursor is None
