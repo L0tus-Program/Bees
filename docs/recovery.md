@@ -41,6 +41,14 @@ estado da tarefa, instante da consulta, total de execuções e contagens por est
 Não inclui nomes de ferramentas, parâmetros, respostas, erros brutos, checkpoints,
 metadados, caminhos, owners, referências de credencial ou bindings de executor.
 
+O inventário e as páginas exigem a tabela canônica `tasks` antes de consultar
+a identidade/revisão da tarefa. Ausência ou substituição por view retorna conflito
+sanitizado (HTTP 409 `state_conflict`), inclusive para IDs ou cursores inexistentes,
+pois o cadastro indisponível não permite comprovar o isolamento. Nenhuma view é
+lida e nenhum dado é reparado. Com a tabela íntegra, tarefa/abelha incompatíveis
+continuam retornando 404. A verificação não detecta substituição por outra tabela
+válida nem adulteração de linhas.
+
 A consulta usa uma única transação SQLite `query_only`. Os agregados não dependem
 dos limites de 100 ações ou 1.000 execuções do detalhe. Conta também registros de
 autorização: um `confirmed` não equivale à contagem de efeitos físicos concluídos.
