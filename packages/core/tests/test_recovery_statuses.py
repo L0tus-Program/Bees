@@ -113,6 +113,8 @@ def test_acknowledgement_groups_preserve_counts_and_validate_full_unknown_histor
             records = [model_call(unit, agent, run, n) for n in range(1, 1003)]
     stamps = (None, "2026-01-01T00:00:00+00:00", "2026-01-02T00:00:00-03:00")
     with db.transaction() as connection:
+        # Extra schema columns must not shadow a grouping alias and hide dates.
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN ack TEXT")
         for n, record in enumerate(records):
             connection.execute(
                 f"UPDATE {table} SET status='outcome_unknown',unknown_acknowledged_at=? WHERE id=?",

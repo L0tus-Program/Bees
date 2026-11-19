@@ -293,10 +293,9 @@ class RecoveryInventoryService:
         # Both table names are trusted constants, never supplied by a caller.
         table = "model_calls" if models else "actions"
         rows = connection.execute(
-            f"SELECT x.status, COUNT(*), "
-            "CASE WHEN x.status='outcome_unknown' THEN x.unknown_acknowledged_at END AS ack "
+            "SELECT x.status, COUNT(*), x.unknown_acknowledged_at "
             f"FROM {table} x JOIN runs r ON r.id=x.run_id "
-            "WHERE r.task_id=? GROUP BY x.status,ack",
+            "WHERE r.task_id=? GROUP BY x.status,x.unknown_acknowledged_at",
             (task_id,),
         )
         counts = dict.fromkeys(get_args(ActionStatus), 0)
