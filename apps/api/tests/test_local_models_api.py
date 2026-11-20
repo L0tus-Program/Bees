@@ -403,6 +403,57 @@ def test_backend_down_is_reported(state):
     assert wait(client, started.json()["id"])["error"] == "backend_unavailable"
 
 
+@pytest.mark.parametrize(
+    ("backend_status", "api_status", "code"),
+    [
+        (200, 200, None),
+        (204, 200, None),
+        (302, 409, "pull_failed"),
+        (404, 404, "model_not_found"),
+        (500, 409, "pull_failed"),
+    ],
+)
+def test_delete_uses_status_without_consuming_backend_body(state, backend_status, api_status, code):
+    client, _ = state
+    calls = []
+
+    class Unreadable(httpx.AsyncByteStream):
+        closed = False
+        reads = 0
+
+        async def __aiter__(self):
+            self.reads += 1
+            raise AssertionError("Corpo privado da remoção não deve ser lido.")
+            yield b""  # pragma: no cover
+
+        async def aclose(self):
+            self.closed = True
+
+    stream = Unreadable()
+
+    def backend(request):
+        calls.append((request.method, request.url.path))
+        return httpx.Response(
+            backend_status,
+            headers={"Content-Length": "999999999999", "Location": "http://127.0.0.1:11435"},
+            stream=stream,
+        )
+
+    client.app.state.local_models = LocalModelManager(transport=httpx.MockTransport(backend))
+    response = client.post(
+        "/api/v1/local-models/delete",
+        json={"model": "qwen3", "confirm_delete": True},
+        headers=headers(client),
+    )
+    assert response.status_code == api_status
+    if code is None:
+        assert response.json() == {"deleted": "qwen3"}
+    else:
+        assert response.json()["error"]["code"] == code
+    assert stream.closed and stream.reads == 0
+    assert calls == [("DELETE", "/api/delete")]
+
+
 def test_cancel_running_pull_and_delete_requires_confirmation(state):
     client, backend = state
 
