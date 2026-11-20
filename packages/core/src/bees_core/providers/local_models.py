@@ -399,9 +399,15 @@ class LocalModelManager:
             async with (
                 self._client(pull.endpoint, stream=True) as client,
                 client.stream(
-                    "POST", "/api/pull", json={"model": pull.model, "stream": True}
+                    "POST",
+                    "/api/pull",
+                    json={"model": pull.model, "stream": True},
+                    headers={"Accept-Encoding": "identity"},
                 ) as response,
             ):
+                # Recusar antes de aiter_bytes descomprimir, inclusive nos erros HTTP.
+                if response.headers.get("content-encoding", "identity").lower() != "identity":
+                    raise LocalModelError("pull_failed")
                 if not response.is_success:
                     if response.is_redirect:
                         raise LocalModelError("pull_failed")

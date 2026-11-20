@@ -657,3 +657,45 @@ def test_nontextual_pull_error_fails_with_replay_and_explicit_recovery(state, er
     assert wait(client, fresh.json()["id"])["status"] == "completed"
     assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == terminal
     assert backend.pulls == ["qwen3:1.7b"] * 2 and backend.deleted == []
+
+
+@pytest.mark.parametrize("status", [200, 404, 500])
+def test_compressed_pull_is_terminal_without_body_read_and_replays(state, status):
+    client, backend = state
+    streams = []
+
+    class Unread(httpx.AsyncByteStream):
+        closed = False
+        reads = 0
+
+        async def __aiter__(self):
+            self.reads += 1
+            yield b"private compressed backend detail"
+
+        async def aclose(self):
+            self.closed = True
+
+    def response(_):
+        stream = Unread()
+        streams.append(stream)
+        return httpx.Response(status, headers={"Content-Encoding": "gzip"}, stream=stream)
+
+    backend.pull_response = response
+    request = {"client_request_id": str(uuid4()), "model": "qwen3", "confirm_download": True}
+    auth = headers(client)
+    path = "/api/v1/local-models/pulls"
+    accepted = client.post(path, json=request, headers=auth)
+    assert accepted.status_code == 202
+    terminal = wait(client, accepted.json()["id"])
+    assert terminal["status"] == "failed" and terminal["error"] == "pull_failed"
+    assert terminal["finished_at"] is not None
+    assert streams[0].closed and streams[0].reads == 0
+    assert client.post(path, json=request, headers=auth).json() == terminal
+    assert client.get(f"{path}/{terminal['id']}").json() == terminal
+    assert backend.pulls == ["qwen3:latest"]
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    request["client_request_id"] = str(uuid4())
+    recovered = client.post(path, json=request, headers=auth)
+    assert recovered.status_code == 202
+    assert wait(client, recovered.json()["id"])["status"] == "completed"
+    assert backend.pulls == ["qwen3:latest", "qwen3:latest"]
