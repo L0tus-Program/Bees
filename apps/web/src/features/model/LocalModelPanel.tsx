@@ -8,6 +8,7 @@ import { ErrorNotice } from '../../components/Feedback'
 import { confirmAction } from '../../components/confirmAction'
 import { clearPullIntent, preservePullIntent, readPullRecovery } from './pullRecovery'
 import type { PullIntent } from './pullRecovery'
+import { clearRemovalIntent, preserveRemovalIntent, readRemovalRecovery } from './removalRecovery'
 
 type State = { state: 'loading' } | { state: 'ready'; data: LocalModelStatus } | { state: 'error'; error: ApiError }
 type Notice = { kind: 'download' | 'model'; text: string }
@@ -32,7 +33,10 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [pending, setPending] = useState(false)
   const [recovery, setRecovery] = useState(() => readPullRecovery(endpoint))
-  const unresolved = recovery.blocked || recovery.intent !== null
+  const [removalRecovery, setRemovalRecovery] = useState(() => readRemovalRecovery(endpoint))
+  const unresolvedPull = recovery.blocked || recovery.intent !== null
+  const unresolvedRemoval = removalRecovery.blocked || removalRecovery.intent !== null
+  const unresolved = unresolvedPull || unresolvedRemoval
   const reading = useRef<AbortController | null>(null)
   const operation = useRef<AbortController | null>(null)
   const target = endpoint || undefined
@@ -121,6 +125,22 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     } finally { finishOperation(controller) }
   }
 
+  async function releaseRemoval() {
+    const controller = beginOperation(true); if (!controller) return
+    try {
+      if (!await confirmAction(t('releaseRemovalConfirm')) || controller.signal.aborted) return
+      if (clearRemovalIntent(endpoint)) setRemovalRecovery({ intent: null, blocked: false })
+      else setRemovalRecovery((current) => ({ ...current, blocked: true }))
+    } finally { finishOperation(controller) }
+  }
+
+  function hasStoredMutation() {
+    const stored = readPullRecovery(endpoint)
+    const removal = readRemovalRecovery(endpoint)
+    setRecovery(stored); setRemovalRecovery(removal)
+    return stored.blocked || stored.intent !== null || removal.blocked || removal.intent !== null
+  }
+
   async function download(name: string, suggestion?: SuggestedLocalModel) {
     if (unresolved) return
     const message = suggestion
@@ -130,8 +150,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     try {
       if (!await confirmAction(message) || controller.signal.aborted) return
       setNotice(null)
-      const stored = readPullRecovery(endpoint)
-      if (stored.blocked || stored.intent) { setRecovery(stored); return }
+      if (hasStoredMutation()) return
       const intent: PullIntent = { endpoint, model: name, clientRequestId: crypto.randomUUID() }
       if (!preservePullIntent(intent)) { setRecovery({ intent: null, blocked: true }); return }
       setRecovery({ intent, blocked: false })
@@ -162,8 +181,16 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     try {
       if (!await confirmAction(t('removeConfirm', { model: name })) || controller.signal.aborted) return
       setNotice(null)
+      if (hasStoredMutation()) return
+      const intent = { endpoint, model: name }
+      if (!preserveRemovalIntent(intent)) { setRemovalRecovery({ intent: null, blocked: true }); return }
+      setRemovalRecovery({ intent, blocked: false })
       await deleteLocalModel(target, name, controller.signal)
-      if (!controller.signal.aborted) { setNotice({ kind: 'model', text: t('removed') }); await load() }
+      if (!controller.signal.aborted) {
+        if (clearRemovalIntent(endpoint)) setRemovalRecovery({ intent: null, blocked: false })
+        else setRemovalRecovery((current) => ({ ...current, blocked: true }))
+        setNotice({ kind: 'model', text: t('removed') }); await load()
+      }
     } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
     finally { finishOperation(controller) }
   }
@@ -184,11 +211,16 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         {failure && <ErrorNotice error={failure} />}
       </div>
       <button type="button" className="text-button" onClick={() => { void load() }} disabled={pending || status.state === 'loading'}>{t('refresh')}</button>
-      {unresolved && <div className="transfer-notice" role="status">
+      {unresolvedPull && <div className="transfer-notice" role="status">
         <p>{recovery.intent ? t('pendingDownload', { model: recovery.intent.model, endpoint: recovery.intent.endpoint || 'http://127.0.0.1:11434' }) : t('recoveryBlocked')}</p>
         {recovery.blocked && recovery.intent && <p>{t('recoveryBlocked')}</p>}
         {recovery.intent && <button type="button" className="button secondary" disabled={pending} onClick={() => { void recoverDownload() }}>{t('checkRequest')}</button>}
         <button type="button" className="text-button" disabled={pending} onClick={() => { void releaseRecovery() }}>{t('releaseRequest')}</button>
+      </div>}
+      {unresolvedRemoval && <div className="transfer-notice" role="status">
+        <p>{removalRecovery.intent ? t('pendingRemoval', { model: removalRecovery.intent.model, endpoint: removalRecovery.intent.endpoint || 'http://127.0.0.1:11434' }) : t('removalRecoveryBlocked')}</p>
+        {removalRecovery.blocked && removalRecovery.intent && <p>{t('removalRecoveryBlocked')}</p>}
+        <button type="button" className="text-button" disabled={pending} onClick={() => { void releaseRemoval() }}>{t('releaseRemoval')}</button>
       </div>}
       {data?.reachable && <>
         <h4>{t('installed')}</h4>

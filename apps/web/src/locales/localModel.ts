@@ -1,4 +1,8 @@
 const pt = {
+  pendingRemoval: 'A confirmação da remoção de {{model}} em {{endpoint}} está pendente. A remoção pode ter ocorrido ou ainda terminar depois. Use Verificar de novo para consultar o catálogo; presença ou ausência do modelo não comprova o término. Novos downloads e remoções ficam bloqueados até sua liberação explícita.',
+  removalRecoveryBlocked: 'Não foi possível ler ou guardar o pedido de remoção nesta aba. Novos downloads e remoções ficam bloqueados até você conferir o armazenamento e liberar a pendência.',
+  releaseRemoval: 'Liberar após remoção pendente',
+  releaseRemovalConfirm: 'Liberar a pendência não cancela nem comprova o término da remoção anterior. Mesmo após consultar o catálogo, a remoção pode terminar depois e afetar um novo download. Confira o Ollama antes de continuar. Liberar mesmo assim?',
   pendingDownload: 'A confirmação do pedido de {{model}} em {{endpoint}} está pendente. O download pode ter começado. Consulte o pedido preservado; isso não inicia nem repete um download. Ausência do recibo pode significar que o Bees reiniciou, não que nada aconteceu.',
   recoveryBlocked: 'Não foi possível ler ou guardar o pedido de download nesta aba. Novos downloads e remoções ficam bloqueados até você conferir o armazenamento e liberar o pedido.',
   checkRequest: 'Consultar pedido de download', releaseRequest: 'Liberar novo pedido',
@@ -33,6 +37,10 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
+  pendingRemoval: 'Confirmation of removal of {{model}} at {{endpoint}} is pending. Removal may have happened or may finish later. Use Check again to read the catalog; the model being present or absent does not confirm completion. New downloads and removals are blocked until you explicitly release this pending request.',
+  removalRecoveryBlocked: 'The removal request could not be read or stored in this tab. New downloads and removals are blocked until you check storage and release the pending request.',
+  releaseRemoval: 'Release pending removal',
+  releaseRemovalConfirm: 'Releasing this pending request does not cancel or confirm completion of the previous removal. Even after checking the catalog, removal may finish later and affect a new download. Check Ollama before continuing. Release anyway?',
   pendingDownload: 'Confirmation of the request for {{model}} at {{endpoint}} is pending. The download may have started. Check the preserved request; this does not start or repeat a download. A missing receipt may mean Bees restarted, not that nothing happened.',
   recoveryBlocked: 'The download request could not be read or stored in this tab. New downloads and removals are blocked until you check storage and release the request.',
   checkRequest: 'Check download request', releaseRequest: 'Allow a new request',
@@ -66,6 +74,10 @@ const en: Translations = {
   restartNote: 'If Bees restarts during the download, repeat the action: Ollama resumes partial files.',
 }
 const es: Translations = {
+  pendingRemoval: 'La confirmación de eliminación de {{model}} en {{endpoint}} está pendiente. La eliminación puede haber ocurrido o terminar más tarde. Usa Comprobar de nuevo para consultar el catálogo; la presencia o ausencia del modelo no confirma la finalización. Nuevas descargas y eliminaciones quedan bloqueadas hasta tu liberación explícita.',
+  removalRecoveryBlocked: 'No se pudo leer o guardar el pedido de eliminación en esta pestaña. Nuevas descargas y eliminaciones quedan bloqueadas hasta revisar el almacenamiento y liberar el pedido pendiente.',
+  releaseRemoval: 'Liberar eliminación pendiente',
+  releaseRemovalConfirm: 'Liberar el pedido pendiente no cancela ni confirma el fin de la eliminación anterior. Incluso después de consultar el catálogo, la eliminación puede terminar más tarde y afectar una nueva descarga. Revisa Ollama antes de continuar. ¿Liberar de todos modos?',
   pendingDownload: 'La confirmación del pedido de {{model}} en {{endpoint}} está pendiente. La descarga puede haber comenzado. Consulta el pedido conservado; esto no inicia ni repite una descarga. Un recibo ausente puede significar que Bees se reinició, no que no ocurrió nada.',
   recoveryBlocked: 'No se pudo leer o guardar el pedido de descarga en esta pestaña. Nuevas descargas y eliminaciones quedan bloqueadas hasta revisar el almacenamiento y liberar el pedido.',
   checkRequest: 'Consultar pedido de descarga', releaseRequest: 'Permitir un nuevo pedido',
