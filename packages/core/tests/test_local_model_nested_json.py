@@ -111,7 +111,11 @@ def test_nested_catalog_is_unavailable_preserves_receipts_and_recovers_by_readin
         assert recovered["reachable"] is True and recovered["version"] == "0.40.6"
         assert recovered["models"] == [] and recovered["pulls"] == [terminal]
         assert manager.start(value) is pull
-        assert calls == [("GET", "/api/version"), ("GET", "/api/tags")] * 3
+        # A versão excessiva é recusada antes de pedir o catálogo seguinte.
+        failed_calls = [("GET", "/api/version")]
+        if path == "/api/tags":
+            failed_calls.append(("GET", "/api/tags"))
+        assert calls == failed_calls * 2 + [("GET", "/api/version"), ("GET", "/api/tags")]
         await manager.close()
 
     asyncio.run(scenario())

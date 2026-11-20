@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from bees_core.providers.contracts import ConnectionConfig
 
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
+MAX_VERSION_BYTES = 65536
+MAX_CATALOG_BYTES = 4194304
 MODEL_NAME = re.compile(
     r"^[a-z0-9][a-z0-9._-]{0,99}(/[a-z0-9][a-z0-9._-]{0,99})?(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$"
 )
@@ -213,6 +215,27 @@ async def _pull_lines(response: httpx.Response) -> AsyncIterator[str]:
         yield bytes(buffer).decode("utf-8")
 
 
+async def _catalog_body(client: httpx.AsyncClient, route: str, limit: int) -> bytes:
+    async with client.stream("GET", route, headers={"Accept-Encoding": "identity"}) as response:
+        response.raise_for_status()
+        if response.headers.get("content-encoding", "identity").lower() != "identity":
+            raise ValueError("invalid_catalog")
+        length = response.headers.get("content-length")
+        if length is not None and not 0 <= int(length) <= limit:
+            raise ValueError("invalid_catalog")
+        # Transportes controlados podem entregar um corpo já consumido.
+        if response.is_stream_consumed:
+            if len(response.content) > limit:
+                raise ValueError("invalid_catalog")
+            return response.content
+        data = bytearray()
+        async for chunk in response.aiter_raw():
+            if len(data) + len(chunk) > limit:
+                raise ValueError("invalid_catalog")
+            data.extend(chunk)
+        return bytes(data)
+
+
 class LocalModelManager:
     """Acompanha downloads no processo da API; um download ativo por modelo/endpoint."""
 
@@ -248,13 +271,11 @@ class LocalModelManager:
         }
         try:
             async with self._client(endpoint) as client:
-                version = await client.get("/api/version")
-                tags = await client.get("/api/tags")
-            version.raise_for_status()
-            tags.raise_for_status()
+                version = await _catalog_body(client, "/api/version", MAX_VERSION_BYTES)
+                tags = await _catalog_body(client, "/api/tags", MAX_CATALOG_BYTES)
             try:
-                version_body = version.json()
-                tags_body = tags.json()
+                version_body = json.loads(version)
+                tags_body = json.loads(tags)
             except RecursionError:
                 raise ValueError("invalid_catalog") from None
             if not isinstance(version_body, dict) or not isinstance(tags_body, dict):
