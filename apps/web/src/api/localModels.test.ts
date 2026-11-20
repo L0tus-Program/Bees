@@ -19,7 +19,7 @@ it.each([
   { error: {} }, { started_at: null }, { finished_at: 1 },
 ])('rejects malformed progress %j', async (patch) => {
   response({ ...pull, ...patch })
-  await expect(getLocalPull('p1')).rejects.toMatchObject({ code: 'invalid_response' })
+  await expect(getLocalPull(pull)).rejects.toMatchObject({ code: 'invalid_response' })
 })
 
 it.each([
@@ -45,7 +45,7 @@ it('accepts valid catalogs, empty and unavailable snapshots', async () => {
 it.each(['read', 'cancel'] as const)('rejects a foreign download on %s without a follow-up', async (operation) => {
   const fetcher = vi.fn(async () => Response.json({ ...pull, id: 'foreign' }))
   vi.stubGlobal('fetch', fetcher)
-  await expect(operation === 'read' ? getLocalPull('p1') : cancelLocalPull('p1')).rejects.toMatchObject({ code: 'invalid_response' })
+  await expect(operation === 'read' ? getLocalPull(pull) : cancelLocalPull(pull)).rejects.toMatchObject({ code: 'invalid_response' })
   expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
@@ -78,8 +78,57 @@ it('accepts default endpoint, trailing slash and canonical model aliases', async
   response(pull)
   await expect(startLocalPull(undefined, 'qwen3', 'request-1')).resolves.toEqual(pull)
   await expect(startLocalPull(`${endpoint}/`, 'qwen3:latest', 'request-2')).resolves.toEqual(pull)
-  await expect(getLocalPull('p1')).resolves.toEqual(pull)
-  await expect(cancelLocalPull('p1')).resolves.toEqual(pull)
+  await expect(getLocalPull(pull)).resolves.toEqual(pull)
+  await expect(cancelLocalPull(pull)).resolves.toEqual(pull)
   response({ deleted: 'qwen3:latest' })
   await expect(deleteLocalModel(undefined, 'qwen3')).resolves.toBeUndefined()
+})
+
+const operations = [getLocalPull, cancelLocalPull]
+it.each(operations)('%s rejects a different model or endpoint even with the confirmed ID', async (operation) => {
+  for (const patch of [
+    { model: 'other:latest' }, { model: 'qwen3:8b' }, { model: 'library/qwen3:latest' },
+    { endpoint: 'http://127.0.0.1:11435' }, { endpoint: 'https://127.0.0.1:11434' },
+    { endpoint: `${endpoint}/other` }, { endpoint: `${endpoint}?other=1` },
+  ]) {
+    const fetcher = vi.fn(async () => Response.json({ ...pull, ...patch, status: 'completed', phase: 'success', completed_bytes: 100 }))
+    vi.stubGlobal('fetch', fetcher)
+    await expect(operation(pull)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  }
+})
+
+it.each(operations)('%s accepts canonical aliases and captures identity before awaiting', async (operation) => {
+  let resolve!: (response: Response) => void
+  const receipt = new Promise<Response>((done) => { resolve = done })
+  const fetcher = vi.fn(() => receipt)
+  vi.stubGlobal('fetch', fetcher)
+  const expected = { id: pull.id, model: 'qwen3', endpoint: `${endpoint}/` }
+  const controller = new AbortController()
+  const result = operation(expected, controller.signal)
+  expected.id = 'foreign'; expected.model = 'other'; expected.endpoint = `${endpoint}/other`
+  resolve(Response.json(pull))
+  await expect(result).resolves.toEqual(pull)
+  expect(fetcher.mock.calls[0]).toMatchObject([
+    operation === getLocalPull ? '/api/v1/local-models/pulls/p1' : '/api/v1/local-models/pulls/p1/cancel',
+    { method: operation === getLocalPull ? 'GET' : 'POST' },
+  ])
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it.each(operations)('%s rejects a receipt matching only a mutated identity', async (operation) => {
+  let resolve!: (response: Response) => void
+  const receipt = new Promise<Response>((done) => { resolve = done })
+  vi.stubGlobal('fetch', vi.fn(() => receipt))
+  const expected = { ...pull }
+  const result = operation(expected)
+  expected.model = 'other:latest'; expected.endpoint = 'http://127.0.0.1:11435'
+  resolve(Response.json(expected))
+  await expect(result).rejects.toMatchObject({ code: 'invalid_response' })
+})
+
+it.each(operations)('%s preserves namespaces and URL normalization', async (operation) => {
+  const value = { ...pull, model: 'library/qwen3:latest', endpoint: 'http://localhost:80' }
+  response(value)
+  await expect(operation({ id: pull.id, model: 'library/qwen3', endpoint: 'http://LOCALHOST/' })).resolves.toEqual(value)
 })

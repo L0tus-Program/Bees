@@ -7,6 +7,7 @@ export interface LocalModelPull {
   total_bytes: number; completed_bytes: number; error: string | null; started_at: string; finished_at: string | null
 }
 export interface LocalModelStatus { endpoint: string; reachable: boolean; version: string | null; models: InstalledLocalModel[]; suggested: SuggestedLocalModel[]; pulls: LocalModelPull[] }
+type PullIdentity = Readonly<Pick<LocalModelPull, 'id' | 'model' | 'endpoint'>>
 
 const base = '/local-models'
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0
@@ -52,15 +53,23 @@ export async function startLocalPull(endpoint: string | undefined, model: string
   return value
 }
 
-export async function getLocalPull(id: string, signal?: AbortSignal): Promise<LocalModelPull> {
+function matchesPull(value: unknown, expected: PullIdentity): value is LocalModelPull {
+  return isPull(value) && value.id === expected.id
+    && canonicalModel(value.model) === canonicalModel(expected.model)
+    && sameEndpoint(value.endpoint, expected.endpoint)
+}
+
+export async function getLocalPull(pull: PullIdentity, signal?: AbortSignal): Promise<LocalModelPull> {
+  const { id, model, endpoint } = pull
   const value = await request(`${base}/pulls/${encodeURIComponent(id)}`, { authenticated: true, signal })
-  if (!isPull(value) || value.id !== id) throw new ApiError('invalid_response')
+  if (!matchesPull(value, { id, model, endpoint })) throw new ApiError('invalid_response')
   return value
 }
 
-export async function cancelLocalPull(id: string, signal?: AbortSignal): Promise<LocalModelPull> {
+export async function cancelLocalPull(pull: PullIdentity, signal?: AbortSignal): Promise<LocalModelPull> {
+  const { id, model, endpoint } = pull
   const value = await request(`${base}/pulls/${encodeURIComponent(id)}/cancel`, { authenticated: true, signal, body: {} })
-  if (!isPull(value) || value.id !== id) throw new ApiError('invalid_response')
+  if (!matchesPull(value, { id, model, endpoint })) throw new ApiError('invalid_response')
   return value
 }
 

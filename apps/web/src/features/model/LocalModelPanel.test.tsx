@@ -638,3 +638,66 @@ it('pauses after malformed HTTP 503 rather than retrying a broken response contr
     expect(polls).toBe(1)
   } finally { vi.useRealTimers() }
 })
+
+it.each([{ model: 'foreign:latest' }, { endpoint: otherEndpoint }])('preserves confirmed progress and pauses after a divergent identity %j', async (patch) => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    let recovered = false
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') writes.push(url)
+      if (url.endsWith('/pulls/p1')) {
+        polls += 1
+        return Response.json(recovered ? { ...pull, completed_bytes: 70 } : { ...pull, ...patch, completed_bytes: 90 })
+      }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    expect(container.querySelector('progress')?.value).toBe(40)
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:8b')
+    expect(container.querySelector('.local-model-pull')?.textContent).not.toContain('foreign')
+    await act(async () => vi.advanceTimersByTimeAsync(60000))
+    expect(polls).toBe(1)
+    await act(async () => button('Verificar de novo')!.click())
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    recovered = true
+    await act(async () => button('Retomar acompanhamento')!.click())
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(polls).toBe(2)
+    expect(container.querySelector('progress')?.value).toBe(70)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(writes).toEqual([])
+  } finally { vi.useRealTimers() }
+})
+
+it.each([
+  { model: 'foreign:latest' }, { endpoint: otherEndpoint },
+])('rejects a divergent cancellation receipt without publishing success %j', async (patch) => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') {
+        writes.push(url)
+        return Response.json({ ...pull, ...patch, status: 'completed', phase: 'success', completed_bytes: 100 })
+      }
+      if (url.endsWith('/pulls/p1')) { polls += 1; return Response.json({ ...pull, completed_bytes: 70 }) }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => button('Cancelar download')!.click())
+    expect(container.querySelector('progress')?.value).toBe(40)
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    expect(container.textContent).not.toContain('está pronto')
+    expect(container.querySelector('.local-model-pull')?.textContent).not.toContain('foreign')
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(polls).toBe(1)
+    expect(container.querySelector('progress')?.value).toBe(70)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  } finally { vi.useRealTimers() }
+})
