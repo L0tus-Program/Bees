@@ -79,6 +79,25 @@ export async function previewArtifact(agentId: string, conversationId: string, e
   return { artifact, text: value.text, truncated: value.truncated, total_bytes: value.total_bytes as number }
 }
 
+// Apply the limit before decoding/parsing, including chunked or misreported bodies.
+async function downloadErrorBody(response: Response): Promise<unknown> {
+  const limit = 64 * 1024
+  const length = response.headers.get('content-length')
+  if (length && /^\d+$/.test(length) && Number(length) > limit || !response.body) return undefined
+  const reader = response.body.getReader()
+  const bytes = new Uint8Array(limit)
+  let received = 0
+  try {
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      if (chunk.value.byteLength > limit - received) return undefined
+      bytes.set(chunk.value, received); received += chunk.value.byteLength
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, received))) as unknown
+  } finally { reader.releaseLock() }
+}
+
 // Bytes are held only for the requested version; they are never rendered as active content.
 export async function downloadArtifact(agentId: string, taskId: string | null, artifact: ArtifactRecord, signal?: AbortSignal): Promise<Blob> {
   if (!uuid(agentId) || !(taskId === null || uuid(taskId)) || artifact.task_id !== taskId || artifact.status !== 'ready' || checkedArtifact(artifact, agentId, { taskId }).sha256 === null) throw new ApiError('invalid_request')
@@ -97,7 +116,10 @@ export async function downloadArtifact(agentId: string, taskId: string | null, a
     if (!response.ok) {
       if (response.status === 401) { setCsrfToken(); window.dispatchEvent(new Event('bees:session-expired')) }
       let body: unknown
-      try { body = await response.json() } catch { /* Never expose response text. */ }
+      try { body = await downloadErrorBody(response) } catch (failure) {
+        if (controller.signal.aborted) throw failure
+        // Never expose response text or a partial error envelope.
+      }
       const code = record(body) && record(body.error) && typeof body.error.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(body.error.code) ? body.error.code : `http_${response.status}`
       throw new ApiError(code, response.status)
     }
@@ -116,7 +138,7 @@ export async function downloadArtifact(agentId: string, taskId: string | null, a
         const chunk = await bodyReader.read()
         if (chunk.done) break
         received += chunk.value.byteLength
-        if (received > artifact.size_bytes) { await bodyReader.cancel(); throw new ApiError('artifact_integrity_failed') }
+        if (received > artifact.size_bytes) throw new ApiError('artifact_integrity_failed')
         chunks.push(chunk.value)
       }
     } finally { bodyReader.releaseLock() }
@@ -134,5 +156,9 @@ export async function downloadArtifact(agentId: string, taskId: string | null, a
     if (timedOut) throw new ApiError('request_timeout')
     if (failure instanceof ApiError) throw failure
     throw new ApiError('network_error')
-  } finally { clearTimeout(timeout); signal?.removeEventListener('abort', abort) }
+  } finally {
+    // Aborting fetch also closes unconsumed bodies, without awaiting a remote cancel.
+    controller.abort()
+    clearTimeout(timeout); signal?.removeEventListener('abort', abort)
+  }
 }

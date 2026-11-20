@@ -124,6 +124,17 @@ A lista autenticada começa em carregamento explícito, distingue lista vazia de
 
 **Baixar versão** solicita somente o id daquele cartão, com sessão de mesma origem, sem cache, redirecionamento nem repetição automática. A interface confere anexo, nome, formato, tamanho e SHA-256 antes de entregar um blob inerte ao navegador. A leitura limita bytes ao tamanho declarado; arquivos acima de 25 MiB ficam fora do download pela interface neste checkpoint. Falha, expiração de sessão, arquivo ausente/alterado ou cancelamento não exibem sucesso. A confirmação diz que o download foi enviado ao navegador; não afirma que o usuário salvou o arquivo.
 
+Respostas de erro do download são lidas por streaming com teto de 64 KiB antes
+de decodificar UTF-8 e analisar JSON, inclusive sem tamanho anunciado ou com
+`Content-Length` incorreto. Tamanho anunciado acima do teto é recusado antes de
+ler bytes. Corpo excessivo ou inválido não fornece código parcial: a interface
+conserva somente `http_<status>`. Erros pequenos mantêm seus códigos sanitizados;
+HTTP 401 sinaliza sessão expirada antes da leitura. O prazo total de 30 segundos
+cobre headers e corpo. Ao terminar, o transporte é abortado, inclusive ao recusar
+headers ou bytes, sem aguardar cancelamento remoto nem mascarar a falha original.
+O teto limita os bytes acumulados pela aplicação; buffers e descompressão do
+navegador pertencem à implementação de Fetch.
+
 Na conversa, a seleção nativa informa tipo, tamanho e destino antes da confirmação
 de armazenamento. A prévia mostra texto escapado, sem interpretar HTML, Markdown,
 macros ou fórmulas de CSV. A revisão usa um novo arquivo ou o editor quando a prévia
