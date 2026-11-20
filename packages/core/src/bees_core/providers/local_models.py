@@ -244,8 +244,11 @@ class LocalModelManager:
                 tags = await client.get("/api/tags")
             version.raise_for_status()
             tags.raise_for_status()
-            version_body = version.json()
-            tags_body = tags.json()
+            try:
+                version_body = version.json()
+                tags_body = tags.json()
+            except RecursionError:
+                raise ValueError("invalid_catalog") from None
             if not isinstance(version_body, dict) or not isinstance(tags_body, dict):
                 raise ValueError("invalid_catalog")
             value = version_body.get("version")
@@ -376,7 +379,10 @@ class LocalModelManager:
                 async for line in _pull_lines(response):
                     if not line.strip():
                         continue
-                    event = json.loads(line)
+                    try:
+                        event = json.loads(line)
+                    except RecursionError:
+                        raise LocalModelError("pull_failed") from None
                     if not isinstance(event, dict):
                         raise LocalModelError("pull_failed")
                     if isinstance(event.get("error"), str):

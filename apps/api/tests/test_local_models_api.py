@@ -106,6 +106,87 @@ def test_invalid_catalog_is_not_reported_as_empty_available_backend(state):
     assert backend.pulls == backend.deleted == []
 
 
+@pytest.mark.parametrize("path", ["/api/version", "/api/tags"])
+def test_deeply_nested_catalog_is_sanitized_and_recovers_without_mutation(state, path):
+    client, backend = state
+    calls = []
+    corrupt = True
+
+    def response(request):
+        calls.append((request.method, request.url.path))
+        if corrupt and request.url.path == path:
+            prefix = b'{"version":"0.40.6"' if path == "/api/version" else b'{"models":[]'
+            return httpx.Response(
+                200,
+                content=prefix
+                + b',"extra":'
+                + b"[" * 100000
+                + b'"private-detail"'
+                + b"]" * 100000
+                + b"}",
+            )
+        return backend(request)
+
+    client.app.state.local_models = LocalModelManager(transport=httpx.MockTransport(response))
+    for _ in range(2):
+        failed = client.get("/api/v1/local-models")
+        assert failed.status_code == 200
+        view = failed.json()
+        assert view["reachable"] is False and view["models"] == [] and view["version"] is None
+        assert view["suggested"] and "private-detail" not in failed.text
+    corrupt = False
+    recovered = client.get("/api/v1/local-models")
+    assert recovered.status_code == 200 and recovered.json()["reachable"] is True
+    assert recovered.json()["models"][0]["name"] == "qwen3:1.7b"
+    assert calls == [("GET", "/api/version"), ("GET", "/api/tags")] * 3
+    assert backend.pulls == backend.deleted == []
+
+
+@pytest.mark.parametrize("newline", [False, True])
+def test_pull_decoder_recursion_has_terminal_receipt_and_explicit_recovery(
+    state, monkeypatch, newline
+):
+    client, backend = state
+    bad = '{"status":"success","extra":' + "[" * 2000 + '"private-detail"' + "]" * 2000 + "}"
+    loads = json.loads
+
+    def decode(value, *args, **kwargs):
+        # Stack limits vary; inject the native decoder failure without changing
+        # HTTP parsing, valid progress, replay or the explicit second attempt.
+        if value == bad:
+            raise RecursionError("private-detail")
+        return loads(value, *args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", decode)
+    progress = lines({"status": "pulling x", "digest": "sha256:x", "total": 100, "completed": 40})
+    backend.pull_response = lambda _: httpx.Response(
+        200, content=progress + bad.encode() + (b'\n{"status":"success"}\n' if newline else b"")
+    )
+    request = {"client_request_id": str(uuid4()), "model": "qwen3:1.7b", "confirm_download": True}
+    auth = headers(client)
+    started = client.post("/api/v1/local-models/pulls", json=request, headers=auth)
+    assert started.status_code == 202
+    terminal = wait(client, started.json()["id"])
+    assert terminal["status"] == "failed" and terminal["error"] == "pull_failed"
+    assert terminal["finished_at"] is not None
+    assert terminal["total_bytes"] == 100 and terminal["completed_bytes"] == 40
+    assert "private-detail" not in str(terminal)
+    replay = client.post("/api/v1/local-models/pulls", json=request, headers=auth)
+    assert replay.status_code == 202 and replay.json() == terminal
+    assert backend.pulls == ["qwen3:1.7b"]
+
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    fresh = client.post(
+        "/api/v1/local-models/pulls",
+        json=request | {"client_request_id": str(uuid4())},
+        headers=auth,
+    )
+    assert fresh.status_code == 202 and fresh.json()["id"] != terminal["id"]
+    assert wait(client, fresh.json()["id"])["status"] == "completed"
+    assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == terminal
+    assert backend.pulls == ["qwen3:1.7b"] * 2 and backend.deleted == []
+
+
 def test_pull_requires_confirmation_and_reports_progress(state):
     client, backend = state
     backend.pull_response = lambda body: httpx.Response(
