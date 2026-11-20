@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Brain, Check, ChevronDown, Clock, FileText, Globe, Laptop, Loader2, Monitor, Plug, Users, Wrench, X } from 'lucide-react'
 import type { TaskRecord } from '../../api/tasks'
-import { getArtifacts } from '../artifacts/api'
-import type { ArtifactRecord } from '../artifacts/api'
+import { ArtifactReader } from '../artifacts/reader'
+import type { ArtifactView } from '../artifacts/reader'
 import { TaskFailure } from '../tasks/TaskFailure'
 import { AgentApprovals } from '../agent/AgentApprovals'
 import { Badge } from '@/components/ui/badge'
@@ -23,28 +23,32 @@ function StepIcon({ tool }: { tool: string }) {
 
 /** Arquivos publicados pela tarefa, como anexos da resposta. */
 export function TurnFiles({ task }: { task: TaskRecord }) {
+  if (task.status !== 'completed' && task.status !== 'paused') return null
+  return <TurnFilesPage key={`${task.agent_id}:${task.id}:${task.revision}:${task.status}`} agentId={task.agent_id} taskId={task.id} />
+}
+
+function TurnFilesPage({ agentId, taskId }: { agentId: string; taskId: string }) {
   const { t } = useTranslation('workspace')
-  const [attempt, setAttempt] = useState(0)
-  const key = `${task.agent_id}:${task.id}:${task.revision}:${task.status}:${attempt}`
-  const [result, setResult] = useState<{ key: string; files: ArtifactRecord[]; failed: boolean } | null>(null)
-  const done = task.status === 'completed' || task.status === 'paused'
+  const [view, setView] = useState<ArtifactView>({ page: null, loading: true, error: null })
+  const reader = useRef<ArtifactReader | null>(null)
   useEffect(() => {
-    if (!done) return
-    const controller = new AbortController()
-    getArtifacts(task.agent_id, task.id, 0, controller.signal).then(
-      (page) => { if (!controller.signal.aborted) setResult({ key, files: page.items.filter((item) => item.status === 'ready'), failed: false }) },
-      () => { if (!controller.signal.aborted) setResult({ key, files: [], failed: true }) },
-    )
-    return () => controller.abort()
-  }, [done, key, task.agent_id, task.id])
-  // A resposta pertence ao snapshot consultado, inclusive antes do cleanup do efeito.
-  if (!done) return null
-  const current = result?.key === key ? result : null
-  if (!current) return <p className="text-xs text-muted-foreground" role="status">{t('loadingFiles')}</p>
-  if (current.failed) return <div className="flex flex-col items-start gap-2"><p className="text-sm text-destructive" role="alert">{t('filesLoadError')}</p><Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>{t('retry')}</Button></div>
-  const files = current.files
-  if (!files.length) return null
-  return <TurnFileDownloads key={key} agentId={task.agent_id} taskId={task.id} files={files} />
+    const observer = new ArtifactReader(agentId, taskId, setView); reader.current = observer
+    void observer.load()
+    return () => { observer.stop(); reader.current = null }
+  }, [agentId, taskId])
+  function loadMore() {
+    const observer = reader.current
+    // Reader state changes synchronously, before React disables the button.
+    if (!observer || observer.state.loading) return
+    void observer.load(observer.state.page?.next_offset ?? 0)
+  }
+  const files = view.page?.items.filter((item) => item.status === 'ready') ?? []
+  return <div aria-busy={view.loading}>
+    {files.length > 0 && <TurnFileDownloads agentId={agentId} taskId={taskId} files={files} />}
+    {view.loading && <p className="text-xs text-muted-foreground" role="status">{t('loadingFiles')}</p>}
+    {view.error && <div className="flex flex-col items-start gap-2"><p className="text-sm text-destructive" role="alert">{t('filesLoadError')}</p><Button variant="outline" size="sm" onClick={loadMore}>{t('retry')}</Button></div>}
+    {view.page?.has_more && !view.error && <Button variant="outline" size="sm" disabled={view.loading} onClick={loadMore}>{t('moreFiles')}</Button>}
+  </div>
 }
 
 /** Turno da abelha no modo agente: passos ao vivo, decisões, estado e arquivos — sem jargão de tarefa. */

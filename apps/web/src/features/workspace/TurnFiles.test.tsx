@@ -127,3 +127,117 @@ it('hides a previous failure when switching to a new pending task', async () => 
   await act(async () => next.resolve(page()))
   expect(container.querySelector('button')).not.toBeNull()
 })
+
+function fullPage(status: 'ready' | 'draft' = 'ready'): ArtifactPage {
+  return { items: Array.from({ length: 100 }, (_, index) => ({ ...artifact, id: `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`, name: `arquivo-${index}.txt`, status })), has_more: true, next_offset: 100 }
+}
+function moreButton() {
+  return [...container.querySelectorAll('button')].find((button) => button.textContent === workspaceResources[i18n.language as keyof typeof workspaceResources].moreFiles)!
+}
+for (const lng of ['pt-BR', 'en', 'es'] as const) it(`loads the next page only on demand and stops at the end (${lng})`, async () => {
+  await i18n.changeLanguage(lng)
+  vi.mocked(getArtifacts).mockResolvedValueOnce(fullPage()).mockResolvedValueOnce(page('final.txt'))
+  await show()
+  expect(getArtifacts).toHaveBeenCalledTimes(1)
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(100)
+  expect(moreButton().textContent).toBe(workspaceResources[lng].moreFiles)
+  await act(async () => moreButton().click())
+  expect(getArtifacts).toHaveBeenLastCalledWith(agentId, taskId, 100, expect.any(AbortSignal))
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(101)
+  expect(container.textContent).toContain('arquivo-0.txt')
+  expect(container.textContent).toContain('final.txt')
+  expect(moreButton()).toBeUndefined()
+})
+it('keeps the cursor from pages containing no ready artifacts', async () => {
+  vi.mocked(getArtifacts).mockResolvedValueOnce(fullPage('draft')).mockResolvedValueOnce(page('entrega.txt'))
+  await show()
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(0)
+  expect(getArtifacts).toHaveBeenCalledTimes(1)
+  await act(async () => moreButton().click())
+  expect(getArtifacts).toHaveBeenLastCalledWith(agentId, taskId, 100, expect.any(AbortSignal))
+  expect(container.textContent).toContain('entrega.txt')
+})
+it('serializes same-event clicks while retaining files and focus during loading', async () => {
+  const next = pending()
+  vi.mocked(getArtifacts).mockResolvedValueOnce(fullPage()).mockReturnValueOnce(next.promise)
+  await show()
+  const button = moreButton(); button.focus()
+  await act(async () => { button.click(); button.click() })
+  expect(getArtifacts).toHaveBeenCalledTimes(2)
+  expect(moreButton().disabled).toBe(true)
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(100)
+  expect(container.querySelector('[role="status"]')?.textContent).toBe(workspaceResources['pt-BR'].loadingFiles)
+  expect(document.activeElement).toBe(button)
+  await act(async () => next.resolve({ ...fullPage(), items: page('segunda.txt').items, next_offset: 200 }))
+  expect(moreButton().disabled).toBe(false)
+  expect(document.activeElement).toBe(button)
+  await act(async () => moreButton().click())
+  expect(getArtifacts).toHaveBeenLastCalledWith(agentId, taskId, 200, expect.any(AbortSignal))
+})
+it('preserves loaded files after failure and retries only the pending page with a synchronous lock', async () => {
+  vi.mocked(getArtifacts).mockResolvedValueOnce(fullPage()).mockRejectedValueOnce(new ApiError('network_error'))
+  await show(); await act(async () => moreButton().click())
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(100)
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(workspaceResources['pt-BR'].filesLoadError)
+  expect(getArtifacts).toHaveBeenCalledTimes(2)
+  const next = pending(); vi.mocked(getArtifacts).mockReturnValueOnce(next.promise)
+  const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === workspaceResources['pt-BR'].retry)!
+  await act(async () => { retry.click(); retry.click() })
+  expect(getArtifacts).toHaveBeenCalledTimes(3)
+  expect(getArtifacts).toHaveBeenLastCalledWith(agentId, taskId, 100, expect.any(AbortSignal))
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+  await act(async () => next.resolve(page('recuperado.txt')))
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(101)
+})
+it('merges overlapping IDs without duplicate download actions', async () => {
+  const first = fullPage()
+  vi.mocked(getArtifacts).mockResolvedValueOnce(first).mockResolvedValueOnce({ ...page(), items: [first.items[0], ...page().items] })
+  await show(); await act(async () => moreButton().click())
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(101)
+  expect(container.querySelectorAll('[aria-label="Baixar arquivo-0.txt"]')).toHaveLength(1)
+})
+it('rejects incompatible overlapping metadata without replacing existing downloads', async () => {
+  const first = fullPage()
+  vi.mocked(getArtifacts).mockResolvedValueOnce(first).mockResolvedValueOnce({ ...page(), items: [{ ...first.items[0], name: 'alterado.txt' }] })
+  await show(); await act(async () => moreButton().click())
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(100)
+  expect(container.textContent).not.toContain('alterado.txt')
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+})
+for (const change of ['agent', 'task', 'revision', 'status', 'unmount'] as const) {
+  for (const outcome of ['success', 'failure'] as const) it(`ignores late next-page ${outcome} after ${change}`, async () => {
+    const old = pending()
+    vi.mocked(getArtifacts).mockResolvedValueOnce(fullPage()).mockReturnValueOnce(old.promise)
+    await show(); await act(async () => moreButton().click())
+    const signal = vi.mocked(getArtifacts).mock.calls[1][3]!
+    if (change === 'unmount') { await act(async () => root.unmount()); root = createRoot(container) }
+    else await show({ ...task, ...(change === 'agent' ? { agent_id: 'other' } : change === 'task' ? { id: 'other' } : change === 'revision' ? { revision: task.revision + 1 } : { status: 'running' as const }) })
+    expect(signal.aborted).toBe(true)
+    await act(async () => { if (outcome === 'success') old.resolve(page('obsoleto.txt')); else old.reject(new ApiError('network_error')) })
+    expect(container.textContent).not.toContain('obsoleto.txt')
+    expect(container.textContent).not.toContain('arquivo-0.txt')
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+  })
+}
+
+it('uses the real authenticated SDK for 100 plus one files and a failed-page retry', async () => {
+  const sdk = await vi.importActual<typeof import('../artifacts/api')>('../artifacts/api')
+  vi.mocked(getArtifacts).mockImplementation(sdk.getArtifacts)
+  const first = fullPage()
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ artifacts: first.items, has_more: true, next_offset: 100 }))
+    .mockResolvedValueOnce(Response.json({ error: { code: 'temporary_unavailable' } }, { status: 503 }))
+    .mockResolvedValueOnce(Response.json({ artifacts: page('ultimo.txt').items, has_more: false, next_offset: null }))
+  vi.stubGlobal('fetch', fetcher)
+  await show()
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  await act(async () => moreButton().click())
+  expect(container.querySelector('[role="alert"]')).not.toBeNull()
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(100)
+  const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === workspaceResources['pt-BR'].retry)!
+  await act(async () => retry.click())
+  expect(fetcher.mock.calls.map(([url]) => url)).toEqual([0, 100, 100].map((offset) => `/api/v1/agents/${agentId}/tasks/${taskId}/artifacts?offset=${offset}&limit=100`))
+  for (const [, options] of fetcher.mock.calls) expect(options).toMatchObject({ credentials: 'same-origin', cache: 'no-store', signal: expect.any(AbortSignal) })
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(101)
+  expect(moreButton()).toBeUndefined()
+  expect(container.querySelector('[role="alert"]')).toBeNull()
+})

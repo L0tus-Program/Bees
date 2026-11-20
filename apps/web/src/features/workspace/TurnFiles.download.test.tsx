@@ -141,3 +141,18 @@ it('releases successful blob URLs after 30 seconds and cancels their timers on s
   expect(urls.revokeObjectURL).toHaveBeenCalledTimes(2)
   await vi.advanceTimersByTimeAsync(30000); expect(urls.revokeObjectURL).toHaveBeenCalledTimes(2)
 })
+
+it('keeps a verified download alive while appending another artifact page', async () => {
+  vi.mocked(getArtifacts).mockResolvedValueOnce({ items: [artifact], has_more: true, next_offset: 100 }).mockResolvedValueOnce({ items: [{ ...artifact, id: '55555555-5555-4555-8555-555555555555', name: 'segunda-pagina.txt' }], has_more: false, next_offset: null })
+  const next = pending(); fetcher.mockReturnValueOnce(next.promise)
+  await show(); await act(async () => buttons()[0].click())
+  const signal = fetcher.mock.calls[0][1].signal as AbortSignal
+  await act(async () => buttons().find((button) => button.textContent === workspaceResources['pt-BR'].moreFiles)!.click())
+  expect(signal.aborted).toBe(false)
+  expect(container.querySelectorAll('button[aria-label]')).toHaveLength(2)
+  expect([...container.querySelectorAll<HTMLButtonElement>('button[aria-label]')].every((button) => button.disabled)).toBe(true)
+  await act(async () => next.resolve(binary())); await settle()
+  expect(click).toHaveBeenCalledTimes(1)
+  expect(container.querySelector('[role="status"]')?.textContent).toBe(artifactResources['pt-BR'].sent)
+  expect(getArtifacts).toHaveBeenCalledTimes(2)
+})
