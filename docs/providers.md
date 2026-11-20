@@ -93,6 +93,19 @@ e o diagnóstico de uma recusa HTTP lê no máximo 4.096 bytes. Ao exceder o lim
 de linha, o acompanhamento falha e fecha a resposta sem esperar o corpo inteiro.
 Isso limita a leitura local; não promete cancelar o efeito aceito pelo Ollama.
 
+Se o parser recusar JSON excessivamente aninhado na versão ou no catálogo, a
+consulta informa backend indisponível e preserva sugestões e recibos. Uma nova
+consulta válida recupera a disponibilidade. No stream, a mesma falha encerra o
+acompanhamento com `failed`/`pull_failed` e fecha a resposta, conservando o progresso
+já observado. Não expõe o corpo nem o erro bruto do parser, e não repete o POST.
+Os UUIDs aceitos continuam ligados ao recibo anterior; outra tentativa exige uma
+nova decisão com UUID novo. O erro de acompanhamento não comprova cancelamento
+ou remoção dos blobs no Ollama.
+O campo `status` do stream, quando não nulo, precisa ser texto; objetos, listas,
+booleanos ou números são recusados com `pull_failed`, sem converter a estrutura
+privada em texto nem aceitar um `success` posterior. Campo ausente ou nulo
+mantém a fase desconhecida até chegar um estado válido.
+
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer
 um desses UUIDs conserva o ID e o resultado original, inclusive após conclusão,
