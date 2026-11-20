@@ -74,6 +74,12 @@ preservando os recibos. Erro HTTP ou redirecionamento não consome o corpo nem
 consulta um novo destino; falha na leitura da versão interrompe a consulta antes
 de pedir o catálogo.
 
+A consulta completa de versão e catálogo compartilha um prazo total de 10 segundos,
+incluindo espera pelos headers e leitura dos corpos. Receber bytes aos poucos não
+renova esse orçamento. Ao expirar, fecha a resposta e retorna indisponibilidade,
+sem inventário parcial, repetição automática ou alteração dos recibos. Uma nova
+consulta explícita pode recuperar o diagnóstico quando o backend voltar a responder.
+
 O download (`/api/pull`) também solicita conteúdo sem compressão e recusa
 qualquer `Content-Encoding` diferente de `identity` antes de ler ou
 descomprimir o corpo, inclusive em erros HTTP. A resposta é fechada e o recibo

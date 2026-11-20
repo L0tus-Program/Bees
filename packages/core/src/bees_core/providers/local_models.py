@@ -277,7 +277,9 @@ class LocalModelManager:
             "pulls": [pull.view() for pull in self._pulls.values() if pull.endpoint == endpoint],
         }
         try:
-            async with self._client(endpoint) as client:
+            # Um fluxo lento pode renovar cada timeout de leitura para sempre.
+            # Versão e catálogo compartilham o mesmo orçamento de diagnóstico.
+            async with asyncio.timeout(self._timeout), self._client(endpoint) as client:
                 version = await _catalog_body(client, "/api/version", MAX_VERSION_BYTES)
                 tags = await _catalog_body(client, "/api/tags", MAX_CATALOG_BYTES)
             try:
@@ -304,7 +306,7 @@ class LocalModelManager:
                 size = item.get("size")
                 if size is not None and (type(size) is not int or size < 0):
                     raise ValueError("invalid_catalog")
-        except httpx.HTTPError, ValueError, AttributeError:
+        except httpx.HTTPError, ValueError, AttributeError, TimeoutError:
             return base | {"reachable": False, "version": None, "models": []}
         installed = [
             {
