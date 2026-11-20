@@ -74,6 +74,13 @@ preservando os recibos. Erro HTTP ou redirecionamento não consome o corpo nem
 consulta um novo destino; falha na leitura da versão interrompe a consulta antes
 de pedir o catálogo.
 
+O download (`/api/pull`) também solicita conteúdo sem compressão e recusa
+qualquer `Content-Encoding` diferente de `identity` antes de ler ou
+descomprimir o corpo, inclusive em erros HTTP. A resposta é fechada e o recibo
+termina em `failed`/`pull_failed`; repetir o UUID conserva esse recibo, sem
+novo POST ao Ollama. Uma nova tentativa exige confirmação explícita com outro
+UUID. Isso não comprova cancelamento de um efeito já iniciado pelo daemon.
+
 O painel também valida os campos recebidos e confere o vínculo da resposta com
 o endpoint, modelo ou ID solicitado antes de mostrar progresso ou sucesso.
 Respostas incompatíveis não iniciam consultas ou cancelamentos de outro download.
