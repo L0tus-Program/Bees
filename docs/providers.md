@@ -64,6 +64,16 @@ parcial disponível. Uma lista vazia válida continua disponível. Sugestões e
 acompanhamento dos downloads são preservados na falha; consultar novamente não
 inicia download, remoção ou geração.
 
+O diagnóstico limita a leitura HTTP antes do parsing: até 64 KiB para
+`/api/version` e 4 MiB para `/api/tags`, além do limite de 4.096 itens.
+Solicita conteúdo sem compressão e recusa respostas comprimidas; tamanho
+anunciado excessivo ou inválido é recusado antes da leitura. O limite também
+vale para corpos sem `Content-Length` ou com tamanho anunciado menor que o real.
+Ao ultrapassar o teto, fecha a resposta e apresenta o backend como indisponível,
+preservando os recibos. Erro HTTP ou redirecionamento não consome o corpo nem
+consulta um novo destino; falha na leitura da versão interrompe a consulta antes
+de pedir o catálogo.
+
 O painel também valida os campos recebidos e confere o vínculo da resposta com
 o endpoint, modelo ou ID solicitado antes de mostrar progresso ou sucesso.
 Respostas incompatíveis não iniciam consultas ou cancelamentos de outro download.

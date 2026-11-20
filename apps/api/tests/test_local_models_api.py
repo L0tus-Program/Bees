@@ -187,8 +187,59 @@ def test_deeply_nested_catalog_is_sanitized_and_recovers_without_mutation(state,
     recovered = client.get("/api/v1/local-models")
     assert recovered.status_code == 200 and recovered.json()["reachable"] is True
     assert recovered.json()["models"][0]["name"] == "qwen3:1.7b"
-    assert calls == [("GET", "/api/version"), ("GET", "/api/tags")] * 3
+    failed_calls = [("GET", "/api/version")]
+    if path == "/api/tags":
+        failed_calls.append(("GET", "/api/tags"))
+    assert calls == failed_calls * 2 + [("GET", "/api/version"), ("GET", "/api/tags")]
     assert backend.pulls == backend.deleted == []
+
+
+@pytest.mark.parametrize("path", ["/api/version", "/api/tags"])
+def test_excessive_local_catalog_recovers_by_reading_without_losing_pull(state, path):
+    client, backend = state
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    request = {"client_request_id": str(uuid4()), "model": "qwen3", "confirm_download": True}
+    auth = headers(client)
+    started = client.post("/api/v1/local-models/pulls", json=request, headers=auth)
+    receipt = wait(client, started.json()["id"])
+    assert receipt["status"] == "completed"
+    # Manter o mesmo manager para conferir recibo e replay, além da projeção HTTP.
+    manager = client.app.state.local_models
+    corrupt = True
+    streams = []
+
+    class Excessive(httpx.AsyncByteStream):
+        def __init__(self):
+            self.read = 0
+            self.closed = False
+
+        async def __aiter__(self):
+            for _ in range(1024):
+                self.read += 1
+                yield b" " * 16384
+
+        async def aclose(self):
+            self.closed = True
+
+    def response(value):
+        if corrupt and value.url.path == path:
+            stream = Excessive()
+            streams.append(stream)
+            return httpx.Response(200, stream=stream)
+        return backend(value)
+
+    manager._transport = httpx.MockTransport(response)
+    failed = client.get("/api/v1/local-models")
+    assert failed.status_code == 200
+    assert failed.json()["reachable"] is False and failed.json()["models"] == []
+    assert failed.json()["suggested"] and failed.json()["pulls"] == [receipt]
+    assert streams[0].closed and streams[0].read < 1024
+    corrupt = False
+    recovered = client.get("/api/v1/local-models").json()
+    assert recovered["reachable"] is True and recovered["pulls"] == [receipt]
+    assert recovered["models"][0]["name"] == "qwen3:1.7b"
+    assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == receipt
+    assert backend.pulls == ["qwen3:latest"] and backend.deleted == []
 
 
 @pytest.mark.parametrize("newline", [False, True])
