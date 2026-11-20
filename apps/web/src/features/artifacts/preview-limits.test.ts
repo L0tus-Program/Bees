@@ -73,7 +73,7 @@ describe('bounded preview envelope shared by preview and revision editor', () =>
     expect(server.cancel).toHaveBeenCalledTimes(1)
   })
   it('never trusts a valid error prefix of an oversized body', async () => {
-    const server = transport([padded(limit, { error: { code: 'artifact_not_ready' } }), encode(' '), encode('unread')], 409)
+    const server = transport([padded(64 * 1024, { error: { code: 'artifact_not_ready' } }), encode(' '), encode('unread')], 409)
     await expect(read()).rejects.toMatchObject({ code: 'http_409', status: 409, diagnostic: null })
     expect(server.pull).toHaveBeenCalledTimes(2)
     expect(server.cancel).toHaveBeenCalledTimes(1)

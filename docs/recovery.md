@@ -429,3 +429,24 @@ ou seguir links. No Windows, usa `CreateFileW` com `CREATE_NEW` e
 já ter consumido o convite; preserve a evidência
 e reconcilie o cadastro antes de reiniciar. Isso não protege contra adulteração
 arbitrária do diretório por outro processo após a abertura do arquivo.
+
+## Limites das respostas de erro da interface
+
+O cliente HTTP compartilhado lê erros por streaming, com teto de 64 KiB de
+bytes decodificados antes de analisar UTF-8/JSON. Um limite explícito menor
+continua valendo. Anúncio excessivo é recusado antes da leitura; sem anúncio ou
+com tamanho incorreto, os bytes recebidos determinam a recusa. O transporte
+é encerrado ao concluir ou recusar a leitura. Erros pequenos preservam códigos
+sanitizados e diagnósticos públicos válidos; corpos excessivos, inválidos ou
+incompletos nas chamadas comuns conservam `invalid_response` e o status HTTP,
+sem aproveitar um prefixo parcial. Chamadas que já pediam limite explícito
+conservam seu fallback `http_<status>`. Isso mantém a reconciliação de intenções
+cujo recibo não pôde ser validado, em vez de tratá-las como recusa definitiva.
+
+Sessão expirada é sinalizada ao receber HTTP 401 autenticado, antes de aguardar
+o corpo. Timeout de mutação continua `mutation_timeout`; perda de conexão antes
+dos headers continua `mutation_network`. Nenhum desses caminhos repete a
+operação. Receber um erro HTTP não confirma o efeito de uma mutação: conserve
+o UUID e consulte o estado canônico antes de decidir repetir. Respostas de
+sucesso mantêm os limites específicos de cada chamada; este teto não limita
+buffers/descompressão internos de Fetch nem o tamanho de todas as respostas.

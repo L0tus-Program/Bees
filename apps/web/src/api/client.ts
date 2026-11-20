@@ -41,6 +41,8 @@ type RequestOptions = {
   maxResponseBytes?: number
 }
 
+const maxErrorResponseBytes = 64 * 1024
+
 // Bound the decoded HTTP bytes before UTF-8/JSON, not just the parsed fields.
 async function boundedJson(response: Response, limit: number): Promise<unknown> {
   const length = response.headers.get('content-length')
@@ -65,6 +67,7 @@ export async function request(path: string, options: RequestOptions = {}): Promi
   if (mutation && options.authenticated && !csrfToken) throw new ApiError('csrf_missing')
   const controller = new AbortController()
   let timedOut = false
+  let boundedResponse = options.maxResponseBytes !== undefined
   const abort = () => controller.abort(options.signal?.reason)
   if (options.signal?.aborted) abort()
   options.signal?.addEventListener('abort', abort, { once: true })
@@ -80,13 +83,16 @@ export async function request(path: string, options: RequestOptions = {}): Promi
       method: mutation ? (options.method ?? 'POST') : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
       ...(mutation ? { body: options.restoreBody ?? options.binaryBody ?? JSON.stringify(options.body) } : {}), signal: controller.signal, redirect: 'error',
     })
+    const responseLimit = response.ok ? options.maxResponseBytes
+      : Math.min(options.maxResponseBytes ?? maxErrorResponseBytes, maxErrorResponseBytes)
+    boundedResponse = responseLimit !== undefined
     if (response.status === 401 && options.authenticated) {
       setCsrfToken()
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('bees:session-expired'))
     }
     let body: unknown
     if (response.status !== 204) {
-      try { body = options.maxResponseBytes === undefined ? await response.json() : await boundedJson(response, options.maxResponseBytes) } catch (error) {
+      try { body = responseLimit === undefined ? await response.json() : await boundedJson(response, responseLimit) } catch (error) {
         if (controller.signal.aborted) throw error
         if (response.ok || options.maxResponseBytes === undefined) throw new ApiError('invalid_response', response.status)
         // A refused error body supplies neither a partial code nor diagnostic.
@@ -104,7 +110,7 @@ export async function request(path: string, options: RequestOptions = {}): Promi
     if (error instanceof ApiError) throw error
     throw new ApiError(mutation ? 'mutation_network' : 'network_error')
   } finally {
-    if (options.maxResponseBytes !== undefined) controller.abort()
+    if (boundedResponse) controller.abort()
     clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
   }

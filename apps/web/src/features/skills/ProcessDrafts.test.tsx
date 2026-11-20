@@ -269,9 +269,9 @@ describe.each(['pt-BR', 'en', 'es'] as const)('blocked process recovery in %s', 
   })
 })
 
-it('keeps malformed HTTP 4xx responses uncertain on the first submission', async () => {
+it.each(['malformed', 'oversized'] as const)('keeps %s HTTP 4xx responses uncertain on the first submission', async (kind) => {
   const validFetch = fetcher()
-  const fetch = vi.fn(async (url: string, options: RequestInit) => options.method === 'POST' ? new Response('invalid JSON', { status: 400 }) : validFetch(url, options))
+  const fetch = vi.fn(async (url: string, options: RequestInit) => options.method === 'POST' ? new Response(kind === 'malformed' ? 'invalid JSON' : JSON.stringify({ error: { code: 'revision_conflict' } }) + ' '.repeat(64 * 1024), { status: 400 }) : validFetch(url, options))
   vi.stubGlobal('fetch', fetch); await prepareDraft(); await submitDraft()
   expect(sessionStorage.getItem(storageKey)).not.toBeNull()
   expect(button('Novo procedimento').disabled).toBe(true)
