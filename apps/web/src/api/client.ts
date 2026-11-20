@@ -38,9 +38,29 @@ type RequestOptions = {
   signal?: AbortSignal
   timeoutMs?: number
   authenticated?: boolean
+  maxResponseBytes?: number
+}
+
+// Bound the decoded HTTP bytes before UTF-8/JSON, not just the parsed fields.
+async function boundedJson(response: Response, limit: number): Promise<unknown> {
+  const length = response.headers.get('content-length')
+  if (length && /^\d+$/.test(length) && Number(length) > limit || !response.body) throw new ApiError('invalid_response', response.status)
+  const reader = response.body.getReader()
+  const bytes = new Uint8Array(limit)
+  let received = 0
+  try {
+    for (;;) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      if (chunk.value.byteLength > limit - received) throw new ApiError('invalid_response', response.status)
+      bytes.set(chunk.value, received); received += chunk.value.byteLength
+    }
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, received))) as unknown
+  } finally { reader.releaseLock() }
 }
 
 export async function request(path: string, options: RequestOptions = {}): Promise<unknown> {
+  if (options.maxResponseBytes !== undefined && (!Number.isSafeInteger(options.maxResponseBytes) || options.maxResponseBytes <= 0)) throw new ApiError('invalid_request')
   const mutation = options.body !== undefined || options.binaryBody !== undefined || options.restoreBody !== undefined
   if (mutation && options.authenticated && !csrfToken) throw new ApiError('csrf_missing')
   const controller = new AbortController()
@@ -60,18 +80,19 @@ export async function request(path: string, options: RequestOptions = {}): Promi
       method: mutation ? (options.method ?? 'POST') : 'GET', headers, credentials: 'same-origin', cache: 'no-store',
       ...(mutation ? { body: options.restoreBody ?? options.binaryBody ?? JSON.stringify(options.body) } : {}), signal: controller.signal, redirect: 'error',
     })
+    if (response.status === 401 && options.authenticated) {
+      setCsrfToken()
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('bees:session-expired'))
+    }
     let body: unknown
     if (response.status !== 204) {
-      try { body = await response.json() } catch (error) {
+      try { body = options.maxResponseBytes === undefined ? await response.json() : await boundedJson(response, options.maxResponseBytes) } catch (error) {
         if (controller.signal.aborted) throw error
-        throw new ApiError('invalid_response', response.status)
+        if (response.ok || options.maxResponseBytes === undefined) throw new ApiError('invalid_response', response.status)
+        // A refused error body supplies neither a partial code nor diagnostic.
       }
     }
     if (!response.ok) {
-      if (response.status === 401 && options.authenticated) {
-        setCsrfToken()
-        if (typeof window !== 'undefined') window.dispatchEvent(new Event('bees:session-expired'))
-      }
       const code = record(body) && record(body.error) && typeof body.error.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(body.error.code)
         ? body.error.code : `http_${response.status}`
       throw new ApiError(code, response.status, record(body) && record(body.error) ? providerDiagnostic(body.error.diagnostic) : null)
@@ -83,6 +104,7 @@ export async function request(path: string, options: RequestOptions = {}): Promi
     if (error instanceof ApiError) throw error
     throw new ApiError(mutation ? 'mutation_network' : 'network_error')
   } finally {
+    if (options.maxResponseBytes !== undefined) controller.abort()
     clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
   }

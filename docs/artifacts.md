@@ -135,6 +135,19 @@ headers ou bytes, sem aguardar cancelamento remoto nem mascarar a falha original
 O teto limita os bytes acumulados pela aplicação; buffers e descompressão do
 navegador pertencem à implementação de Fetch.
 
+A resposta JSON de prévia/revisão tem teto de 512 KiB antes da decodificação
+UTF-8 e do parsing. Esse orçamento comporta 64 KiB de texto mesmo com escapes
+JSON de seis bytes por byte de texto, mais os metadados do arquivo. Anúncio
+acima do teto é recusado sem consumir o corpo; sem tamanho ou com anúncio
+incorreto, o teto é aplicado aos bytes efetivamente recebidos. Resposta excessiva
+ou malformada não fornece texto parcial ao preview/editor. Erros pequenos
+mantêm o código sanitizado; erro HTTP com corpo recusado usa `http_<status>`.
+HTTP 401 autenticado sinaliza expiração de sessão assim que chegam os headers,
+inclusive nas demais chamadas do cliente JSON. O prazo HTTP total continua em
+dez segundos, sem retry automático. A leitura limitada aborta o transporte ao
+terminar, falhar ou ser cancelada. O teto se aplica aos bytes acumulados pela
+aplicação, sem prometer limitar buffers/descompressão internos de Fetch.
+
 Na conversa, a seleção nativa informa tipo, tamanho e destino antes da confirmação
 de armazenamento. A prévia mostra texto escapado, sem interpretar HTML, Markdown,
 macros ou fórmulas de CSV. A revisão usa um novo arquivo ou o editor quando a prévia
