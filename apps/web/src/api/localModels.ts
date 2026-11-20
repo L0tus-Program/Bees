@@ -35,6 +35,10 @@ function isPull(value: unknown): value is LocalModelPull {
     && typeof value.phase === 'string' && ['starting', 'manifest', 'downloading', 'verifying', 'writing', 'success'].includes(value.phase)
     && count(value.total_bytes) && count(value.completed_bytes) && value.completed_bytes <= value.total_bytes
     && nullableText(value.error) && nullableText(value.finished_at)
+    // success pode chegar antes de o stream terminar; só status confirma conclusão.
+    && (value.status === 'running' ? value.finished_at === null : text(value.finished_at))
+    && (value.status === 'failed' ? text(value.error) : value.error === null)
+    && (value.status !== 'completed' || value.phase === 'success')
 }
 
 export async function getLocalModels(endpoint: string | undefined, signal?: AbortSignal): Promise<LocalModelStatus> {

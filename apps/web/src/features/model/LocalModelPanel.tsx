@@ -163,7 +163,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         </ul>
       </>}
       {pull && <div className="local-model-pull" role="status">
-        <p><strong>{pull.model}</strong> — {pull.status === 'running' ? t(`phase_${pull.phase}`, { defaultValue: pull.phase }) : pull.status === 'failed' ? `${t('failed', { model: pull.model })} ${t(`error_${pull.error ?? 'pull_failed'}`, { defaultValue: '' })}` : pull.status === 'cancelled' ? t('cancelled') : t('phase_success')}</p>
+        <p><strong>{pull.model}</strong> — {pull.status === 'running' ? t(pull.phase === 'success' ? 'awaitingCompletion' : `phase_${pull.phase}`, { defaultValue: pull.phase }) : pull.status === 'failed' ? `${t('failed', { model: pull.model })} ${t(`error_${pull.error ?? 'pull_failed'}`, { defaultValue: '' })}` : pull.status === 'cancelled' ? t('cancelled') : t('phase_success')}</p>
         {running && <>
           <progress max={100} value={percent ?? undefined} aria-label={t('phase_downloading')} />
           {pull.total_bytes > 0 && <small>{t('progress', { done: size(pull.completed_bytes), total: size(pull.total_bytes) })}</small>}
