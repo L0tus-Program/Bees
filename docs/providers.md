@@ -106,7 +106,9 @@ nem substitui esse progresso; o estado pode ser consultado novamente.
 O ciclo de vida também precisa ser coerente: em andamento exige término ausente
 e erro nulo; estados terminais exigem término; somente falha exige código de erro.
 Conclusão exige fase `success`. Essa fase isolada não comprova conclusão: o stream
-pode continuar aberto, falhar ou ser cancelado depois dela. Os contadores podem
+pode continuar aberto, falhar ou ser cancelado depois dela. Enquanto o status ainda
+é `running`, o painel informa que aguarda confirmação de término, conserva progresso
+e cancelamento e não anuncia conclusão. Os contadores podem
 continuar parciais ou zerados mesmo em conclusão, conforme o progresso informado.
 Respostas contraditórias recebem o mesmo tratamento de resposta inválida, mantendo
 o último progresso confirmado sem anunciar sucesso ou cancelamento.

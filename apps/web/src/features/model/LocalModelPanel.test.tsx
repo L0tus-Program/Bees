@@ -731,3 +731,32 @@ it.each(['read', 'cancel'] as const)('preserves confirmed progress after a contr
     expect(writes).toEqual(operation === 'cancel' ? ['/api/v1/local-models/pulls/p1/cancel'] : [])
   } finally { vi.useRealTimers() }
 })
+
+it.each([
+  ['pt-BR', 'Aguardando confirmação de término…', 'Concluído', 'qwen3:8b está pronto'],
+  ['en', 'Waiting for completion confirmation…', 'Done', 'qwen3:8b is ready'],
+  ['es', 'Esperando confirmación de finalización…', 'Listo', 'qwen3:8b está listo'],
+] as const)('waits for terminal confirmation after success phase in %s', async (language, waiting, done, completed) => {
+  vi.useFakeTimers()
+  try {
+    i18n.addResourceBundle(language, 'localModel', localModelResources[language])
+    i18n.addResourceBundle(language, 'product', productResources[language])
+    await i18n.changeLanguage(language)
+    let terminal = false
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/pulls/p1')
+      ? Response.json(terminal ? { ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-03T00:01:00Z' } : { ...pull, phase: 'success' })
+      : Response.json({ ...status, pulls: [pull] })))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain(waiting)
+    expect(container.querySelector('.local-model-pull')?.textContent).not.toContain(done)
+    expect(container.textContent).not.toContain(completed)
+    expect(container.querySelector('progress')).not.toBeNull()
+    terminal = true
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('progress')).toBeNull()
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain(done)
+    expect(container.textContent).toContain(completed)
+    expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
+  } finally { vi.useRealTimers() }
+})
