@@ -22,6 +22,7 @@ from bees_core.providers.contracts import ConnectionConfig
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
 MAX_VERSION_BYTES = 65536
 MAX_CATALOG_BYTES = 4194304
+PULL_IDLE_TIMEOUT = 120.0
 MODEL_NAME = re.compile(
     r"^[a-z0-9][a-z0-9._-]{0,99}(/[a-z0-9][a-z0-9._-]{0,99})?(:[A-Za-z0-9][A-Za-z0-9._-]{0,63})?$"
 )
@@ -244,16 +245,22 @@ class LocalModelManager:
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         timeout: float = 10.0,
+        pull_idle_timeout: float = PULL_IDLE_TIMEOUT,
     ) -> None:
         self._transport = transport
         self._clock = clock
         self._timeout = timeout
+        self._pull_idle_timeout = pull_idle_timeout
         self._pulls: dict[UUID, Pull] = {}
         self._requests: dict[UUID, Pull] = {}
         self._deleting: set[tuple[str, str]] = set()
 
     def _client(self, endpoint: str, *, stream: bool = False) -> httpx.AsyncClient:
-        timeout = httpx.Timeout(self._timeout, read=None if stream else self._timeout)
+        # Downloads podem durar horas, mas silêncio do daemon não pode manter
+        # o acompanhamento e a exclusão do modelo presos indefinidamente.
+        timeout = httpx.Timeout(
+            self._timeout, read=self._pull_idle_timeout if stream else self._timeout
+        )
         return httpx.AsyncClient(
             base_url=endpoint,
             transport=self._transport,
