@@ -1,5 +1,5 @@
 const pt = {
-  loadingFiles: 'Carregando arquivos…', filesLoadError: 'Não foi possível carregar os arquivos desta entrega.',
+  moreFiles: 'Carregar mais arquivos', loadingFiles: 'Carregando arquivos…', filesLoadError: 'Não foi possível carregar os arquivos desta entrega.',
   preparingChat: 'Preparando conversa…',
   historyRefreshFailed: 'Não foi possível atualizar a conversa. O histórico exibido pode estar desatualizado.',
   workspaceRefreshFailed: 'Não foi possível atualizar a área de trabalho. Tente de novo para confirmar a conversa ativa.',
@@ -32,7 +32,7 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
-  loadingFiles: 'Loading files…', filesLoadError: 'Could not load the files for this delivery.',
+  moreFiles: 'Load more files', loadingFiles: 'Loading files…', filesLoadError: 'Could not load the files for this delivery.',
   preparingChat: 'Preparing chat…',
   historyRefreshFailed: 'Could not refresh the conversation. The displayed history may be out of date.',
   workspaceRefreshFailed: 'Could not refresh the workspace. Try again to verify the active conversation.',
@@ -64,7 +64,7 @@ const en: Translations = {
   status: { queued: 'Queued', running: 'Running', waiting_approval: 'Needs you', waiting_resource: 'Waiting for browser', paused: 'Paused', completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' },
 }
 const es: Translations = {
-  loadingFiles: 'Cargando archivos…', filesLoadError: 'No se pudieron cargar los archivos de esta entrega.',
+  moreFiles: 'Cargar más archivos', loadingFiles: 'Cargando archivos…', filesLoadError: 'No se pudieron cargar los archivos de esta entrega.',
   preparingChat: 'Preparando conversación…',
   historyRefreshFailed: 'No se pudo actualizar la conversación. El historial mostrado puede estar desactualizado.',
   workspaceRefreshFailed: 'No se pudo actualizar el espacio de trabajo. Intenta de nuevo para confirmar la conversación activa.',
