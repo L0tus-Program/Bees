@@ -102,6 +102,14 @@ Respostas incompatíveis não iniciam consultas ou cancelamentos de outro downlo
 Após resposta inválida de uma operação, confira o estado antes de confirmar outra:
 o servidor pode já ter recebido o pedido. Não há repetição automática de mutações.
 
+O acompanhamento repete somente leituras com falha temporária (rede, timeout,
+HTTP 429 ou 5xx), com espera crescente de até 15 segundos. Outras falhas pausam
+as consultas e oferecem **Retomar acompanhamento**, que consulta o mesmo download
+sem iniciar outro. O progresso anterior permanece como último estado confirmado;
+essa pausa não cancela o download no Ollama. Atualizar o inventário não retoma
+silenciosamente o acompanhamento pausado. O cancelamento humano continua
+disponível quando o inventário foi consultado com sucesso.
+
 Cancelar informa o resultado canônico: se o download já terminou, o painel mostra
 que está pronto e atualiza o inventário; falha permanece falha. Somente uma
 resposta `cancelled` confirma cancelamento. Erros das operações locais possuem

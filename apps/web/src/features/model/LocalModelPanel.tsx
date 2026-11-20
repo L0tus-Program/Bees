@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { asApiError } from '../../api/client'
+import { asApiError, isTemporaryReadFailure } from '../../api/client'
 import type { ApiError } from '../../api/client'
 import { cancelLocalPull, deleteLocalModel, formatBytes, getLocalModels, getLocalPull, startLocalPull } from '../../api/localModels'
 import type { LocalModelPull, LocalModelStatus, SuggestedLocalModel } from '../../api/localModels'
@@ -26,6 +26,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const [other, setOther] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [retry, setRetry] = useState(0)
+  const [pausedPull, setPausedPull] = useState<string | null>(null)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [pending, setPending] = useState(false)
   const reading = useRef<AbortController | null>(null)
@@ -57,7 +58,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   }, [pull?.id, pull?.status])
 
   useEffect(() => {
-    if (!pull || pull.status !== 'running' || pending) return
+    if (!pull || pull.status !== 'running' || pending || pausedPull === pull.id) return
     const controller = new AbortController()
     const timer = setTimeout(() => {
       getLocalPull(pull.id, controller.signal).then((next) => {
@@ -69,11 +70,13 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         const failure = asApiError(error)
         // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
         if (failure.code === 'pull_not_found') { setFailure(null); setRetry(0); setPull(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
-        setFailure(failure); setRetry((value) => value + 1)
+        setFailure(failure)
+        if (failure.code !== 'invalid_response' && isTemporaryReadFailure(failure)) setRetry((value) => value + 1)
+        else setPausedPull(pull.id)
       })
     }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [pull, retry, load, t, pending])
+  }, [pull, retry, load, t, pending, pausedPull])
 
   function beginOperation() {
     if (operation.current || status.state !== 'ready') return null
@@ -107,7 +110,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     try {
       const next = await cancelLocalPull(pull.id, controller.signal)
       if (!controller.signal.aborted) {
-        setRetry(0); setPull(next)
+        setRetry(0); setPausedPull(null); setPull(next)
         const message = next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null
         setNotice(message ? { kind: 'download', text: message } : null)
         if (next.status === 'completed') await load()
@@ -164,6 +167,10 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         {running && <>
           <progress max={100} value={percent ?? undefined} aria-label={t('phase_downloading')} />
           {pull.total_bytes > 0 && <small>{t('progress', { done: size(pull.completed_bytes), total: size(pull.total_bytes) })}</small>}
+          {pausedPull === pull.id && <>
+            <p className="transfer-notice">{t('trackingPaused')}</p>
+            <button type="button" className="button secondary" disabled={pending} onClick={() => { setFailure(null); setRetry(0); setPausedPull(null) }}>{t('resumeTracking')}</button>
+          </>}
           <button type="button" className="button secondary" disabled={pending || status.state !== 'ready'} onClick={() => { void cancel() }}>{t('cancel')}</button>
           <p className="quiet-note">{t('restartNote')}</p>
         </>}
