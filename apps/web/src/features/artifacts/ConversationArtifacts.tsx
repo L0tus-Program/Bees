@@ -86,6 +86,7 @@ function ConversationFiles({ agentId, conversationId, selected, onSelected, onRe
     <button ref={addButton} className="button secondary" type="button" disabled={mutationBlocked} onClick={() => { publisher.current?.clear(); setDraft({ previous: null, seed: null }); setPreview(null) }}>{t('attachFile')}</button>
     {view.loading && <p role="status">{t('loading')}</p>}
     {view.error && <p className="form-error" role="status">{t('readError')} {view.page && t('stale')}</p>}
+    {view.error && <button className="button secondary" type="button" disabled={view.loading || inFlight || busy} onClick={() => { void reader.current?.retry() }}>{t('retryRead')}</button>}
     {view.page?.items.length === 0 && !stale && <p className="quiet-note">{t('conversationEmpty')}</p>}
     {error && <p className="form-error" role="alert">{t(error.code === 'artifact_context_too_large' ? 'contextLimit' : error.code === 'artifact_candidate_mismatch' ? 'candidateMismatch' : 'downloadError')}</p>}
     {downloadSent && <p className="quiet-note" role="status">{t('sent')}</p>}

@@ -4,6 +4,38 @@ import { agentId, artifact, page, taskId } from './fixtures'
 
 afterEach(() => vi.unstubAllGlobals())
 describe('task-scoped artifact reader', () => {
+  it('retries a rejected snapshot without accepting changed immutable metadata', async () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({ ...artifact, id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}` }))
+    const wrong = { ...items[0], name: 'changed.txt', revision: 3 }
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json(page(items, true, 100)))
+      .mockResolvedValueOnce(Response.json(page([wrong])))
+      .mockResolvedValueOnce(Response.json(page([wrong])))
+      .mockResolvedValueOnce(Response.json(page([items[0], artifact])))
+    vi.stubGlobal('fetch', fetcher)
+    const reader = new ArtifactReader(agentId, taskId, vi.fn())
+    await reader.load(); await reader.load(100); await reader.retry()
+    expect(reader.state.error?.code).toBe('invalid_response')
+    expect(reader.state.page?.items).toEqual(items)
+    await reader.retry()
+    expect(reader.state.error).toBeNull()
+    expect(reader.state.page?.items).toHaveLength(101)
+    expect(fetcher.mock.calls.slice(1).every(([url]) => url.includes('offset=100&limit=100'))).toBe(true)
+    await reader.retry(); expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+  it('uses offset zero after an explicitly requested refresh fails', async () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({ ...artifact, id: `33333333-3333-4333-8333-${String(index).padStart(12, '0')}` }))
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json(page(items, true, 100)))
+      .mockResolvedValueOnce(Response.json(page([artifact])))
+      .mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(Response.json(page([])))
+    vi.stubGlobal('fetch', fetcher)
+    const reader = new ArtifactReader(agentId, taskId, vi.fn())
+    await reader.load(); await reader.load(100); await reader.load()
+    expect(reader.state.page?.items).toHaveLength(101)
+    await reader.retry()
+    expect(reader.state.page?.items).toEqual([])
+    expect(fetcher.mock.calls[3][0]).toContain('offset=0&limit=100')
+    reader.stop(); await reader.retry(); expect(fetcher).toHaveBeenCalledTimes(4)
+  })
   it('preserves earlier pages on pagination failure and restarts the list only after a successful refresh', async () => {
     const items = Array.from({ length: 100 }, (_, index) => ({ ...artifact, id: `33333333-3333-4333-8333-${index.toString().padStart(12, '0')}` }))
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json(page(items, true, 100)))

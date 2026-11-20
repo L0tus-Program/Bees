@@ -19,13 +19,16 @@ export class ArtifactReader {
   private controller: AbortController | null = null
   private known = new Map<string, ArtifactRecord>()
   private stopped = false
+  private lastOffset = 0
   constructor(private agentId: string, private taskId: string, private publish: (state: ArtifactView) => void, private conversation = false) {}
   private update(state: ArtifactView) { this.state = state; this.publish(state) }
-  async load(offset = 0) {
+  async load(offset = 0) { await this.read(offset) }
+  private async read(offset: number, retry = false) {
     if (this.stopped) return
+    this.lastOffset = offset
     this.controller?.abort()
     const operation = new AbortController(); this.controller = operation
-    this.update({ ...this.state, loading: true, error: null })
+    this.update({ ...this.state, loading: true, error: retry ? this.state.error : null })
     try {
       const incoming = await (this.conversation ? getConversationArtifacts(this.agentId, this.taskId, offset, operation.signal) : getArtifacts(this.agentId, this.taskId, offset, operation.signal))
       if (operation.signal.aborted || this.stopped) return
@@ -34,6 +37,10 @@ export class ArtifactReader {
       const items = offset > 0 && this.state.page ? [...this.state.page.items.filter((item) => !incoming.items.some((next) => next.id === item.id)), ...incoming.items] : incoming.items
       this.update({ page: { ...incoming, items }, loading: false, error: null })
     } catch (failure) { if (!operation.signal.aborted && !this.stopped) this.update({ ...this.state, loading: false, error: asApiError(failure) }) }
+  }
+  async retry() {
+    if (this.state.loading || !this.state.error) return
+    await this.read(this.lastOffset, true)
   }
   stop() { this.stopped = true; this.controller?.abort() }
 }

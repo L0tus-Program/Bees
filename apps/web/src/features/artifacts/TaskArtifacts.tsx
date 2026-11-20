@@ -56,6 +56,7 @@ function ArtifactList({ agentId, taskId }: { agentId: string; taskId: string }) 
     <p className="quiet-note">{t('scope')}</p>
     {view.loading && <p role="status" className="quiet-note">{t('loading')}</p>}
     {view.error && <p role="status" className="form-error">{t('readError')}{view.page && <> {t('stale')}</>}</p>}
+    {view.error && <button className="button secondary" type="button" disabled={view.loading || !!download?.busy || reviewBusy} onClick={() => { void reader.current?.retry() }}>{t('retryRead')}</button>}
     {view.page?.items.length === 0 && !view.loading && !view.error && <p className="quiet-note">{t('empty')}</p>}
     {download?.error && <p role="alert" className="form-error">{t(errorMessage)}</p>}
     {download?.sent && <p role="status" className="quiet-note">{t('sent')}</p>}
