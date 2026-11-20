@@ -81,6 +81,15 @@ termina em `failed`/`pull_failed`; repetir o UUID conserva esse recibo, sem
 novo POST ao Ollama. Uma nova tentativa exige confirmação explícita com outro
 UUID. Isso não comprova cancelamento de um efeito já iniciado pelo daemon.
 
+O acompanhamento tolera até 120 segundos de inatividade de leitura do Ollama,
+inclusive ao aguardar os headers ou o prefixo de uma recusa HTTP. Dados recebidos
+renovam a espera: esse prazo não limita a duração total do download. Se a leitura
+expirar, a conexão é fechada e o recibo termina em `failed`/`pull_failed`, mantendo
+o progresso já observado. Consultar ou repetir qualquer UUID ligado ao download
+conserva esse resultado, sem novo POST. Uma nova tentativa exige confirmação com
+UUID novo; o timeout não comprova que o daemon interrompeu o download. Os prazos
+das consultas de diagnóstico, remoção e demais fases HTTP permanecem em 10 segundos.
+
 O painel também valida os campos recebidos e confere o vínculo da resposta com
 o endpoint, modelo ou ID solicitado antes de mostrar progresso ou sucesso.
 Respostas incompatíveis não iniciam consultas ou cancelamentos de outro download.
