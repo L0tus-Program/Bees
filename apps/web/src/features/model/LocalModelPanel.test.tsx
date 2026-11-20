@@ -470,3 +470,171 @@ it('keeps polling backoff when cancellation fails and never retries the mutation
     expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
   } finally { vi.useRealTimers() }
 })
+
+it.each([403, 404, 200])('pauses tracking after permanent failure %s and resumes only on human action', async (httpStatus) => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0, recovered = false
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') writes.push(url)
+      if (url.endsWith('/pulls/p1')) {
+        polls += 1
+        return recovered ? Response.json({ ...pull, status: 'completed', phase: 'success', completed_bytes: 100 })
+          : Response.json(httpStatus === 200 ? { ...pull, completed_bytes: -1 } : { error: { code: 'access_denied' } }, { status: httpStatus })
+      }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    expect(container.textContent).toContain('o download pode continuar no Ollama')
+    expect(container.querySelector('progress')?.value).toBe(40)
+    expect(button('Cancelar download')?.disabled).toBe(false)
+    expect(button('Baixar')?.disabled).toBe(true)
+    await act(async () => vi.advanceTimersByTimeAsync(60000))
+    expect(polls).toBe(1)
+    await act(async () => button('Verificar de novo')!.click())
+    await act(async () => vi.advanceTimersByTimeAsync(60000))
+    expect(polls).toBe(1)
+    recovered = true
+    await act(async () => { button('Retomar acompanhamento')!.click(); button('Retomar acompanhamento')!.click() })
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(polls).toBe(2)
+    expect(container.textContent).toContain('qwen3:8b está pronto')
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(button('Retomar acompanhamento')).toBeUndefined()
+    expect(container.querySelector('progress')).toBeNull()
+    expect(writes).toEqual([])
+  } finally { vi.useRealTimers() }
+})
+
+it('pauses again after a failed manual read without duplicating requests', async () => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      expect(options.method).toBe('GET')
+      if (url.endsWith('/pulls/p1')) { polls += 1; return Response.json({ ...pull, id: 'foreign' }) }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    await act(async () => { button('Retomar acompanhamento')!.click(); button('Retomar acompanhamento')!.click() })
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(polls).toBe(2)
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(60000))
+    expect(polls).toBe(2)
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain('qwen3:8b')
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['cancelled', 'completed', 'failed'] as const)('allows human cancellation while paused and shows canonical %s', async (outcome) => {
+  vi.useFakeTimers()
+  try {
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading' }) }
+      if (url.endsWith('/pulls/p1')) return Response.json({ error: { code: 'access_denied' } }, { status: 403 })
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    await act(async () => button('Cancelar download')!.click())
+    expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+    expect(button('Retomar acompanhamento')).toBeUndefined()
+    expect(container.querySelector('progress')).toBeNull()
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain(outcome === 'cancelled' ? 'Download cancelado' : outcome === 'completed' ? 'Concluído' : 'O download de qwen3:8b falhou')
+  } finally { vi.useRealTimers() }
+})
+
+it.each([429, 503, 'network'] as const)('keeps automatic tracking for temporary %s failures', async (outcome) => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      expect(options.method).toBe('GET')
+      if (url.endsWith('/pulls/p1')) {
+        polls += 1
+        if (polls === 1) {
+          if (outcome === 'network') throw new TypeError('offline')
+          return Response.json({ error: { code: 'backend_unavailable' } }, { status: outcome })
+        }
+        return Response.json({ ...pull, completed_bytes: 70 })
+      }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(button('Retomar acompanhamento')).toBeUndefined()
+    await act(async () => vi.advanceTimersByTimeAsync(1999))
+    expect(polls).toBe(1)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(polls).toBe(2)
+    expect(container.querySelector('progress')?.value).toBe(70)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+  } finally { vi.useRealTimers() }
+})
+
+it('discards a resumed read after switching endpoint', async () => {
+  vi.useFakeTimers()
+  try {
+    const resumed = deferred<Response>()
+    let polls = 0
+    const signals: AbortSignal[] = []
+    vi.stubGlobal('fetch', vi.fn((url: string, options: RequestInit) => {
+      if (url.endsWith('/pulls/p1')) {
+        polls += 1
+        if (polls === 1) return Promise.resolve(Response.json({ ...pull, id: 'foreign' }))
+        signals.push(options.signal as AbortSignal)
+        return resumed.promise
+      }
+      return Promise.resolve(Response.json(url.includes('11435') ? otherStatus : { ...status, pulls: [pull] }))
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    await act(async () => button('Retomar acompanhamento')!.click())
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    await render(vi.fn(), otherEndpoint)
+    expect(signals).toHaveLength(1)
+    expect(signals[0].aborted).toBe(true)
+    await act(async () => resumed.resolve(Response.json({ ...pull, status: 'completed', phase: 'success' })))
+    expect(container.textContent).toContain('modelo-outro:latest')
+    expect(container.textContent).not.toContain('qwen3:8b está pronto')
+    expect(button('Retomar acompanhamento')).toBeUndefined()
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['pt-BR', 'en', 'es'] as const)('offers localized tracking recovery in %s', async (language) => {
+  vi.useFakeTimers()
+  try {
+    i18n.addResourceBundle(language, 'localModel', localModelResources[language])
+    i18n.addResourceBundle(language, 'product', productResources[language])
+    await i18n.changeLanguage(language)
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/pulls/p1')
+      ? Response.json({ ...pull, completed_bytes: -1 }) : Response.json({ ...status, pulls: [pull] })))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    const translations = localModelResources[language]
+    expect(container.textContent).toContain(translations.trackingPaused)
+    expect(button(translations.resumeTracking)?.disabled).toBe(false)
+  } finally { vi.useRealTimers() }
+})
+
+it('pauses after malformed HTTP 503 rather than retrying a broken response contract', async () => {
+  vi.useFakeTimers()
+  try {
+    let polls = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/pulls/p1')) { polls += 1; return new Response('not JSON', { status: 503 }) }
+      return Response.json({ ...status, pulls: [pull] })
+    }))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(button('Retomar acompanhamento')).toBeTruthy()
+    await act(async () => vi.advanceTimersByTimeAsync(60000))
+    expect(polls).toBe(1)
+  } finally { vi.useRealTimers() }
+})
