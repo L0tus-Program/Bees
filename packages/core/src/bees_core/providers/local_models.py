@@ -384,12 +384,13 @@ class LocalModelManager:
         self._deleting.add(target)
         try:
             async with (
+                asyncio.timeout(self._timeout),
                 self._client(endpoint) as client,
                 client.stream("DELETE", "/api/delete", json={"model": model}) as response,
             ):
                 # Só o status confirma a remoção; não acumular nem aguardar o corpo.
                 status = response.status_code
-        except httpx.HTTPError:
+        except httpx.HTTPError, TimeoutError:
             raise LocalModelError("backend_unavailable") from None
         finally:
             self._deleting.remove(target)
