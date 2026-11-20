@@ -469,3 +469,40 @@ def test_delete_redirect_is_not_confirmed_as_removed(state):
     )
     assert result.status_code == 409 and result.json()["error"]["code"] == "pull_failed"
     assert len(calls) == 1 and calls[0].url.port == 11434
+
+
+@pytest.mark.parametrize(
+    "error", [None, False, 0, 1.5, ["private-detail"], {"no space": "private-detail"}]
+)
+def test_nontextual_pull_error_fails_with_replay_and_explicit_recovery(state, error):
+    client, backend = state
+    backend.pull_response = lambda _: httpx.Response(
+        200,
+        content=lines(
+            {"status": "pulling x", "digest": "sha256:x", "total": 100, "completed": 40},
+            {"error": error, "status": "success"},
+            {"status": "success"},
+        ),
+    )
+    request = {"client_request_id": str(uuid4()), "model": "qwen3:1.7b", "confirm_download": True}
+    auth = headers(client)
+    started = client.post("/api/v1/local-models/pulls", json=request, headers=auth)
+    assert started.status_code == 202
+    terminal = wait(client, started.json()["id"])
+    assert terminal["status"] == "failed" and terminal["error"] == "pull_failed"
+    assert terminal["finished_at"] is not None
+    assert terminal["total_bytes"] == 100 and terminal["completed_bytes"] == 40
+    assert "private-detail" not in str(terminal)
+    assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == terminal
+    assert backend.pulls == ["qwen3:1.7b"]
+
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    fresh = client.post(
+        "/api/v1/local-models/pulls",
+        json=request | {"client_request_id": str(uuid4())},
+        headers=auth,
+    )
+    assert fresh.status_code == 202 and fresh.json()["id"] != terminal["id"]
+    assert wait(client, fresh.json()["id"])["status"] == "completed"
+    assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == terminal
+    assert backend.pulls == ["qwen3:1.7b"] * 2 and backend.deleted == []

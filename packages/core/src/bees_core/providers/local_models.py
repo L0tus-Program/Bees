@@ -385,8 +385,11 @@ class LocalModelManager:
                         raise LocalModelError("pull_failed") from None
                     if not isinstance(event, dict):
                         raise LocalModelError("pull_failed")
-                    if isinstance(event.get("error"), str):
-                        raise LocalModelError(_classify(event["error"]))
+                    if "error" in event:
+                        error = event["error"]
+                        if not isinstance(error, str):
+                            raise LocalModelError("pull_failed")
+                        raise LocalModelError(_classify(error))
                     status = event.get("status")
                     if status is None:
                         status = ""
