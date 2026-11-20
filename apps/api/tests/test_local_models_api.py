@@ -699,3 +699,33 @@ def test_compressed_pull_is_terminal_without_body_read_and_replays(state, status
     assert recovered.status_code == 202
     assert wait(client, recovered.json()["id"])["status"] == "completed"
     assert backend.pulls == ["qwen3:latest", "qwen3:latest"]
+
+
+def test_request_lookup_is_authenticated_read_only_and_preserves_terminal_receipt(state):
+    client, backend = state
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    original, alias = str(uuid4()), str(uuid4())
+    # An absent UUID never creates a download or contacts the daemon.
+    absent = f"/api/v1/local-models/pull-requests/{alias}"
+    assert client.get(absent).status_code == 404
+    assert backend.pulls == []
+    accepted = client.post(
+        "/api/v1/local-models/pulls",
+        json={"model": "qwen3", "client_request_id": original, "confirm_download": True},
+        headers=headers(client),
+    )
+    terminal = wait(client, accepted.json()["id"])
+    path = f"/api/v1/local-models/pull-requests/{original}"
+    for _ in range(2):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.json() == {"client_request_id": original, "pull": terminal}
+    assert client.get(absent).status_code == 404
+    assert backend.pulls == ["qwen3:latest"]
+    # Restart discards process receipts; lookup still cannot dispatch a new attempt.
+    client.app.state.local_models = LocalModelManager(transport=httpx.MockTransport(backend))
+    assert client.get(path).status_code == 404
+    assert backend.pulls == ["qwen3:latest"]
+    client.post("/api/v1/auth/logout", json={}, headers=headers(client)).raise_for_status()
+    assert client.get(path).status_code == 401
+    assert backend.pulls == ["qwen3:latest"]

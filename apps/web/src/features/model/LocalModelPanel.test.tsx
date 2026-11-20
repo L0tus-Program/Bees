@@ -27,6 +27,7 @@ let root: Root
 let container: HTMLDivElement
 let i18n: ReturnType<typeof createInstance>
 beforeEach(async () => {
+  sessionStorage.clear()
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto); setCsrfToken('csrf')
   container = document.createElement('div'); document.body.append(container); root = createRoot(container)
   i18n = createInstance(); await i18n.init({ lng: 'pt-BR', resources: { 'pt-BR': { localModel: localModelResources['pt-BR'], product: productResources['pt-BR'] } }, interpolation: { escapeValue: false } })
@@ -759,4 +760,157 @@ it.each([
     expect(container.textContent).toContain(completed)
     expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
   } finally { vi.useRealTimers() }
+})
+
+it.each(['pt-BR', 'en', 'es'] as const)('preserves a lost start across remount and reconciles only by GET in %s', async (language) => {
+  i18n.addResourceBundle(language, 'localModel', localModelResources[language]); await i18n.changeLanguage(language)
+  const messages = localModelResources[language]
+  let intent: Record<string, string> | null = null
+  const writes: unknown[] = []
+  const reads: string[] = []
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      intent = JSON.parse(options.body as string); writes.push(intent)
+      const stored = JSON.parse(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)!)
+      expect(stored).toEqual({ endpoint: status.endpoint, model: 'qwen3:8b', clientRequestId: intent!.client_request_id })
+      return Response.json({})
+    }
+    if (url.includes('/pull-requests/')) { reads.push(url); return Response.json({ client_request_id: intent!.client_request_id, pull }) }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button(messages.download)!.click())
+  expect(writes).toHaveLength(1)
+  expect(button(messages.download)?.disabled).toBe(true)
+  expect(button(messages.remove)?.disabled).toBe(true)
+  await act(async () => root.render(null))
+  await render()
+  expect(reads).toHaveLength(0)
+  expect(writes).toHaveLength(1)
+  expect(container.textContent).toContain('qwen3:8b')
+  await act(async () => { button(messages.checkRequest)!.click(); button(messages.checkRequest)!.click() })
+  expect(reads).toEqual([`/api/v1/local-models/pull-requests/${intent!.client_request_id}`])
+  expect(writes).toHaveLength(1)
+  expect(button(messages.cancel)).toBeTruthy()
+  expect(button(messages.checkRequest)).toBeUndefined()
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)).toBeNull()
+})
+
+it.each(['absent', 'network', 'identity', 'uuid', 'lifecycle'] as const)('keeps an uncertain request after %s lookup without a repeated POST', async (failure) => {
+  let requestId = ''
+  const writes: string[] = []
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); requestId = JSON.parse(options.body as string).client_request_id; return Response.json({}) }
+    if (url.includes('/pull-requests/')) {
+      if (failure === 'network') throw new Error('private diagnostic')
+      if (failure === 'absent') return Response.json({ error: { code: 'pull_not_found', message: 'x' } }, { status: 404 })
+      return Response.json({ client_request_id: failure === 'uuid' ? crypto.randomUUID() : requestId, pull: { ...pull, ...(failure === 'identity' ? { model: 'foreign' } : failure === 'lifecycle' ? { status: 'completed' } : {}) } })
+    }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Baixar')!.click())
+  for (let n = 0; n < 2; n++) await act(async () => button('Consultar pedido de download')!.click())
+  expect(writes).toHaveLength(1)
+  expect(button('Consultar pedido de download')).toBeTruthy()
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(container.textContent).not.toContain('private diagnostic')
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)).toContain(requestId)
+  await act(async () => button('Verificar de novo')!.click())
+  expect(button('Baixar')?.disabled).toBe(true)
+})
+
+it.each(['read', 'write', 'corrupt', 'foreign'] as const)('blocks downloads when recovery storage has %s failure', async (failure) => {
+  const key = `bees.local-pull-pending.v1.${status.endpoint}`
+  if (failure === 'corrupt') sessionStorage.setItem(key, '{')
+  if (failure === 'foreign') sessionStorage.setItem(key, JSON.stringify({ endpoint: 'http://127.0.0.1:11435', model: 'qwen3', clientRequestId: crypto.randomUUID() }))
+  if (failure === 'read') vi.stubGlobal('sessionStorage', { getItem: () => { throw new Error('private diagnostic') } })
+  if (failure === 'write') vi.stubGlobal('sessionStorage', { getItem: sessionStorage.getItem.bind(sessionStorage), setItem: () => { throw new Error('Quota') } })
+  const fetcher = vi.fn(async () => Response.json(status)); vi.stubGlobal('fetch', fetcher); vi.stubGlobal('confirm', vi.fn(() => true))
+  await render()
+  if (failure === 'write') await act(async () => button('Baixar')!.click())
+  expect(container.textContent).toContain('Não foi possível ler ou guardar')
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(fetcher.mock.calls).toHaveLength(1)
+})
+
+it('requires explicit release and never starts or cancels a download by releasing recovery', async () => {
+  const writes: string[] = []
+  const confirm = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false).mockReturnValueOnce(true)
+  vi.stubGlobal('confirm', confirm)
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); return Response.json({}) }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Baixar')!.click())
+  await act(async () => button('Liberar novo pedido')!.click())
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(confirm.mock.calls[1][0]).toContain('não cancela nem comprova')
+  await act(async () => button('Liberar novo pedido')!.click())
+  expect(button('Baixar')?.disabled).toBe(false)
+  expect(writes).toHaveLength(1)
+})
+
+it('keeps recovery after a verified receipt when removing storage fails', async () => {
+  let requestId = ''
+  const key = `bees.local-pull-pending.v1.${status.endpoint}`
+  vi.stubGlobal('sessionStorage', { getItem: sessionStorage.getItem.bind(sessionStorage), setItem: sessionStorage.setItem.bind(sessionStorage), removeItem: () => { throw new Error('blocked') } })
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { requestId = JSON.parse(options.body as string).client_request_id; return Response.json(pull) }
+    if (url.includes('/pull-requests/')) return Response.json({ client_request_id: requestId, pull })
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Baixar')!.click())
+  expect(sessionStorage.getItem(key)).toContain(requestId)
+  expect(button('Consultar pedido de download')).toBeTruthy()
+  await act(async () => button('Consultar pedido de download')!.click())
+  expect(button('Consultar pedido de download')).toBeTruthy()
+  expect(button('Cancelar download')).toBeTruthy()
+  expect(button('Baixar')?.disabled).toBe(true)
+})
+
+it('keeps a pending start on network loss and checks it even when the inventory fails', async () => {
+  let requestId = ''; let catalogFails = false
+  const writes: string[] = []
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); requestId = JSON.parse(options.body as string).client_request_id; throw new Error('lost response') }
+    if (url.includes('/pull-requests/')) return Response.json({ client_request_id: requestId, pull: { ...pull, status: 'completed', phase: 'success', finished_at: 'now' } })
+    if (catalogFails) throw new Error('inventory lost')
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Baixar')!.click())
+  catalogFails = true
+  await act(async () => button('Verificar de novo')!.click())
+  expect(button('Consultar pedido de download')?.disabled).toBe(false)
+  await act(async () => button('Consultar pedido de download')!.click())
+  expect(container.textContent).toContain('qwen3:8b está pronto')
+  expect(button('Consultar pedido de download')).toBeUndefined()
+  expect(writes).toHaveLength(1)
+})
+
+it('does not let a late start receipt clear recovery belonging to another endpoint', async () => {
+  const receipt = deferred<Response>()
+  const otherEndpoint = 'http://127.0.0.1:11435'
+  const otherIntent = { endpoint: otherEndpoint, model: 'llama3.2', clientRequestId: crypto.randomUUID() }
+  sessionStorage.setItem(`bees.local-pull-pending.v1.${otherEndpoint}`, JSON.stringify(otherIntent))
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn((url: string, options: RequestInit) => {
+    if (options.method === 'POST') return receipt.promise
+    return Promise.resolve(Response.json({ ...status, endpoint: url.includes('11435') ? otherEndpoint : status.endpoint }))
+  }))
+  await render()
+  await act(async () => button('Baixar')!.click())
+  await render(vi.fn(), otherEndpoint)
+  await act(async () => receipt.resolve(Response.json(pull)))
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${otherEndpoint}`)).toBe(JSON.stringify(otherIntent))
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)).not.toBeNull()
+  expect(button('Consultar pedido de download')).toBeTruthy()
+  expect(container.querySelector('.local-model-pull')).toBeNull()
 })

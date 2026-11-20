@@ -176,6 +176,25 @@ booleanos ou números são recusados com `pull_failed`, sem converter a estrutur
 privada em texto nem aceitar um `success` posterior. Campo ausente ou nulo
 mantém a fase desconhecida até chegar um estado válido.
 
+Se a resposta ao iniciar um download se perder ou for incompatível, o painel
+preserva endpoint, modelo e UUID em `sessionStorage` **antes** do POST. Ao voltar
+à tela ou recarregar a mesma aba, não reenvia o pedido. **Consultar pedido de
+download** usa somente `GET /api/v1/local-models/pull-requests/{UUID}` autenticado;
+a consulta devolve o recibo original (inclusive para UUIDs que compartilham um
+download), confere UUID/modelo/destino e retoma o acompanhamento. Não chama o
+Ollama nem cria uma tentativa. Recibos terminais continuam terminais.
+
+Erro, recibo divergente ou ausência conservam a intenção e bloqueiam novos
+downloads e remoções nesse destino. O registro do servidor é em memória:
+reinício pode apagar o recibo; ausência **não comprova** que o POST não chegou
+nem que o daemon parou. Consultas do inventário e cancelamento de acompanhamentos
+conhecidos continuam separados. **Liberar novo pedido** exige confirmação humana
+com esse aviso, remove somente a intenção da aba e não cancela nem inicia um
+download. Uma eventual nova tentativa exige outra ação e confirmação de download.
+Falha/corrupção do armazenamento bloqueia envio; falha ao limpar mantém a
+recuperação. Fechar a aba pode perder a intenção e outras abas não são
+sincronizadas. Isso não é um journal durável nem reconcilia a remoção de modelos.
+
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer
 um desses UUIDs conserva o ID e o resultado original, inclusive após conclusão,

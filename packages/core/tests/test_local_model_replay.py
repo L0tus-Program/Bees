@@ -90,3 +90,41 @@ def test_shared_uuid_conflicts_before_new_dispatch(terminal, changes):
             await manager.close()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+def test_request_lookup_preserves_shared_terminal_receipts_without_dispatch(outcome):
+    async def scenario():
+        calls = []
+
+        def backend(value):
+            calls.append(value)
+            content = (
+                b'{"error":"no space left"}\n' if outcome == "failed" else b'{"status":"success"}\n'
+            )
+            return httpx.Response(200, content=content)
+
+        manager = LocalModelManager(transport=httpx.MockTransport(backend))
+        original, alias = request(), request(model="qwen3:latest")
+        pull = manager.start(original)
+        assert manager.start(alias) is pull
+        assert manager.request(original.client_request_id) is pull
+        assert manager.request(alias.client_request_id) is pull
+        assert calls == []
+        if outcome == "cancelled":
+            await manager.cancel(pull.id)
+        else:
+            await pull.task
+        view = pull.view()
+        for _ in range(2):
+            assert manager.request(original.client_request_id).view() == view
+            assert manager.request(alias.client_request_id).view() == view
+            with pytest.raises(LocalModelError, match="^pull_not_found$"):
+                manager.request(uuid4())
+        assert len(calls) == int(outcome != "cancelled")
+        restarted = LocalModelManager(transport=httpx.MockTransport(backend))
+        with pytest.raises(LocalModelError, match="^pull_not_found$"):
+            restarted.request(original.client_request_id)
+        assert restarted._pulls == restarted._requests == {}
+
+    asyncio.run(scenario())

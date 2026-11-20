@@ -357,6 +357,13 @@ class LocalModelManager:
             raise LocalModelError("pull_not_found")
         return pull
 
+    def request(self, client_request_id: UUID) -> Pull:
+        """Consulta um recibo existente; ausência nunca despacha nova tentativa."""
+        pull = self._requests.get(client_request_id)
+        if pull is None:
+            raise LocalModelError("pull_not_found")
+        return pull
+
     async def cancel(self, pull_id: UUID) -> Pull:
         pull = self.get(pull_id)
         if pull.status == "running" and pull.task is not None:

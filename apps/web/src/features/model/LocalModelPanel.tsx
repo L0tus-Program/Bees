@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { asApiError, isTemporaryReadFailure } from '../../api/client'
 import type { ApiError } from '../../api/client'
-import { cancelLocalPull, deleteLocalModel, formatBytes, getLocalModels, getLocalPull, startLocalPull } from '../../api/localModels'
+import { cancelLocalPull, deleteLocalModel, formatBytes, getLocalModels, getLocalPull, getLocalPullRequest, startLocalPull } from '../../api/localModels'
 import type { LocalModelPull, LocalModelStatus, SuggestedLocalModel } from '../../api/localModels'
 import { ErrorNotice } from '../../components/Feedback'
 import { confirmAction } from '../../components/confirmAction'
+import { clearPullIntent, preservePullIntent, readPullRecovery } from './pullRecovery'
+import type { PullIntent } from './pullRecovery'
 
 type State = { state: 'loading' } | { state: 'ready'; data: LocalModelStatus } | { state: 'error'; error: ApiError }
 type Notice = { kind: 'download' | 'model'; text: string }
@@ -29,6 +31,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const [pausedPull, setPausedPull] = useState<string | null>(null)
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [pending, setPending] = useState(false)
+  const [recovery, setRecovery] = useState(() => readPullRecovery(endpoint))
+  const unresolved = recovery.blocked || recovery.intent !== null
   const reading = useRef<AbortController | null>(null)
   const operation = useRef<AbortController | null>(null)
   const target = endpoint || undefined
@@ -78,8 +82,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     return () => { clearTimeout(timer); controller.abort() }
   }, [pull, retry, load, t, pending, pausedPull])
 
-  function beginOperation() {
-    if (operation.current || status.state !== 'ready') return null
+  function beginOperation(recovering = false) {
+    if (operation.current || (!recovering && status.state !== 'ready')) return null
     const controller = new AbortController(); operation.current = controller
     setPending(true); setFailure(null)
     return controller
@@ -90,7 +94,35 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     if (!controller.signal.aborted) setPending(false)
   }
 
+  function acceptDownload(next: LocalModelPull) {
+    setPull(next); setRetry(0); setPausedPull(null); setFailure(null)
+    if (clearPullIntent(endpoint)) setRecovery({ intent: null, blocked: false })
+    else setRecovery((current) => ({ ...current, blocked: true }))
+    if (next.status === 'completed') { setNotice({ kind: 'download', text: t('completed', { model: next.model }) }); void load() }
+  }
+
+  async function recoverDownload() {
+    const intent = recovery.intent
+    if (!intent) return
+    const controller = beginOperation(true); if (!controller) return
+    try {
+      const next = await getLocalPullRequest(intent.endpoint || undefined, intent.model, intent.clientRequestId, controller.signal)
+      if (!controller.signal.aborted) acceptDownload(next)
+    } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
+    finally { finishOperation(controller) }
+  }
+
+  async function releaseRecovery() {
+    const controller = beginOperation(true); if (!controller) return
+    try {
+      if (!await confirmAction(t('releaseConfirm')) || controller.signal.aborted) return
+      if (clearPullIntent(endpoint)) setRecovery({ intent: null, blocked: false })
+      else setRecovery((current) => ({ ...current, blocked: true }))
+    } finally { finishOperation(controller) }
+  }
+
   async function download(name: string, suggestion?: SuggestedLocalModel) {
+    if (unresolved) return
     const message = suggestion
       ? t('confirmKnown', { model: name, size: size(suggestion.download_bytes), source: suggestion.source, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint, memory: suggestion.min_memory_gb })
       : t('confirmUnknown', { model: name, endpoint: status.state === 'ready' ? status.data.endpoint : endpoint })
@@ -98,8 +130,13 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     try {
       if (!await confirmAction(message) || controller.signal.aborted) return
       setNotice(null)
-      const next = await startLocalPull(target, name, crypto.randomUUID(), controller.signal)
-      if (!controller.signal.aborted) setPull(next)
+      const stored = readPullRecovery(endpoint)
+      if (stored.blocked || stored.intent) { setRecovery(stored); return }
+      const intent: PullIntent = { endpoint, model: name, clientRequestId: crypto.randomUUID() }
+      if (!preservePullIntent(intent)) { setRecovery({ intent: null, blocked: true }); return }
+      setRecovery({ intent, blocked: false })
+      const next = await startLocalPull(target, name, intent.clientRequestId, controller.signal)
+      if (!controller.signal.aborted) acceptDownload(next)
     } catch (error) { if (!controller.signal.aborted) setFailure(asApiError(error)) }
     finally { finishOperation(controller) }
   }
@@ -120,6 +157,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   }
 
   async function remove(name: string) {
+    if (unresolved) return
     const controller = beginOperation(); if (!controller) return
     try {
       if (!await confirmAction(t('removeConfirm', { model: name })) || controller.signal.aborted) return
@@ -146,6 +184,12 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         {failure && <ErrorNotice error={failure} />}
       </div>
       <button type="button" className="text-button" onClick={() => { void load() }} disabled={pending || status.state === 'loading'}>{t('refresh')}</button>
+      {unresolved && <div className="transfer-notice" role="status">
+        <p>{recovery.intent ? t('pendingDownload', { model: recovery.intent.model, endpoint: recovery.intent.endpoint || 'http://127.0.0.1:11434' }) : t('recoveryBlocked')}</p>
+        {recovery.blocked && recovery.intent && <p>{t('recoveryBlocked')}</p>}
+        {recovery.intent && <button type="button" className="button secondary" disabled={pending} onClick={() => { void recoverDownload() }}>{t('checkRequest')}</button>}
+        <button type="button" className="text-button" disabled={pending} onClick={() => { void releaseRecovery() }}>{t('releaseRequest')}</button>
+      </div>}
       {data?.reachable && <>
         <h4>{t('installed')}</h4>
         {!data.models.length && <p className="quiet-note">{t('noneInstalled')}</p>}
@@ -156,7 +200,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
               <span><strong>{item.name}</strong>{item.size_bytes !== null && <small> · {size(item.size_bytes)}</small>}{current && <small> · {t('selected')}</small>}</span>
               <span className="row-actions">
                 <button type="button" className="button secondary" disabled={current || pending} onClick={() => onSelect(item.name)}>{t('use')}</button>
-                <button type="button" className="text-button" disabled={running || pending} onClick={() => { void remove(item.name) }}>{t('remove')}</button>
+                <button type="button" className="text-button" disabled={running || pending || unresolved} onClick={() => { void remove(item.name) }}>{t('remove')}</button>
               </span>
             </li>
           })}
@@ -183,12 +227,12 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
             <span><strong>{item.name}</strong> <code>{item.id}</code><small> · {t('size', { size: size(item.download_bytes) })} · {t('memory', { memory: item.min_memory_gb })}{item.tool_calls ? ` · ${t('tools')}` : ''}</small><small className="block">{t(`note_${item.note}`, { defaultValue: '' })}</small></span>
             {installed.has(canonical(item.id))
               ? <button type="button" className="button secondary" disabled={pending || canonical(model) === canonical(item.id)} onClick={() => onSelect(item.id)}>{t('use')}</button>
-              : <button type="button" className="button secondary" disabled={running || pending} onClick={() => { void download(item.id, item) }}>{t('download')}</button>}
+              : <button type="button" className="button secondary" disabled={running || pending || unresolved} onClick={() => { void download(item.id, item) }}>{t('download')}</button>}
           </li>)}
         </ul>
         <label className="field" htmlFor="local-model-other"><span>{t('other')}</span>
           <span className="inline-field"><input id="local-model-other" value={other} onChange={(event) => setOther(event.target.value.trim())} placeholder={t('otherPlaceholder')} maxLength={200} autoComplete="off" aria-describedby="local-model-other-help" />
-            <button type="button" className="button secondary" disabled={running || pending || !MODEL.test(other) || other.toLowerCase().includes('cloud')} onClick={() => { void download(other) }}>{t('download')}</button></span>
+            <button type="button" className="button secondary" disabled={running || pending || unresolved || !MODEL.test(other) || other.toLowerCase().includes('cloud')} onClick={() => { void download(other) }}>{t('download')}</button></span>
           <small id="local-model-other-help">{t('otherHelp')}</small></label>
       </>}
     </section>
