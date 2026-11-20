@@ -50,7 +50,7 @@ it('asks for confirmation with size and source before downloading, then follows 
   const writes: unknown[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
     if (options.method === 'POST') { writes.push(JSON.parse(options.body as string)); return Response.json(pull, { status: 202 }) }
-    if (url.includes('/pulls/p1')) return Response.json({ ...pull, status: 'completed', phase: 'success', completed_bytes: 100 })
+    if (url.includes('/pulls/p1')) return Response.json({ ...pull, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success', completed_bytes: 100 })
     return Response.json(status)
   }))
   const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true)
@@ -96,7 +96,7 @@ it('recovers when Bees restarts during a download instead of staying stuck', asy
 it('keeps following the download after a transient read failure', async () => {
   let reads = 0
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    if (url.includes('/pulls/p1')) { reads += 1; return reads === 1 ? Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 }) : Response.json({ ...pull, status: 'completed', phase: 'success', completed_bytes: 100 }) }
+    if (url.includes('/pulls/p1')) { reads += 1; return reads === 1 ? Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 }) : Response.json({ ...pull, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success', completed_bytes: 100 }) }
     return Response.json({ ...status, pulls: [pull] })
   }))
   await render()
@@ -139,7 +139,7 @@ it('drops old progress and ignores an in-flight poll when the endpoint changes',
   await render(vi.fn(), otherEndpoint)
   expect(button('Cancelar download')).toBeUndefined()
   expect(container.querySelector('progress')).toBeNull()
-  await act(async () => poll.resolve(Response.json({ ...pull, status: 'completed', phase: 'success' })))
+  await act(async () => poll.resolve(Response.json({ ...pull, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success' })))
   expect(container.textContent).not.toContain('qwen3:8b está pronto')
   expect(container.textContent).toContain('modelo-outro:latest')
 })
@@ -193,7 +193,7 @@ it('ignores an old download receipt after changing endpoint', async () => {
 it('cancels the current download explicitly and stops displaying progress', async () => {
   const writes: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
-    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled' }) }
+    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled', finished_at: '2026-11-03T00:01:00Z' }) }
     return Response.json({ ...status, pulls: [pull] })
   }))
   await render()
@@ -227,7 +227,7 @@ it.each(['completed', 'failed'] as const)('does not announce cancellation if the
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
     if (options.method === 'POST') {
       writes.push(url)
-      return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
+      return Response.json({ ...pull, status: outcome, finished_at: '2026-11-03T00:01:00Z', phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
     }
     reads += 1
     return Response.json({ ...status, pulls: [pull] })
@@ -246,7 +246,7 @@ const unreachableWithPull = { ...status, reachable: false, version: null, models
 it('shows and cancels a tracked download even when Ollama is unreachable', async () => {
   const writes: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
-    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled' }) }
+    if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: 'cancelled', finished_at: '2026-11-03T00:01:00Z' }) }
     return Response.json(unreachableWithPull)
   }))
   await render()
@@ -279,7 +279,7 @@ it('keeps progress while refreshing and enables cancellation after a valid unava
 
 it.each(['completed', 'failed'] as const)('keeps the %s outcome visible after losing Ollama availability', async (outcome) => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => url.includes('/pulls/p1')
-    ? Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
+    ? Response.json({ ...pull, status: outcome, finished_at: '2026-11-03T00:01:00Z', phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null })
     : Response.json(unreachableWithPull)))
   await render()
   await vi.waitFor(() => expect(container.textContent).toContain(outcome === 'completed' ? 'qwen3:8b está pronto' : 'O download de qwen3:8b falhou'), { timeout: 2500 })
@@ -291,7 +291,7 @@ it.each(['completed', 'failed'] as const)('keeps the %s outcome visible after lo
 
 it.each(['cancelled', 'completed', 'failed'] as const)('discovers another active download after %s without repeating a mutation', async (outcome) => {
   const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
-  const terminal = { ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null }
+  const terminal = { ...pull, status: outcome, finished_at: '2026-11-03T00:01:00Z', phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null }
   let externalStarted = false
   const writes: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
@@ -329,7 +329,7 @@ it('keeps tracking its current running download when another one appears first i
 })
 
 it('preserves removal confirmation when its inventory refresh discovers another download', async () => {
-  const terminal = { ...pull, status: 'cancelled' }
+  const terminal = { ...pull, status: 'cancelled', finished_at: '2026-11-03T00:01:00Z' }
   const next = { ...pull, id: 'p2', model: 'qwen3:4b', completed_bytes: 70 }
   let removed = false
   const writes: string[] = []
@@ -424,7 +424,7 @@ it.each(['running', 'cancelled', 'completed', 'failed'] as const)('resets pollin
     vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
       if (options.method === 'POST') {
         writes.push(url); recovered = true
-        return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null })
+        return Response.json({ ...pull, status: outcome, finished_at: outcome === 'running' ? null : '2026-11-03T00:01:00Z', phase: outcome === 'completed' ? 'success' : pull.phase, error: outcome === 'failed' ? 'pull_failed' : null })
       }
       if (url.includes('/pulls/')) {
         if (recovered) { resumedPolls += 1; return Response.json(outcome === 'running' ? pull : next) }
@@ -480,7 +480,7 @@ it.each([403, 404, 200])('pauses tracking after permanent failure %s and resumes
       if (options.method === 'POST') writes.push(url)
       if (url.endsWith('/pulls/p1')) {
         polls += 1
-        return recovered ? Response.json({ ...pull, status: 'completed', phase: 'success', completed_bytes: 100 })
+        return recovered ? Response.json({ ...pull, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success', completed_bytes: 100 })
           : Response.json(httpStatus === 200 ? { ...pull, completed_bytes: -1 } : { error: { code: 'access_denied' } }, { status: httpStatus })
       }
       return Response.json({ ...status, pulls: [pull] })
@@ -535,7 +535,7 @@ it.each(['cancelled', 'completed', 'failed'] as const)('allows human cancellatio
   try {
     const writes: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
-      if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: outcome, phase: outcome === 'completed' ? 'success' : 'downloading' }) }
+      if (options.method === 'POST') { writes.push(url); return Response.json({ ...pull, status: outcome, finished_at: '2026-11-03T00:01:00Z', phase: outcome === 'completed' ? 'success' : 'downloading', error: outcome === 'failed' ? 'pull_failed' : null }) }
       if (url.endsWith('/pulls/p1')) return Response.json({ error: { code: 'access_denied' } }, { status: 403 })
       return Response.json({ ...status, pulls: [pull] })
     }))
@@ -600,7 +600,7 @@ it('discards a resumed read after switching endpoint', async () => {
     await render(vi.fn(), otherEndpoint)
     expect(signals).toHaveLength(1)
     expect(signals[0].aborted).toBe(true)
-    await act(async () => resumed.resolve(Response.json({ ...pull, status: 'completed', phase: 'success' })))
+    await act(async () => resumed.resolve(Response.json({ ...pull, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success' })))
     expect(container.textContent).toContain('modelo-outro:latest')
     expect(container.textContent).not.toContain('qwen3:8b está pronto')
     expect(button('Retomar acompanhamento')).toBeUndefined()
@@ -683,7 +683,7 @@ it.each([
     vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
       if (options.method === 'POST') {
         writes.push(url)
-        return Response.json({ ...pull, ...patch, status: 'completed', phase: 'success', completed_bytes: 100 })
+        return Response.json({ ...pull, ...patch, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success', completed_bytes: 100 })
       }
       if (url.endsWith('/pulls/p1')) { polls += 1; return Response.json({ ...pull, completed_bytes: 70 }) }
       return Response.json({ ...status, pulls: [pull] })
@@ -699,5 +699,35 @@ it.each([
     expect(container.querySelector('progress')?.value).toBe(70)
     expect(container.querySelector('[role="alert"]')).toBeNull()
     expect(writes).toEqual(['/api/v1/local-models/pulls/p1/cancel'])
+  } finally { vi.useRealTimers() }
+})
+
+it.each(['read', 'cancel'] as const)('preserves confirmed progress after a contradictory %s receipt', async (operation) => {
+  vi.useFakeTimers()
+  try {
+    let recovered = false
+    const writes: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (!url.includes('/pulls/')) return Response.json({ ...status, pulls: [pull] })
+      if (options.method === 'POST') writes.push(url)
+      return Response.json(recovered ? { ...pull, completed_bytes: 70 }
+        : { ...pull, status: 'completed', phase: 'downloading', finished_at: '2026-11-03T00:01:00Z' })
+    }))
+    await render()
+    if (operation === 'cancel') await act(async () => button('Cancelar download')!.click())
+    else await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('progress')?.getAttribute('value')).toBe('40')
+    expect(container.textContent).not.toContain('qwen3:8b está pronto')
+    expect(container.querySelector('.local-model-pull')?.textContent).not.toContain('Concluído')
+    expect(container.querySelector('[role="alert"]')).not.toBeNull()
+    if (operation === 'read') {
+      await act(async () => vi.advanceTimersByTimeAsync(30000))
+      expect(button('Retomar acompanhamento')).toBeTruthy()
+      recovered = true
+      await act(async () => button('Retomar acompanhamento')!.click())
+    } else recovered = true
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(container.querySelector('progress')?.getAttribute('value')).toBe('70')
+    expect(writes).toEqual(operation === 'cancel' ? ['/api/v1/local-models/pulls/p1/cancel'] : [])
   } finally { vi.useRealTimers() }
 })

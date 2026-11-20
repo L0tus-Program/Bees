@@ -91,7 +91,7 @@ it.each(operations)('%s rejects a different model or endpoint even with the conf
     { endpoint: 'http://127.0.0.1:11435' }, { endpoint: 'https://127.0.0.1:11434' },
     { endpoint: `${endpoint}/other` }, { endpoint: `${endpoint}?other=1` },
   ]) {
-    const fetcher = vi.fn(async () => Response.json({ ...pull, ...patch, status: 'completed', phase: 'success', completed_bytes: 100 }))
+    const fetcher = vi.fn(async () => Response.json({ ...pull, ...patch, status: 'completed', finished_at: '2026-11-03T00:01:00Z', phase: 'success', completed_bytes: 100 }))
     vi.stubGlobal('fetch', fetcher)
     await expect(operation(pull)).rejects.toMatchObject({ code: 'invalid_response' })
     expect(fetcher).toHaveBeenCalledTimes(1)
@@ -131,4 +131,49 @@ it.each(operations)('%s preserves namespaces and URL normalization', async (oper
   const value = { ...pull, model: 'library/qwen3:latest', endpoint: 'http://localhost:80' }
   response(value)
   await expect(operation({ id: pull.id, model: 'library/qwen3', endpoint: 'http://LOCALHOST/' })).resolves.toEqual(value)
+})
+
+const finished = '2026-11-03T00:01:00Z'
+const incoherent = [
+  { status: 'completed', phase: 'downloading', finished_at: finished },
+  { status: 'completed', phase: 'success', finished_at: null },
+  { status: 'completed', phase: 'success', finished_at: finished, error: 'pull_failed' },
+  { status: 'running', finished_at: finished },
+  { status: 'running', error: 'pull_failed' },
+  { status: 'cancelled', finished_at: null },
+  { status: 'cancelled', finished_at: finished, error: 'pull_failed' },
+  { status: 'failed', finished_at: finished, error: null },
+  { status: 'failed', finished_at: null, error: 'pull_failed' },
+]
+it.each((['catalog', 'start', 'read', 'cancel'] as const).flatMap((operation) =>
+  incoherent.map((patch) => ({ operation, patch })),
+))('$operation rejects contradictory lifecycle $patch without follow-up', async ({ operation, patch }) => {
+  const value = { ...pull, ...patch }
+  response(operation === 'catalog' ? { ...status, pulls: [value] } : value)
+  const result = operation === 'catalog' ? getLocalModels(endpoint)
+    : operation === 'start' ? startLocalPull(endpoint, 'qwen3', 'request-1')
+      : operation === 'read' ? getLocalPull(pull) : cancelLocalPull(pull)
+  await expect(result).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+it('accepts real backend lifecycle states without equating phase or byte count to completion', async () => {
+  for (const patch of [
+    { status: 'running', phase: 'starting', total_bytes: 0, completed_bytes: 0 },
+    { status: 'running', phase: 'success' },
+    { status: 'completed', phase: 'success', finished_at: finished },
+    { status: 'completed', phase: 'success', finished_at: finished, total_bytes: 0, completed_bytes: 0 },
+    { status: 'cancelled', phase: 'starting', finished_at: finished },
+    { status: 'cancelled', phase: 'success', finished_at: finished },
+    { status: 'failed', phase: 'success', finished_at: finished, error: 'pull_failed' },
+    { status: 'failed', phase: 'starting', finished_at: finished, error: 'backend_unavailable' },
+  ]) {
+    const value = { ...pull, ...patch }
+    response(value)
+    await expect(getLocalPull(pull)).resolves.toEqual(value)
+    await expect(cancelLocalPull(pull)).resolves.toEqual(value)
+    await expect(startLocalPull(endpoint, 'qwen3', 'request-1')).resolves.toEqual(value)
+    response({ ...status, pulls: [value] })
+    await expect(getLocalModels(endpoint)).resolves.toMatchObject({ pulls: [value] })
+  }
 })
