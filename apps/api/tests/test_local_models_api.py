@@ -93,6 +93,55 @@ def test_status_lists_installed_and_suggestions_and_requires_session(state):
     assert client.get("/api/v1/local-models").status_code == 401
 
 
+@pytest.mark.parametrize("operation", ["pulls", "delete"])
+def test_true_local_model_confirmation_still_requires_session_and_csrf(state, operation):
+    client, backend = state
+    request = {"model": "qwen3", "confirm_delete": True}
+    if operation == "pulls":
+        request = {"model": "qwen3", "client_request_id": str(uuid4()), "confirm_download": True}
+    path = f"/api/v1/local-models/{operation}"
+    assert client.post(path, json=request, headers={"Origin": ORIGIN}).status_code == 403
+    assert client.post("/api/v1/auth/logout", json={}, headers=headers(client)).status_code == 204
+    assert client.post(path, json=request, headers={"Origin": ORIGIN}).status_code == 401
+    assert backend.pulls == backend.deleted == []
+
+
+@pytest.mark.parametrize("operation", ["pulls", "delete"])
+@pytest.mark.parametrize("confirmation", [1, 1.0, False, 0, None, "true", "1", [], {}])
+def test_local_model_confirmation_refuses_coercion_before_effect(state, operation, confirmation):
+    client, backend = state
+    backend.pull_response = lambda _: httpx.Response(200, content=lines({"status": "success"}))
+    request = {"model": "qwen3"}
+    field = "confirm_delete"
+    if operation == "pulls":
+        request["client_request_id"] = str(uuid4())
+        field = "confirm_download"
+    auth = headers(client)
+    path = f"/api/v1/local-models/{operation}"
+    for _ in range(2):
+        refused = client.post(path, json=request | {field: confirmation}, headers=auth)
+        assert refused.status_code == 422
+        assert backend.pulls == backend.deleted == []
+        assert client.get("/api/v1/local-models").json()["pulls"] == []
+
+    # Rejeição não consome UUID; confirmação humana posterior autoriza um efeito.
+    accepted = client.post(path, json=request | {field: True}, headers=auth)
+    if operation == "pulls":
+        assert accepted.status_code == 202
+        terminal = wait(client, accepted.json()["id"])
+        assert terminal["status"] == "completed"
+        assert client.post(path, json=request | {field: True}, headers=auth).json() == terminal
+        # Nem replay de recibo existente dispensa confirmação de tipo correto.
+        assert (
+            client.post(path, json=request | {field: confirmation}, headers=auth).status_code == 422
+        )
+        assert client.get(f"{path}/{terminal['id']}").json() == terminal
+        assert backend.pulls == ["qwen3:latest"] and backend.deleted == []
+    else:
+        assert accepted.status_code == 200
+        assert backend.deleted == ["qwen3:latest"] and backend.pulls == []
+
+
 def test_invalid_catalog_is_not_reported_as_empty_available_backend(state):
     client, backend = state
     backend.models = [{"name": "qwen3:1.7b"}, {"size": 100}]

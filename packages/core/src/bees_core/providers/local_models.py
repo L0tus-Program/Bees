@@ -118,6 +118,14 @@ class PullInput(BaseModel):
     # A decisão humana é parte do contrato: sem confirmação nada é baixado.
     confirm_download: Literal[True]
 
+    @field_validator("confirm_download", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value: object) -> object:
+        # Literal[True] sozinho também aceita 1/1.0 por igualdade em Python.
+        if value is not True:
+            raise ValueError("Confirmação explícita do download necessária.")
+        return value
+
     @field_validator("model")
     @classmethod
     def known_shape(cls, value: str) -> str:
