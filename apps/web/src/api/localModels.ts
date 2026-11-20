@@ -57,6 +57,13 @@ export async function startLocalPull(endpoint: string | undefined, model: string
   return value
 }
 
+export async function getLocalPullRequest(endpoint: string | undefined, model: string, clientRequestId: string, signal?: AbortSignal): Promise<LocalModelPull> {
+  const value = await request(`${base}/pull-requests/${encodeURIComponent(clientRequestId)}`, { authenticated: true, signal })
+  if (!record(value) || value.client_request_id !== clientRequestId || !isPull(value.pull)
+    || canonicalModel(value.pull.model) !== canonicalModel(model) || !sameEndpoint(value.pull.endpoint, endpoint)) throw new ApiError('invalid_response')
+  return value.pull
+}
+
 function matchesPull(value: unknown, expected: PullIdentity): value is LocalModelPull {
   return isPull(value) && value.id === expected.id
     && canonicalModel(value.model) === canonicalModel(expected.model)

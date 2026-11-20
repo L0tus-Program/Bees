@@ -43,6 +43,14 @@ async def start_pull(body: PullInput, request: Request, session: _SESSION) -> di
     return _manager(request).start(body).view()
 
 
+@router.get("/pull-requests/{client_request_id}")
+def pull_request(client_request_id: UUID, request: Request, session: _SESSION) -> dict:
+    return {
+        "client_request_id": str(client_request_id),
+        "pull": _manager(request).request(client_request_id).view(),
+    }
+
+
 @router.get("/pulls/{pull_id}")
 def pull(pull_id: UUID, request: Request, session: _SESSION) -> dict:
     return _manager(request).get(pull_id).view()

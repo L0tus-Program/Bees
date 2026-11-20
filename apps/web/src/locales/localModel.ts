@@ -1,4 +1,8 @@
 const pt = {
+  pendingDownload: 'A confirmação do pedido de {{model}} em {{endpoint}} está pendente. O download pode ter começado. Consulte o pedido preservado; isso não inicia nem repete um download. Ausência do recibo pode significar que o Bees reiniciou, não que nada aconteceu.',
+  recoveryBlocked: 'Não foi possível ler ou guardar o pedido de download nesta aba. Novos downloads e remoções ficam bloqueados até você conferir o armazenamento e liberar o pedido.',
+  checkRequest: 'Consultar pedido de download', releaseRequest: 'Liberar novo pedido',
+  releaseConfirm: 'Liberar o pedido preservado não cancela nem comprova o término do download anterior. Confira o inventário e os acompanhamentos antes de iniciar outro download ou remover um modelo. Liberar mesmo assim?',
   title: 'Modelo local (Ollama)',
   help: 'O Bees não baixa modelos sozinho. Você escolhe o modelo, confirma tamanho e origem e acompanha o download. Os arquivos ficam no armazenamento do Ollama, não no Bees.',
   checking: 'Verificando o Ollama…',
@@ -29,6 +33,10 @@ const pt = {
 }
 type Translations = typeof pt
 const en: Translations = {
+  pendingDownload: 'Confirmation of the request for {{model}} at {{endpoint}} is pending. The download may have started. Check the preserved request; this does not start or repeat a download. A missing receipt may mean Bees restarted, not that nothing happened.',
+  recoveryBlocked: 'The download request could not be read or stored in this tab. New downloads and removals are blocked until you check storage and release the request.',
+  checkRequest: 'Check download request', releaseRequest: 'Allow a new request',
+  releaseConfirm: 'Releasing the preserved request does not cancel or confirm completion of the previous download. Check inventory and tracked downloads before starting another download or removing a model. Release anyway?',
   title: 'Local model (Ollama)',
   help: 'Bees never downloads models on its own. You choose the model, confirm size and source and follow the download. Files live in Ollama’s storage, not in Bees.',
   checking: 'Checking Ollama…',
@@ -58,6 +66,10 @@ const en: Translations = {
   restartNote: 'If Bees restarts during the download, repeat the action: Ollama resumes partial files.',
 }
 const es: Translations = {
+  pendingDownload: 'La confirmación del pedido de {{model}} en {{endpoint}} está pendiente. La descarga puede haber comenzado. Consulta el pedido conservado; esto no inicia ni repite una descarga. Un recibo ausente puede significar que Bees se reinició, no que no ocurrió nada.',
+  recoveryBlocked: 'No se pudo leer o guardar el pedido de descarga en esta pestaña. Nuevas descargas y eliminaciones quedan bloqueadas hasta revisar el almacenamiento y liberar el pedido.',
+  checkRequest: 'Consultar pedido de descarga', releaseRequest: 'Permitir un nuevo pedido',
+  releaseConfirm: 'Liberar el pedido conservado no cancela ni confirma el fin de la descarga anterior. Revisa el inventario y los seguimientos antes de iniciar otra descarga o eliminar un modelo. ¿Liberar de todos modos?',
   title: 'Modelo local (Ollama)',
   help: 'Bees no descarga modelos por sí solo. Eliges el modelo, confirmas tamaño y origen y sigues la descarga. Los archivos quedan en el almacenamiento de Ollama, no en Bees.',
   checking: 'Comprobando Ollama…',

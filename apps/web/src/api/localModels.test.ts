@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { setCsrfToken } from './client'
-import { cancelLocalPull, deleteLocalModel, getLocalModels, getLocalPull, startLocalPull } from './localModels'
+import { cancelLocalPull, deleteLocalModel, getLocalModels, getLocalPull, getLocalPullRequest, startLocalPull } from './localModels'
 
 const endpoint = 'http://127.0.0.1:11434'
 const pull = { id: 'p1', model: 'qwen3:latest', endpoint, status: 'running', phase: 'downloading', total_bytes: 100, completed_bytes: 40, error: null, started_at: '2026-11-03T00:00:00Z', finished_at: null }
@@ -176,4 +176,23 @@ it('accepts real backend lifecycle states without equating phase or byte count t
     response({ ...status, pulls: [value] })
     await expect(getLocalModels(endpoint)).resolves.toMatchObject({ pulls: [value] })
   }
+})
+
+it('looks up a request with GET, preserving canonical endpoint and model aliases', async () => {
+  const fetcher = vi.fn(async () => Response.json({ client_request_id: 'request-1', pull }))
+  vi.stubGlobal('fetch', fetcher)
+  await expect(getLocalPullRequest(`${endpoint}/`, 'qwen3', 'request-1')).resolves.toEqual(pull)
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher.mock.calls[0]).toMatchObject(['/api/v1/local-models/pull-requests/request-1', { method: 'GET' }])
+})
+
+it.each([
+  {}, { client_request_id: 'foreign', pull }, { client_request_id: 'request-1', pull: null },
+  { client_request_id: 'request-1', pull: { ...pull, model: 'foreign' } },
+  { client_request_id: 'request-1', pull: { ...pull, endpoint: `${endpoint}/foreign` } },
+  { client_request_id: 'request-1', pull: { ...pull, status: 'completed' } },
+])('rejects incompatible request lookup %j without another request', async (value) => {
+  const fetcher = vi.fn(async () => Response.json(value)); vi.stubGlobal('fetch', fetcher)
+  await expect(getLocalPullRequest(endpoint, 'qwen3', 'request-1')).rejects.toMatchObject({ code: 'invalid_response' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
