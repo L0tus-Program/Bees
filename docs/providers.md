@@ -99,8 +99,11 @@ um snapshot atrasado do mesmo ID não transforma resultado terminal em execuçã
 Essa atualização apenas consulta o estado, sem repetir download ou cancelamento.
 
 Download e remoção só aceitam respostas HTTP 2xx como sucesso; redirecionamentos
-não são seguidos nem confirmam efeito. Contadores de progresso presentes precisam
-ser inteiros não booleanos e não negativos. Ausência de `completed` equivale a
+não são seguidos nem confirmam efeito. Na remoção, o Bees consulta somente o
+status HTTP e fecha a resposta sem ler o corpo, inclusive nas recusas. Não aguarda
+um corpo excessivo ou interminável nem o usa para classificar o resultado.
+Contadores de progresso presentes precisam ser inteiros não booleanos e não
+negativos. Ausência de `completed` equivale a
 zero; a projeção limita o concluído ao total da camada. Contador inválido encerra
 o acompanhamento com `pull_failed`, preservando replay sem novo despacho.
 

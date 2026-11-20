@@ -374,15 +374,19 @@ class LocalModelManager:
         # Reservar antes do primeiro await também bloqueia outras sessões da API.
         self._deleting.add(target)
         try:
-            async with self._client(endpoint) as client:
-                response = await client.request("DELETE", "/api/delete", json={"model": model})
+            async with (
+                self._client(endpoint) as client,
+                client.stream("DELETE", "/api/delete", json={"model": model}) as response,
+            ):
+                # Só o status confirma a remoção; não acumular nem aguardar o corpo.
+                status = response.status_code
         except httpx.HTTPError:
             raise LocalModelError("backend_unavailable") from None
         finally:
             self._deleting.remove(target)
-        if response.status_code == 404:
+        if status == 404:
             raise LocalModelError("model_not_found")
-        if not response.is_success:
+        if not 200 <= status < 300:
             raise LocalModelError("pull_failed")
 
     async def close(self) -> None:
