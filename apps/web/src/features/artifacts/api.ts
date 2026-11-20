@@ -65,7 +65,8 @@ export interface ArtifactPreview { artifact: ArtifactRecord; text: string; trunc
 export async function previewArtifact(agentId: string, conversationId: string, expected: ArtifactRecord, signal?: AbortSignal): Promise<ArtifactPreview> {
   checkedArtifact(expected, agentId, { conversationId })
   if (expected.status !== 'ready') throw new ApiError('invalid_request')
-  const value = await request(`${conversationPath(agentId, conversationId)}/${expected.id}/preview?limit=65536`, { authenticated: true, signal })
+  // JSON may escape each text byte as six ASCII bytes; reserve room for metadata.
+  const value = await request(`${conversationPath(agentId, conversationId)}/${expected.id}/preview?limit=65536`, { authenticated: true, signal, maxResponseBytes: 512 * 1024 })
   if (!record(value) || Object.keys(value).length !== 4 || typeof value.text !== 'string' || typeof value.truncated !== 'boolean' || value.total_bytes !== expected.size_bytes) throw new ApiError('invalid_response')
   const artifact = checkedArtifact(value.artifact, agentId, { conversationId })
   if (keys.some((key) => artifact[key as keyof ArtifactRecord] !== expected[key as keyof ArtifactRecord])) throw new ApiError('invalid_response')
