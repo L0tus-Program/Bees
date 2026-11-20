@@ -193,7 +193,21 @@ com esse aviso, remove somente a intenção da aba e não cancela nem inicia um
 download. Uma eventual nova tentativa exige outra ação e confirmação de download.
 Falha/corrupção do armazenamento bloqueia envio; falha ao limpar mantém a
 recuperação. Fechar a aba pode perder a intenção e outras abas não são
-sincronizadas. Isso não é um journal durável nem reconcilia a remoção de modelos.
+sincronizadas. Isso não é um journal durável.
+
+A remoção também guarda endpoint/modelo em `sessionStorage` **antes** do POST.
+Resposta perdida, inválida ou de erro conserva a pendência; voltar à tela ou
+recarregar a mesma aba não repete a exclusão. Novos downloads e remoções nesse
+destino ficam bloqueados. **Verificar de novo** consulta o catálogo sem mutação:
+presença ou ausência do modelo não comprova término, pois a remoção pode terminar
+depois e afetar um novo download. Não há recibo de exclusão consultável no servidor.
+**Liberar após remoção pendente** exige confirmação com esse aviso e remove somente
+a intenção da aba, sem cancelar/repetir exclusão ou iniciar download. Resposta
+válida da remoção limpa a intenção; falha ao limpar conserva o bloqueio. Falha de
+leitura/escrita ou registro corrompido impede novas mutações até liberação humana.
+A recuperação de download permanece independente: liberar uma remoção não apaga
+um pedido de download pendente. Mesmos limites de vida da aba e ausência de
+sincronização entre abas; não garante exclusividade global nem término no daemon.
 
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer

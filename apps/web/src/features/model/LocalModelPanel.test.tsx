@@ -914,3 +914,185 @@ it('does not let a late start receipt clear recovery belonging to another endpoi
   expect(button('Consultar pedido de download')).toBeTruthy()
   expect(container.querySelector('.local-model-pull')).toBeNull()
 })
+
+it.each(['pt-BR', 'en', 'es'] as const)('preserves uncertain removal after remount and requires explicit release in %s', async (language) => {
+  i18n.addResourceBundle(language, 'localModel', localModelResources[language]); await i18n.changeLanguage(language)
+  const messages = localModelResources[language]
+  const writes: string[] = []
+  let absent = false
+  const confirm = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false).mockReturnValueOnce(true)
+  vi.stubGlobal('confirm', confirm)
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); throw new Error('lost removal response') }
+    return Response.json({ ...status, models: absent ? [] : status.models })
+  }))
+  await render()
+  await act(async () => button(messages.remove)!.click())
+  expect(button(messages.download)?.disabled).toBe(true)
+  await act(async () => root.unmount()); root = createRoot(container)
+  await render()
+  expect(button(messages.download)?.disabled).toBe(true)
+  expect(button(messages.remove)?.disabled).toBe(true)
+  expect(container.textContent).not.toContain(messages.removed)
+  absent = true
+  await act(async () => button(messages.refresh)!.click())
+  expect(button(messages.download)?.disabled).toBe(true)
+  // Liberation is a distinct human action, even when the model is absent.
+  const release = [...container.querySelectorAll('button')].find((item) => item.textContent === messages.releaseRemoval)!
+  await act(async () => release.click())
+  expect(button(messages.download)?.disabled).toBe(true)
+  await act(async () => release.click())
+  expect(button(messages.download)?.disabled).toBe(false)
+  expect(confirm.mock.calls[1][0]).toBe(messages.releaseRemovalConfirm)
+  expect(writes).toEqual(['/api/v1/local-models/delete'])
+})
+
+it.each(['invalid', 'rejected'] as const)('retains removal after %s response and a failed inventory read', async (failure) => {
+  let catalogFails = false
+  const writes: string[] = []
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      writes.push(url)
+      expect(JSON.parse(sessionStorage.getItem(`bees.local-removal-pending.v1.${status.endpoint}`)!)).toEqual({ endpoint: status.endpoint, model: 'qwen3:1.7b' })
+      return failure === 'invalid' ? Response.json({ deleted: 'another:latest' }) : Response.json({ error: { code: 'backend_unavailable', message: 'x' } }, { status: 503 })
+    }
+    if (catalogFails) throw new Error('catalog failed')
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Remover')!.click())
+  expect(button('Baixar')?.disabled).toBe(true)
+  catalogFails = true
+  await act(async () => button('Verificar de novo')!.click())
+  expect(button('Liberar após remoção pendente')?.disabled).toBe(false)
+  expect(container.textContent).not.toContain('Modelo removido.')
+  expect(writes).toEqual(['/api/v1/local-models/delete'])
+})
+
+it('clears a valid removal receipt and permits a separately confirmed download', async () => {
+  const writes: string[] = []
+  const confirm = vi.fn(() => true); vi.stubGlobal('confirm', confirm)
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') {
+      writes.push(url)
+      return Response.json(url.endsWith('/delete') ? { deleted: 'qwen3:1.7b' } : pull)
+    }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Remover')!.click())
+  expect(sessionStorage.getItem(`bees.local-removal-pending.v1.${status.endpoint}`)).toBeNull()
+  expect(button('Liberar após remoção pendente')).toBeUndefined()
+  await act(async () => button('Baixar')!.click())
+  expect(writes).toEqual(['/api/v1/local-models/delete', '/api/v1/local-models/pulls'])
+  expect(confirm).toHaveBeenCalledTimes(2)
+})
+
+it.each(['corrupt', 'foreign', 'read', 'write'] as const)('blocks removals and downloads when removal storage has %s failure', async (failure) => {
+  const key = `bees.local-removal-pending.v1.${status.endpoint}`
+  if (failure === 'corrupt') sessionStorage.setItem(key, '{}')
+  if (failure === 'foreign') sessionStorage.setItem(key, JSON.stringify({ endpoint: 'http://127.0.0.1:11435', model: 'qwen3' }))
+  if (failure === 'read') vi.stubGlobal('sessionStorage', { getItem: () => { throw new Error('private storage diagnostic') } })
+  if (failure === 'write') vi.stubGlobal('sessionStorage', { getItem: sessionStorage.getItem.bind(sessionStorage), setItem: () => { throw new Error('Quota') } })
+  const fetcher = vi.fn(async () => Response.json(status)); vi.stubGlobal('fetch', fetcher); vi.stubGlobal('confirm', vi.fn(() => true))
+  await render()
+  if (failure === 'write') await act(async () => button('Remover')!.click())
+  expect(button('Remover')?.disabled).toBe(true)
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(container.textContent).toContain('Não foi possível ler ou guardar o pedido de remoção')
+  expect(container.textContent).not.toContain('private storage diagnostic')
+  expect(fetcher.mock.calls).toHaveLength(1)
+})
+
+it('keeps a confirmed removal blocked when clearing storage fails, including explicit release', async () => {
+  const key = `bees.local-removal-pending.v1.${status.endpoint}`
+  const writes: string[] = []
+  vi.stubGlobal('sessionStorage', { getItem: sessionStorage.getItem.bind(sessionStorage), setItem: sessionStorage.setItem.bind(sessionStorage), removeItem: () => { throw new Error('blocked') } })
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+    if (options.method === 'POST') { writes.push(url); return Response.json({ deleted: 'qwen3:1.7b' }) }
+    return Response.json(status)
+  }))
+  await render()
+  await act(async () => button('Remover')!.click())
+  expect(container.textContent).toContain('Modelo removido.')
+  expect(button('Baixar')?.disabled).toBe(true)
+  await act(async () => button('Liberar após remoção pendente')!.click())
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(sessionStorage.getItem(key)).not.toBeNull()
+  expect(writes).toEqual(['/api/v1/local-models/delete'])
+})
+
+it('does not persist or send a removal when confirmation is declined', async () => {
+  vi.stubGlobal('confirm', vi.fn(() => false))
+  const fetcher = vi.fn(async () => Response.json(status)); vi.stubGlobal('fetch', fetcher)
+  await render()
+  await act(async () => button('Remover')!.click())
+  expect(sessionStorage.getItem(`bees.local-removal-pending.v1.${status.endpoint}`)).toBeNull()
+  expect(fetcher.mock.calls).toHaveLength(1)
+  expect(button('Baixar')?.disabled).toBe(false)
+})
+
+it('preserves uncertain removal on exit and ignores its late receipt at a different endpoint', async () => {
+  const receipt = deferred<Response>()
+  const otherEndpoint = 'http://127.0.0.1:11435'
+  const otherIntent = { endpoint: otherEndpoint, model: 'llama3.2' }
+  sessionStorage.setItem(`bees.local-removal-pending.v1.${otherEndpoint}`, JSON.stringify(otherIntent))
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn((url: string, options: RequestInit) => {
+    if (options.method === 'POST') return receipt.promise
+    return Promise.resolve(Response.json({ ...status, endpoint: url.includes('11435') ? otherEndpoint : status.endpoint }))
+  }))
+  await render()
+  await act(async () => button('Remover')!.click())
+  await render(vi.fn(), otherEndpoint)
+  await act(async () => receipt.resolve(Response.json({ deleted: 'qwen3:1.7b' })))
+  expect(sessionStorage.getItem(`bees.local-removal-pending.v1.${otherEndpoint}`)).toBe(JSON.stringify(otherIntent))
+  expect(sessionStorage.getItem(`bees.local-removal-pending.v1.${status.endpoint}`)).not.toBeNull()
+  expect(container.textContent).not.toContain('Modelo removido.')
+  await render()
+  expect(button('Baixar')?.disabled).toBe(true)
+})
+
+it.each(['Remover', 'Baixar'])('rechecks stored removal after awaiting confirmation of %s', async (action) => {
+  const decision = deferred<boolean>()
+  registerConfirmHost((request) => { void decision.promise.then(request.resolve) })
+  const fetcher = vi.fn(async () => Response.json(status)); vi.stubGlobal('fetch', fetcher)
+  await render()
+  await act(async () => button(action)!.click())
+  sessionStorage.setItem(`bees.local-removal-pending.v1.${status.endpoint}`, JSON.stringify({ endpoint: status.endpoint, model: 'other:latest' }))
+  await act(async () => decision.resolve(true))
+  expect(button('Liberar após remoção pendente')?.disabled).toBe(false)
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(button('Remover')?.disabled).toBe(true)
+  expect(fetcher.mock.calls).toHaveLength(1)
+})
+
+it('keeps download recovery independent when a pending removal is released', async () => {
+  const endpoint = status.endpoint
+  const download = { endpoint, model: pull.model, clientRequestId: crypto.randomUUID() }
+  sessionStorage.setItem(`bees.local-pull-pending.v1.${endpoint}`, JSON.stringify(download))
+  sessionStorage.setItem(`bees.local-removal-pending.v1.${endpoint}`, JSON.stringify({ endpoint, model: 'qwen3:1.7b' }))
+  vi.stubGlobal('confirm', vi.fn(() => true)); vi.stubGlobal('fetch', vi.fn(async () => Response.json(status)))
+  await render()
+  await act(async () => button('Liberar após remoção pendente')!.click())
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(button('Consultar pedido de download')).toBeTruthy()
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${endpoint}`)).toBe(JSON.stringify(download))
+  expect(sessionStorage.getItem(`bees.local-removal-pending.v1.${endpoint}`)).toBeNull()
+})
+
+it.each(['', `${status.endpoint}/`])('recognizes pending removal at equivalent endpoint %s and isolates other destinations', async (equivalent) => {
+  sessionStorage.setItem(`bees.local-removal-pending.v1.${status.endpoint}`, JSON.stringify({ endpoint: '', model: 'qwen3:1.7b' }))
+  const otherEndpoint = 'http://127.0.0.1:11435'
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json({ ...status, endpoint: url.includes('11435') ? otherEndpoint : status.endpoint })))
+  await render(vi.fn(), equivalent)
+  expect(button('Baixar')?.disabled).toBe(true)
+  await render(vi.fn(), otherEndpoint)
+  expect(button('Baixar')?.disabled).toBe(false)
+  expect(button('Remover')?.disabled).toBe(false)
+  await render(vi.fn(), equivalent)
+  expect(button('Baixar')?.disabled).toBe(true)
+  expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
+})
