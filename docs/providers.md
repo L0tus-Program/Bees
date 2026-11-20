@@ -51,6 +51,12 @@ Na instalação Docker, ative o Ollama com `docker compose --profile local-model
 
 API: `GET /api/v1/local-models`, `POST /api/v1/local-models/pulls` (`confirm_download: true`), `GET /api/v1/local-models/pulls/{id}`, `POST /api/v1/local-models/pulls/{id}/cancel`, `POST /api/v1/local-models/delete` (`confirm_delete: true`). Somente endpoints loopback.
 
+As confirmações exigem o booleano JSON `true`: números como `1`/`1.0`, strings,
+`false`, `null` e campos ausentes são recusados com HTTP 422 antes de registrar
+download ou chamar o backend. Após recusa, o mesmo UUID pode ser usado em uma
+confirmação explícita válida; consultar/repetir um recibo de download também exige
+confirmação válida no POST.
+
 A consulta só apresenta o backend como disponível quando a versão e o catálogo
 têm formato válido. Catálogo ausente, inválido, acima de 4.096 itens ou com item
 inválido torna a consulta indisponível; não aparece como inventário vazio ou

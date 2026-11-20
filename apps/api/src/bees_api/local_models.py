@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from bees_api.auth import require_session
 from bees_core.providers.local_models import LocalModelManager, PullInput
@@ -20,6 +20,13 @@ class DeleteInput(BaseModel):
     endpoint: str | None = Field(default=None, max_length=2048)
     model: str = Field(min_length=1, max_length=200)
     confirm_delete: Literal[True]
+
+    @field_validator("confirm_delete", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("Confirmação explícita da remoção necessária.")
+        return value
 
 
 def _manager(request: Request) -> LocalModelManager:
