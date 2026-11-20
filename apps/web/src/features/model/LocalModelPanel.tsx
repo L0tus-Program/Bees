@@ -61,7 +61,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     if (!pull || pull.status !== 'running' || pending || pausedPull === pull.id) return
     const controller = new AbortController()
     const timer = setTimeout(() => {
-      getLocalPull(pull.id, controller.signal).then((next) => {
+      getLocalPull(pull, controller.signal).then((next) => {
         if (controller.signal.aborted) return
         setFailure(null); setRetry(0); setPull(next)
         if (next.status === 'completed') { setNotice({ kind: 'download', text: t('completed', { model: next.model }) }); void load() }
@@ -108,7 +108,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     if (!pull) return
     const controller = beginOperation(); if (!controller) return
     try {
-      const next = await cancelLocalPull(pull.id, controller.signal)
+      const next = await cancelLocalPull(pull, controller.signal)
       if (!controller.signal.aborted) {
         setRetry(0); setPausedPull(null); setPull(next)
         const message = next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null

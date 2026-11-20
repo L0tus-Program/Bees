@@ -97,7 +97,12 @@ UUID novo; o timeout não comprova que o daemon interrompeu o download. Os prazo
 das consultas de diagnóstico, remoção e demais fases HTTP permanecem em 10 segundos.
 
 O painel também valida os campos recebidos e confere o vínculo da resposta com
-o endpoint, modelo ou ID solicitado antes de mostrar progresso ou sucesso.
+o endpoint, modelo e ID do download confirmado em cada consulta e cancelamento
+antes de mostrar progresso ou sucesso. A identidade esperada é capturada antes
+da requisição; aliases canônicos do modelo e barras finais do endpoint continuam
+aceitos. Uma consulta divergente pausa o acompanhamento e conserva o último
+progresso confirmado. Um recibo divergente de cancelamento não confirma sucesso
+nem substitui esse progresso; o estado pode ser consultado novamente.
 Respostas incompatíveis não iniciam consultas ou cancelamentos de outro download.
 Após resposta inválida de uma operação, confira o estado antes de confirmar outra:
 o servidor pode já ter recebido o pedido. Não há repetição automática de mutações.
