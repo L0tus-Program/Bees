@@ -80,6 +80,13 @@ renova esse orçamento. Ao expirar, fecha a resposta e retorna indisponibilidade
 sem inventário parcial, repetição automática ou alteração dos recibos. Uma nova
 consulta explícita pode recuperar o diagnóstico quando o backend voltar a responder.
 
+A remoção (`/api/delete`) também tem prazo total de 10 segundos, incluindo
+espera pelos headers e fechamento da resposta; não lê o corpo. Ao expirar,
+retorna `backend_unavailable` e libera a reserva do modelo, sem repetir o DELETE.
+Cancelamento externo também libera essa reserva. A interrupção não comprova que
+o daemon deixou de remover o modelo; consulte o catálogo antes de decidir uma
+nova tentativa humana.
+
 O download (`/api/pull`) também solicita conteúdo sem compressão e recusa
 qualquer `Content-Encoding` diferente de `identity` antes de ler ou
 descomprimir o corpo, inclusive em erros HTTP. A resposta é fechada e o recibo
