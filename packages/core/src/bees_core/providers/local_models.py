@@ -387,7 +387,12 @@ class LocalModelManager:
                         raise LocalModelError("pull_failed")
                     if isinstance(event.get("error"), str):
                         raise LocalModelError(_classify(event["error"]))
-                    status = str(event.get("status") or "")[:200]
+                    status = event.get("status")
+                    if status is None:
+                        status = ""
+                    elif not isinstance(status, str):
+                        raise LocalModelError("pull_failed")
+                    status = status[:200]
                     digest = event.get("digest")
                     total, done = event.get("total"), event.get("completed")
                     for key in ("total", "completed"):

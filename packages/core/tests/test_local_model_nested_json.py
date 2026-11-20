@@ -115,3 +115,44 @@ def test_nested_catalog_is_unavailable_preserves_receipts_and_recovers_by_readin
         await manager.close()
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("objects", [False, True])
+def test_nested_status_is_refused_without_stringifying_private_structure(objects):
+    async def scenario():
+        calls = []
+        content = b'{"status":' + nested_json(objects=objects) + b'}\n{"status":"success"}\n'
+        assert len(content) < 65536
+
+        def backend(value):
+            calls.append(value)
+            return httpx.Response(200, content=content)
+
+        manager = LocalModelManager(transport=httpx.MockTransport(backend))
+        value = PullInput(client_request_id=uuid4(), model="qwen3", confirm_download=True)
+        pull = manager.start(value)
+        await pull.task
+        assert pull.status == "failed" and pull.error == "pull_failed"
+        assert pull.finished_at is not None
+        assert PRIVATE.decode() not in str(pull.view())
+        assert manager.start(value) is pull and len(calls) == 1
+        await manager.close()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("event", [{}, {"status": None}])
+def test_absent_or_null_phase_can_still_reach_valid_success(event):
+    async def scenario():
+        content = (json.dumps(event) + '\n{"status":"success"}\n').encode()
+        manager = LocalModelManager(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=content))
+        )
+        pull = manager.start(
+            PullInput(client_request_id=uuid4(), model="qwen3", confirm_download=True)
+        )
+        await pull.task
+        assert pull.status == "completed" and pull.error is None
+        await manager.close()
+
+    asyncio.run(scenario())

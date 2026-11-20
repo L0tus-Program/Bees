@@ -226,6 +226,23 @@ def test_pull_requires_confirmation_and_reports_progress(state):
     assert conflict.status_code == 409
 
 
+def test_nested_nontextual_pull_status_fails_without_publishing_success(state):
+    client, backend = state
+    content = b'{"status":' + b"[" * 2000 + b'"private-detail"' + b"]" * 2000 + b"}\n"
+    backend.pull_response = lambda _: httpx.Response(
+        200, content=content + lines({"status": "success"})
+    )
+    request = {"client_request_id": str(uuid4()), "model": "qwen3:1.7b", "confirm_download": True}
+    auth = headers(client)
+    started = client.post("/api/v1/local-models/pulls", json=request, headers=auth)
+    assert started.status_code == 202
+    terminal = wait(client, started.json()["id"])
+    assert terminal["status"] == "failed" and terminal["error"] == "pull_failed"
+    assert terminal["finished_at"] is not None and "private-detail" not in str(terminal)
+    assert client.post("/api/v1/local-models/pulls", json=request, headers=auth).json() == terminal
+    assert backend.pulls == ["qwen3:1.7b"] and backend.deleted == []
+
+
 @pytest.mark.parametrize(
     ("response", "code"),
     [

@@ -101,6 +101,10 @@ já observado. Não expõe o corpo nem o erro bruto do parser, e não repete o P
 Os UUIDs aceitos continuam ligados ao recibo anterior; outra tentativa exige uma
 nova decisão com UUID novo. O erro de acompanhamento não comprova cancelamento
 ou remoção dos blobs no Ollama.
+O campo `status` do stream, quando não nulo, precisa ser texto; objetos, listas,
+booleanos ou números são recusados com `pull_failed`, sem converter a estrutura
+privada em texto nem aceitar um `success` posterior. Campo ausente ou nulo
+mantém a fase desconhecida até chegar um estado válido.
 
 Durante a vida do processo da API, pedidos com UUIDs diferentes para o mesmo
 modelo/endpoint em download compartilham o acompanhamento. O replay de qualquer
