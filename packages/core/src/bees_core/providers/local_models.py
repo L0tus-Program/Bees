@@ -9,7 +9,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Callable
-from contextlib import aclosing
+from contextlib import AsyncExitStack, aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -251,6 +251,25 @@ async def _catalog_body(client: httpx.AsyncClient, route: str, limit: int) -> by
         return bytes(data)
 
 
+@asynccontextmanager
+async def _pull_response(
+    client: httpx.AsyncClient, model: str, timeout: float
+) -> AsyncIterator[httpx.Response]:
+    async with AsyncExitStack() as stack:
+        # Headers fragmentados também renovam o timeout de leitura do transporte.
+        # Limitar só a abertura preserva downloads com progresso por horas.
+        async with asyncio.timeout(timeout):
+            response = await stack.enter_async_context(
+                client.stream(
+                    "POST",
+                    "/api/pull",
+                    json={"model": model, "stream": True},
+                    headers={"Accept-Encoding": "identity"},
+                )
+            )
+        yield response
+
+
 class LocalModelManager:
     """Acompanha downloads no processo da API; um download ativo por modelo/endpoint."""
 
@@ -429,12 +448,7 @@ class LocalModelManager:
         try:
             async with (
                 self._client(pull.endpoint, stream=True) as client,
-                client.stream(
-                    "POST",
-                    "/api/pull",
-                    json={"model": pull.model, "stream": True},
-                    headers={"Accept-Encoding": "identity"},
-                ) as response,
+                _pull_response(client, pull.model, self._pull_idle_timeout) as response,
             ):
                 # Recusar antes de aiter_bytes descomprimir, inclusive nos erros HTTP.
                 if response.headers.get("content-encoding", "identity").lower() != "identity":

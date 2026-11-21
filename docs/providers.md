@@ -99,8 +99,11 @@ Após os headers, cada registro NDJSON completo e não vazio tem esse orçamento
 fragmentos e linhas em branco não renovam a espera. Registros completos regulares
 permitem downloads mais longos, sem prazo total. O prefixo de uma recusa HTTP
 compartilha um único orçamento de 120 segundos, mesmo recebendo bytes lentamente.
-Ao aguardar headers, continua valendo o timeout de leitura do transporte. Se a leitura
-expirar, a conexão é fechada e o recibo termina em `failed`/`pull_failed`, mantendo
+A abertura da resposta também tem orçamento total de 120 segundos: bytes de
+headers incompletos não renovam esse prazo. Ele termina ao receber os headers,
+antes de iniciar o orçamento dos registros; não limita a duração total do download.
+Os timeouts de conexão/escrita/pool do transporte continuam em 10 segundos. Se a espera
+ou leitura expirar, a conexão é fechada e o recibo termina em `failed`/`pull_failed`, mantendo
 o progresso já observado. Consultar ou repetir qualquer UUID ligado ao download
 conserva esse resultado, sem novo POST. Uma nova tentativa exige confirmação com
 UUID novo; o timeout não comprova que o daemon interrompeu o download. Os prazos
