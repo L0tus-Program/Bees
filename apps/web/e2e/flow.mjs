@@ -88,11 +88,27 @@ const modelServer = createServer((request, response) => {
 
 // Dois backends Ollama controlados: exercitam troca de destino e resposta atrasada sem baixar modelos.
 const localBackends = ['a', 'b'].map((name) => {
-  const state = { holdTags: false, waiting: [], writes: 0 }
+  const state = { holdTags: false, waiting: [], writes: 0, pulls: [], streams: new Set() }
   const tags = JSON.stringify({ models: [{ name: `modelo-local-${name}:latest`, size: 12 }] })
   const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
-    if (request.method !== 'GET') { state.writes += 1; response.end('{"error":"unexpected_mutation"}'); return }
+    if (request.method !== 'GET') {
+      state.writes += 1
+      if (request.method === 'POST' && request.url === '/api/pull') {
+        let body = ''
+        request.on('data', (chunk) => { body += chunk })
+        request.on('end', () => {
+          state.pulls.push(JSON.parse(body))
+          state.streams.add(response)
+          const progress = () => response.write(JSON.stringify({ status: 'pulling layer', digest: 'sha256:e2e', total: 100, completed: 40 }) + '\n')
+          const timer = setInterval(progress, 1000)
+          response.on('close', () => { clearInterval(timer); state.streams.delete(response) })
+          progress()
+        })
+        return
+      }
+      response.end('{"error":"unexpected_mutation"}'); return
+    }
     if (request.url === '/api/version') { response.end(JSON.stringify({ version: `teste-${name}` })); return }
     if (request.url === '/api/tags') {
       if (state.holdTags) state.waiting.push(response)
@@ -399,6 +415,93 @@ async function auditLongConversation(page, input) {
     await page.unroute(messagesUrl, prependHistory)
     await page.setViewportSize({ width: 1280, height: 900 })
   }
+}
+
+async function checkLocalDownloadRecovery(page, endpoint, backend) {
+  const local = page.locator('.local-model')
+  const key = `bees.local-pull-pending.v1.${endpoint}`
+  const readIntent = () => page.evaluate((key) => sessionStorage.getItem(key), key)
+  const writes = []
+  const lookups = []
+  const observe = (request) => {
+    const path = new URL(request.url()).pathname
+    if (!path.startsWith('/api/v1/local-models')) return
+    if (request.method() !== 'GET') writes.push(path)
+    if (path.includes('/pull-requests/')) lookups.push({ path, method: request.method() })
+  }
+  page.on('request', observe)
+  try {
+    for (const lost of [true, false]) {
+      const beforeWrites = writes.length
+      const beforePulls = backend.state.pulls.length
+      let accepted
+      const loseResponse = async (route) => {
+        const response = await route.fetch()
+        if (!response.ok()) throw new Error(`Download recusado: ${response.status()}`)
+        accepted = await response.json()
+        await route.abort('failed')
+      }
+      if (lost) await page.route('**/api/v1/local-models/pulls', loseResponse)
+      try {
+        await local.getByRole('button', { name: 'Baixar', exact: true }).first().press('Enter')
+        const dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+        await dialog.getByText(endpoint, { exact: false }).waitFor()
+        await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+        if (lost) await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).waitFor()
+        else await local.getByRole('progressbar').waitFor()
+        await waitFor(() => backend.state.pulls.length === beforePulls + 1, 'um único POST no daemon')
+        const saved = await readIntent()
+        if (!saved) throw new Error('Pedido aceito perdeu a intenção antes da saída do painel.')
+        const intent = JSON.parse(saved)
+        if (intent.endpoint !== endpoint || !intent.clientRequestId || backend.state.pulls.at(-1).model !== intent.model) throw new Error('Intenção não corresponde ao destino/modelo enviado ao daemon.')
+        if (lost && (!accepted?.id || accepted.status !== 'running')) throw new Error('Resposta não foi perdida após aceitação running real.')
+        // Remontagem real do formulário: o endpoint é reescolhido, sem salvar outro provedor.
+        await selectSettings(page, 'profile')
+        await selectSettings(page, 'model')
+        await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+        await page.getByLabel(/^Endereço da API/).fill(endpoint)
+        await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).waitFor()
+        await local.getByText('modelo-local-b:latest', { exact: true }).waitFor()
+        if (await readIntent() !== saved) throw new Error('Remontagem alterou o UUID preservado.')
+        if (lost) {
+          const labels = {
+            'pt-BR': ['Baixar', 'Remover', 'Consultar pedido de download'],
+            en: ['Download', 'Remove', 'Check download request'],
+            es: ['Descargar', 'Eliminar', 'Consultar pedido de descarga'],
+          }
+          for (const [language, [download, remove, lookup]] of Object.entries(labels)) {
+            await page.setViewportSize({ width: 1280, height: 900 })
+            await page.locator('.language-select select').first().selectOption(language)
+            await local.getByRole('button', { name: lookup, exact: true }).waitFor()
+            if (await local.getByRole('button', { name: download, exact: true }).first().isEnabled()
+              || await local.getByRole('button', { name: remove, exact: true }).first().isEnabled()) throw new Error('Pedido incerto liberou mutações.')
+            await auditWidths(page, `12-download-pendente-${language}`)
+          }
+          await page.setViewportSize({ width: 1280, height: 900 })
+          await page.locator('.language-select select').first().selectOption('pt-BR')
+        }
+        const receipt = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/local-models/pull-requests/${intent.clientRequestId}`)
+        await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).press('Enter')
+        const recovered = await (await receipt).json()
+        if (recovered.client_request_id !== intent.clientRequestId || (lost && recovered.pull.id !== accepted.id)) throw new Error('Consulta não recuperou o recibo original.')
+        await waitFor(async () => await local.getByRole('progressbar').getAttribute('value') === '40', 'progresso real do stream')
+        if (await readIntent() !== saved) throw new Error('Recibo running apagou a intenção.')
+        await local.getByRole('button', { name: 'Cancelar download', exact: true }).press('Enter')
+        await local.getByText('Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', { exact: true }).first().waitFor()
+        await waitFor(async () => await readIntent() === null, 'limpeza após recibo terminal')
+        await waitFor(() => backend.state.streams.size === 0, 'fechamento do transporte controlado')
+        if (!await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()) throw new Error('Recibo terminal não liberou nova decisão humana.')
+        const currentWrites = writes.slice(beforeWrites)
+        if (currentWrites.length !== 2 || currentWrites[0] !== '/api/v1/local-models/pulls'
+          || currentWrites[1] !== `/api/v1/local-models/pulls/${recovered.pull.id}/cancel`
+          || backend.state.writes !== beforePulls + 1 || backend.state.pulls.length !== beforePulls + 1) throw new Error('Recuperação repetiu ou introduziu uma mutação.')
+        if (!lookups.some((item) => item.path.endsWith(intent.clientRequestId) && item.method === 'GET')) throw new Error('Recuperação não usou GET pelo UUID original.')
+      } finally {
+        if (lost) await page.unroute('**/api/v1/local-models/pulls', loseResponse)
+      }
+    }
+    writeFileSync(join(out, 'local-download-recovery.json'), JSON.stringify({ scenarios: ['lost-response', 'accepted-running'], daemon_posts: backend.state.writes, daemon_models: backend.state.pulls.map((item) => item.model), api_writes: writes, lookup_methods: lookups.map((item) => item.method) }, null, 2))
+  } finally { page.off('request', observe) }
 }
 
 async function selectSettings(page, value) {
@@ -788,6 +891,7 @@ try {
   await confirmation.getByRole('button', { name: 'Cancelar', exact: true }).click()
   if (localBackends.some(({ state }) => state.writes)) throw new Error('Troca ou confirmação cancelada iniciou uma operação no Ollama.')
   await audit(page, '12-modelo-local-endpoint-atual')
+  await checkLocalDownloadRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
   // Fechar antes de reduzir a janela: a folha móvel do computador cobre o chat.
@@ -969,6 +1073,6 @@ try {
   await browser?.close()
   for (const child of children) child.kill()
   modelServer.close()
-  for (const backend of localBackends) { backend.release(); backend.server.close() }
+  for (const backend of localBackends) { backend.release(); for (const stream of backend.state.streams) stream.destroy(); backend.server.close() }
   try { rmSync(data, { recursive: true, force: true }) } catch { /* processo ainda fechando */ }
 }

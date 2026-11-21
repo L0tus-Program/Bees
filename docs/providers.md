@@ -207,6 +207,16 @@ Falha/corrupção do armazenamento bloqueia envio; falha ao limpar mantém a
 recuperação. Fechar a aba pode perder a intenção e outras abas não são
 sincronizadas. Isso não é um journal durável.
 
+O fluxo Chromium em `apps/web/e2e/flow.mjs` cobre a recuperação com interface
+compilada e API/worker reais, usando um daemon HTTP controlado. Exercita perda
+da resposta após aceitação e saída/retorno ao painel após `running` confirmado;
+confere UUID preservado, consulta por GET, progresso do stream e cancelamento
+humano. Conta exatamente um POST ao daemon por cenário e audita o estado
+pendente em pt-BR/en/es a 390/1280 px com axe. O artefato
+`local-download-recovery.json` registra a contagem e os métodos das consultas.
+Esse teste não baixa um modelo real nem reinicia a API; o aceite com Ollama e
+os limites de persistência entre reinícios continuam separados.
+
 A remoção também guarda endpoint/modelo em `sessionStorage` **antes** do POST.
 Resposta perdida, inválida ou de erro conserva a pendência; voltar à tela ou
 recarregar a mesma aba não repete a exclusão. Novos downloads e remoções nesse
