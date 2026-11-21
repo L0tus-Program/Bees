@@ -47,7 +47,7 @@ Antes de criar/salvar, a interface chama `POST /api/v1/models/prepare`: valida l
 
 Ao escolher **Ollama** na criação ou edição da abelha, o painel **Modelo local** mostra se o Ollama responde, os modelos instalados e sugestões com tamanho aproximado, memória recomendada e origem. Nada é baixado sem confirmação: o diálogo informa modelo, tamanho, origem, destino (Ollama em loopback) e que o download usa rede e disco. O progresso aparece em tempo real e pode ser cancelado; ao concluir, escolha **Usar este modelo**. **Testar conexão** é opcional; o preflight Ollama antes da geração continua obrigatório.
 
-Na instalação Docker, ative o Ollama com `docker compose --profile local-model up -d`; os arquivos ficam no volume `ollama-models`. Falhas são classificadas: Ollama inacessível, biblioteca inacessível (rede/DNS/proxy do servidor), modelo inexistente, falta de espaço ou interrupção. Se o Bees reiniciar durante o download, repita a ação: o Ollama retoma os blobs parciais. Remover um modelo exige confirmação e é recusado durante download do mesmo modelo.
+Na instalação Docker, ative o Ollama com `docker compose --profile local-model up -d`; os arquivos ficam no volume `ollama-models`. Falhas são classificadas: Ollama inacessível, biblioteca inacessível (rede/DNS/proxy do servidor), modelo inexistente, falta de espaço ou interrupção. Se o Bees reiniciar durante o download, consulte o pedido preservado antes de liberar outra tentativa: a ausência do recibo não comprova que o Ollama parou. Remover um modelo exige confirmação e é recusado durante download do mesmo modelo.
 
 API: `GET /api/v1/local-models`, `POST /api/v1/local-models/pulls` (`confirm_download: true`), `GET /api/v1/local-models/pulls/{id}`, `POST /api/v1/local-models/pulls/{id}/cancel`, `POST /api/v1/local-models/delete` (`confirm_delete: true`). Somente endpoints loopback.
 
@@ -182,13 +182,19 @@ booleanos ou números são recusados com `pull_failed`, sem converter a estrutur
 privada em texto nem aceitar um `success` posterior. Campo ausente ou nulo
 mantém a fase desconhecida até chegar um estado válido.
 
-Se a resposta ao iniciar um download se perder ou for incompatível, o painel
+Ao iniciar um download, o painel
 preserva endpoint, modelo e UUID em `sessionStorage` **antes** do POST. Ao voltar
 à tela ou recarregar a mesma aba, não reenvia o pedido. **Consultar pedido de
 download** usa somente `GET /api/v1/local-models/pull-requests/{UUID}` autenticado;
 a consulta devolve o recibo original (inclusive para UUIDs que compartilham um
 download), confere UUID/modelo/destino e retoma o acompanhamento. Não chama o
-Ollama nem cria uma tentativa. Recibos terminais continuam terminais.
+Ollama nem cria uma tentativa. Um recibo `running` mantém a intenção preservada,
+inclusive se a resposta inicial foi recebida. Enquanto o acompanhamento confirmado
+está ativo, progresso e cancelamento ficam visíveis sem o aviso de pedido incerto.
+Polling ou cancelamento só limpam a intenção após recibo terminal coerente do
+mesmo acompanhamento; a ausência do recibo mantém a recuperação e o bloqueio.
+Um acompanhamento descoberto no catálogo não limpa a intenção de outro pedido.
+Recibos terminais continuam terminais.
 
 Erro, recibo divergente ou ausência conservam a intenção e bloqueiam novos
 downloads e remoções nesse destino. O registro do servidor é em memória:

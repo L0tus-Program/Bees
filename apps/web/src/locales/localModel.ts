@@ -28,12 +28,12 @@ const pt = {
   progress: '{{done}} de {{total}}',
   trackingPaused: 'O acompanhamento foi pausado após um erro de consulta. O progresso mostrado é o último confirmado; o download pode continuar no Ollama.',
   resumeTracking: 'Retomar acompanhamento',
-  cancel: 'Cancelar download', cancelled: 'Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', interrupted: 'O acompanhamento do download de {{model}} foi perdido (o Bees reiniciou). Confira a lista abaixo; se o modelo não aparecer, baixe de novo para retomar os arquivos parciais.',
+  cancel: 'Cancelar download', cancelled: 'Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', interrupted: 'O acompanhamento do download de {{model}} foi perdido. Isso não comprova que o Ollama parou. Consulte o pedido preservado e o catálogo antes de liberar outra tentativa.',
   completed: '{{model}} está pronto. Selecione-o e teste a conexão.',
   failed: 'O download de {{model}} falhou.',
   error_backend_unavailable: 'O Ollama não está acessível.', error_insufficient_storage: 'Falta espaço em disco para o modelo.',
   error_model_not_found: 'Esse modelo não existe na biblioteca Ollama.', error_pull_failed: 'O Ollama interrompeu o download.', error_registry_unreachable: 'O Ollama não conseguiu acessar a biblioteca de modelos (rede, DNS ou proxy). Confira a conexão do servidor e tente de novo.',
-  restartNote: 'Se o Bees reiniciar durante o download, repita a ação: o Ollama retoma os arquivos parciais.',
+  restartNote: 'O pedido fica preservado nesta aba até o acompanhamento terminar. Após reinício do Bees, consulte o pedido antes de liberar uma nova tentativa; o download pode continuar no Ollama.',
 }
 type Translations = typeof pt
 const en: Translations = {
@@ -66,12 +66,12 @@ const en: Translations = {
   progress: '{{done}} of {{total}}',
   trackingPaused: 'Tracking paused after a read error. The progress shown is the last confirmed state; the download may continue in Ollama.',
   resumeTracking: 'Resume tracking',
-  cancel: 'Cancel download', cancelled: 'Download cancelled. Partial files can resume when you download again.', interrupted: 'Tracking of the {{model}} download was lost (Bees restarted). Check the list below; if the model is missing, download again to resume the partial files.',
+  cancel: 'Cancel download', cancelled: 'Download cancelled. Partial files can resume when you download again.', interrupted: 'Tracking of the {{model}} download was lost. This does not confirm that Ollama stopped. Check the preserved request and catalog before releasing another attempt.',
   completed: '{{model}} is ready. Select it and test the connection.',
   failed: 'Downloading {{model}} failed.',
   error_backend_unavailable: 'Ollama is not reachable.', error_insufficient_storage: 'Not enough disk space for the model.',
   error_model_not_found: 'This model does not exist in the Ollama library.', error_pull_failed: 'Ollama interrupted the download.', error_registry_unreachable: 'Ollama could not reach the model library (network, DNS or proxy). Check the server connection and try again.',
-  restartNote: 'If Bees restarts during the download, repeat the action: Ollama resumes partial files.',
+  restartNote: 'This tab preserves the request until tracking finishes. After Bees restarts, check the request before releasing a new attempt; the download may continue in Ollama.',
 }
 const es: Translations = {
   pendingRemoval: 'La confirmación de eliminación de {{model}} en {{endpoint}} está pendiente. La eliminación puede haber ocurrido o terminar más tarde. Usa Comprobar de nuevo para consultar el catálogo; la presencia o ausencia del modelo no confirma la finalización. Nuevas descargas y eliminaciones quedan bloqueadas hasta tu liberación explícita.',
@@ -103,11 +103,11 @@ const es: Translations = {
   progress: '{{done}} de {{total}}',
   trackingPaused: 'El seguimiento se pausó tras un error de consulta. El progreso mostrado es el último confirmado; la descarga puede continuar en Ollama.',
   resumeTracking: 'Reanudar seguimiento',
-  cancel: 'Cancelar descarga', cancelled: 'Descarga cancelada. Los archivos parciales se reanudan al descargar de nuevo.', interrupted: 'Se perdió el seguimiento de la descarga de {{model}} (Bees se reinició). Revisa la lista de abajo; si el modelo no aparece, descárgalo de nuevo para reanudar los archivos parciales.',
+  cancel: 'Cancelar descarga', cancelled: 'Descarga cancelada. Los archivos parciales se reanudan al descargar de nuevo.', interrupted: 'Se perdió el seguimiento de la descarga de {{model}}. Esto no confirma que Ollama se detuvo. Consulta el pedido conservado y el catálogo antes de liberar otro intento.',
   completed: '{{model}} está listo. Selecciónalo y prueba la conexión.',
   failed: 'La descarga de {{model}} falló.',
   error_backend_unavailable: 'Ollama no está accesible.', error_insufficient_storage: 'Falta espacio en disco para el modelo.',
   error_model_not_found: 'Ese modelo no existe en la biblioteca Ollama.', error_pull_failed: 'Ollama interrumpió la descarga.', error_registry_unreachable: 'Ollama no pudo acceder a la biblioteca de modelos (red, DNS o proxy). Revisa la conexión del servidor e inténtalo de nuevo.',
-  restartNote: 'Si Bees se reinicia durante la descarga, repite la acción: Ollama reanuda los archivos parciales.',
+  restartNote: 'Esta pestaña conserva el pedido hasta que termine el seguimiento. Tras reiniciar Bees, consulta el pedido antes de liberar otro intento; la descarga puede continuar en Ollama.',
 }
 export const localModelResources = { 'pt-BR': pt, en, es }

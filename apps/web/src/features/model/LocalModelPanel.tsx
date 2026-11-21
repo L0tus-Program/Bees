@@ -33,6 +33,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const [failure, setFailure] = useState<ApiError | null>(null)
   const [pending, setPending] = useState(false)
   const [recovery, setRecovery] = useState(() => readPullRecovery(endpoint))
+  // Só o recibo do POST/consulta por UUID vincula a intenção ao acompanhamento.
+  const [confirmedPullId, setConfirmedPullId] = useState<string | null>(null)
   const [removalRecovery, setRemovalRecovery] = useState(() => readRemovalRecovery(endpoint))
   const unresolvedPull = recovery.blocked || recovery.intent !== null
   const unresolvedRemoval = removalRecovery.blocked || removalRecovery.intent !== null
@@ -41,6 +43,12 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
   const operation = useRef<AbortController | null>(null)
   const target = endpoint || undefined
   const size = (value: number) => formatBytes(value, i18n.language)
+
+  const clearRequest = useCallback(() => {
+    if (clearPullIntent(endpoint)) setRecovery({ intent: null, blocked: false })
+    else setRecovery((current) => ({ ...current, blocked: true }))
+    setConfirmedPullId(null)
+  }, [endpoint])
 
   const load = useCallback(async () => {
     reading.current?.abort()
@@ -72,19 +80,20 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       getLocalPull(pull, controller.signal).then((next) => {
         if (controller.signal.aborted) return
         setFailure(null); setRetry(0); setPull(next)
+        if (next.status !== 'running' && next.id === confirmedPullId) clearRequest()
         if (next.status === 'completed') { setNotice({ kind: 'download', text: t('completed', { model: next.model }) }); void load() }
       }).catch((error) => {
         if (controller.signal.aborted) return
         const failure = asApiError(error)
         // Após reinício do Bees o acompanhamento some; a lista mostra o que o Ollama já tem.
-        if (failure.code === 'pull_not_found') { setFailure(null); setRetry(0); setPull(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
+        if (failure.code === 'pull_not_found') { setFailure(null); setRetry(0); setPull(null); setConfirmedPullId(null); setNotice({ kind: 'download', text: t('interrupted', { model: pull.model }) }); void load(); return }
         setFailure(failure)
         if (failure.code !== 'invalid_response' && isTemporaryReadFailure(failure)) setRetry((value) => value + 1)
         else setPausedPull(pull.id)
       })
     }, retry ? Math.min(1000 * 2 ** retry, 15000) : 1000)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [pull, retry, load, t, pending, pausedPull])
+  }, [pull, retry, load, t, pending, pausedPull, confirmedPullId, clearRequest])
 
   function beginOperation(recovering = false) {
     if (operation.current || (!recovering && status.state !== 'ready')) return null
@@ -100,8 +109,8 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
 
   function acceptDownload(next: LocalModelPull) {
     setPull(next); setRetry(0); setPausedPull(null); setFailure(null)
-    if (clearPullIntent(endpoint)) setRecovery({ intent: null, blocked: false })
-    else setRecovery((current) => ({ ...current, blocked: true }))
+    if (next.status === 'running') setConfirmedPullId(next.id)
+    else clearRequest()
     if (next.status === 'completed') { setNotice({ kind: 'download', text: t('completed', { model: next.model }) }); void load() }
   }
 
@@ -120,8 +129,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
     const controller = beginOperation(true); if (!controller) return
     try {
       if (!await confirmAction(t('releaseConfirm')) || controller.signal.aborted) return
-      if (clearPullIntent(endpoint)) setRecovery({ intent: null, blocked: false })
-      else setRecovery((current) => ({ ...current, blocked: true }))
+      clearRequest()
     } finally { finishOperation(controller) }
   }
 
@@ -167,6 +175,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
       const next = await cancelLocalPull(pull, controller.signal)
       if (!controller.signal.aborted) {
         setRetry(0); setPausedPull(null); setPull(next)
+        if (next.status !== 'running' && next.id === confirmedPullId) clearRequest()
         const message = next.status === 'cancelled' ? t('cancelled') : next.status === 'completed' ? t('completed', { model: next.model }) : null
         setNotice(message ? { kind: 'download', text: message } : null)
         if (next.status === 'completed') await load()
@@ -211,7 +220,7 @@ function LocalModelSession({ endpoint, model, onSelect }: Props) {
         {failure && <ErrorNotice error={failure} />}
       </div>
       <button type="button" className="text-button" onClick={() => { void load() }} disabled={pending || status.state === 'loading'}>{t('refresh')}</button>
-      {unresolvedPull && <div className="transfer-notice" role="status">
+      {unresolvedPull && !(running && pull.id === confirmedPullId && !recovery.blocked) && <div className="transfer-notice" role="status">
         <p>{recovery.intent ? t('pendingDownload', { model: recovery.intent.model, endpoint: recovery.intent.endpoint || 'http://127.0.0.1:11434' }) : t('recoveryBlocked')}</p>
         {recovery.blocked && recovery.intent && <p>{t('recoveryBlocked')}</p>}
         {recovery.intent && <button type="button" className="button secondary" disabled={pending} onClick={() => { void recoverDownload() }}>{t('checkRequest')}</button>}
