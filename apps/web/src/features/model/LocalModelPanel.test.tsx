@@ -39,12 +39,120 @@ async function render(onSelect = vi.fn(), endpoint = status.endpoint) {
 }
 function button(text: string) { return [...container.querySelectorAll('button')].find((item) => item.textContent === text) }
 
+it.each(['remount', 'poll', 'cancel', 'lookup'] as const)('retains accepted running intent until resolution via %s', async (mode) => {
+  vi.useFakeTimers()
+  try {
+    let requestId = '', lost = false, terminal = false
+    const writes: string[] = []
+    const key = `bees.local-pull-pending.v1.${status.endpoint}`
+    const completed = { ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-03T00:01:00Z' }
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') {
+        writes.push(url)
+        if (url.endsWith('/cancel')) return Response.json({ ...pull, status: 'cancelled', finished_at: completed.finished_at })
+        requestId = JSON.parse(options.body as string).client_request_id
+        return Response.json(pull)
+      }
+      if (url.includes('/pull-requests/') || url.includes('/pulls/p1')) {
+        if (lost) return Response.json({ error: { code: 'pull_not_found', message: 'x' } }, { status: 404 })
+        const snapshot = terminal ? completed : pull
+        return Response.json(url.includes('/pull-requests/') ? { client_request_id: requestId, pull: snapshot } : snapshot)
+      }
+      return Response.json(status)
+    }))
+    await render()
+    await act(async () => button('Baixar')!.click())
+    expect(sessionStorage.getItem(key)).toContain(requestId)
+    expect(container.querySelector('progress')).not.toBeNull()
+    expect(button('Consultar pedido de download')).toBeUndefined()
+    if (mode === 'remount' || mode === 'poll') {
+      lost = true
+      if (mode === 'remount') { await act(async () => root.render(null)); await render() }
+      else await act(async () => vi.advanceTimersByTimeAsync(1000))
+      expect(button('Consultar pedido de download')).toBeTruthy()
+      await act(async () => button('Consultar pedido de download')!.click())
+      await act(async () => button('Verificar de novo')!.click())
+      expect(button('Baixar')?.disabled).toBe(true)
+      expect(button('Remover')?.disabled).toBe(true)
+      expect(sessionStorage.getItem(key)).toContain(requestId)
+    } else {
+      if (mode === 'cancel') await act(async () => button('Cancelar download')!.click())
+      else {
+        await act(async () => root.render(null)); await render()
+        await act(async () => button('Consultar pedido de download')!.click())
+        expect(sessionStorage.getItem(key)).toContain(requestId)
+        terminal = true
+        await act(async () => vi.advanceTimersByTimeAsync(1000))
+      }
+      expect(sessionStorage.getItem(key)).toBeNull()
+      expect(button('Baixar')?.disabled).toBe(false)
+    }
+    expect(writes).toEqual(mode === 'cancel' ? ['/api/v1/local-models/pulls', '/api/v1/local-models/pulls/p1/cancel'] : ['/api/v1/local-models/pulls'])
+  } finally { vi.useRealTimers() }
+})
+
 it('lists installed models and selects one', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(status)))
   const onSelect = await render()
   await vi.waitFor(() => expect(container.textContent).toContain('Ollama conectado (versão 0.40.6)'))
   await act(async () => button('Usar este modelo')!.click())
   expect(onSelect).toHaveBeenCalledWith('qwen3:1.7b')
+})
+
+it.each(['poll', 'cancel', 'lookup'] as const)('settles terminal receipts via %s and preserves intent on cleanup failure', async (source) => {
+  vi.useFakeTimers()
+  try {
+    let requestId = '', terminal = false
+    const key = `bees.local-pull-pending.v1.${status.endpoint}`
+    const storage = sessionStorage
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      const snapshot = terminal ? { ...pull, status: 'failed', error: 'pull_failed', finished_at: '2026-11-03T00:01:00Z' } : pull
+      if (options.method === 'POST' && !url.endsWith('/cancel')) {
+        requestId = JSON.parse(options.body as string).client_request_id
+        return Response.json(pull)
+      }
+      if (url.includes('/pull-requests/')) return Response.json({ client_request_id: requestId, pull: snapshot })
+      if (url.includes('/pulls/p1')) return Response.json(snapshot)
+      return Response.json(status)
+    }))
+    await render()
+    await act(async () => button('Baixar')!.click())
+    if (source === 'lookup') { await act(async () => root.render(null)); await render() }
+    vi.stubGlobal('sessionStorage', { getItem: storage.getItem.bind(storage), setItem: storage.setItem.bind(storage), removeItem: () => { throw new Error('private cleanup failure') } })
+    terminal = true
+    if (source === 'poll') await act(async () => vi.advanceTimersByTimeAsync(1000))
+    else await act(async () => button(source === 'cancel' ? 'Cancelar download' : 'Consultar pedido de download')!.click())
+    expect(container.querySelector('.local-model-pull')?.textContent).toContain('falhou')
+    expect(sessionStorage.getItem(key)).toContain(requestId)
+    expect(button('Baixar')?.disabled).toBe(true)
+    expect(button('Remover')?.disabled).toBe(true)
+    expect(container.textContent).not.toContain('private cleanup failure')
+    expect(button('Liberar novo pedido')).toBeTruthy()
+    vi.stubGlobal('sessionStorage', storage)
+    await act(async () => button('Liberar novo pedido')!.click())
+    expect(button('Baixar')?.disabled).toBe(false)
+    expect(sessionStorage.getItem(key)).toBeNull()
+  } finally { vi.useRealTimers() }
+})
+
+it('never clears a preserved request when a different catalog pull finishes', async () => {
+  vi.useFakeTimers()
+  try {
+    const key = `bees.local-pull-pending.v1.${status.endpoint}`
+    const intent = { endpoint: status.endpoint, model: 'other:latest', clientRequestId: crypto.randomUUID() }
+    sessionStorage.setItem(key, JSON.stringify(intent))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('/pulls/p1')
+      ? { ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-03T00:01:00Z' }
+      : { ...status, pulls: [pull] })))
+    await render()
+    await act(async () => vi.advanceTimersByTimeAsync(1000))
+    expect(sessionStorage.getItem(key)).toBe(JSON.stringify(intent))
+    expect(button('Baixar')?.disabled).toBe(true)
+    expect(button('Consultar pedido de download')).toBeTruthy()
+    expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
+  } finally { vi.useRealTimers() }
 })
 
 it('asks for confirmation with size and source before downloading, then follows progress', async () => {
@@ -794,7 +902,7 @@ it.each(['pt-BR', 'en', 'es'] as const)('preserves a lost start across remount a
   expect(writes).toHaveLength(1)
   expect(button(messages.cancel)).toBeTruthy()
   expect(button(messages.checkRequest)).toBeUndefined()
-  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)).toBeNull()
+  expect(sessionStorage.getItem(`bees.local-pull-pending.v1.${status.endpoint}`)).toContain(intent!.client_request_id)
 })
 
 it.each(['absent', 'network', 'identity', 'uuid', 'lifecycle'] as const)('keeps an uncertain request after %s lookup without a repeated POST', async (failure) => {
@@ -860,8 +968,8 @@ it('keeps recovery after a verified receipt when removing storage fails', async 
   vi.stubGlobal('sessionStorage', { getItem: sessionStorage.getItem.bind(sessionStorage), setItem: sessionStorage.setItem.bind(sessionStorage), removeItem: () => { throw new Error('blocked') } })
   vi.stubGlobal('confirm', vi.fn(() => true))
   vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
-    if (options.method === 'POST') { requestId = JSON.parse(options.body as string).client_request_id; return Response.json(pull) }
-    if (url.includes('/pull-requests/')) return Response.json({ client_request_id: requestId, pull })
+    if (options.method === 'POST') { requestId = JSON.parse(options.body as string).client_request_id; return Response.json({ ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-03T00:01:00Z' }) }
+    if (url.includes('/pull-requests/')) return Response.json({ client_request_id: requestId, pull: { ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-03T00:01:00Z' } })
     return Response.json(status)
   }))
   await render()
@@ -870,7 +978,7 @@ it('keeps recovery after a verified receipt when removing storage fails', async 
   expect(button('Consultar pedido de download')).toBeTruthy()
   await act(async () => button('Consultar pedido de download')!.click())
   expect(button('Consultar pedido de download')).toBeTruthy()
-  expect(button('Cancelar download')).toBeTruthy()
+  expect(button('Cancelar download')).toBeUndefined()
   expect(button('Baixar')?.disabled).toBe(true)
 })
 
