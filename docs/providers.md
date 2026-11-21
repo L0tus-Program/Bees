@@ -94,9 +94,12 @@ termina em `failed`/`pull_failed`; repetir o UUID conserva esse recibo, sem
 novo POST ao Ollama. Uma nova tentativa exige confirmação explícita com outro
 UUID. Isso não comprova cancelamento de um efeito já iniciado pelo daemon.
 
-O acompanhamento tolera até 120 segundos de inatividade de leitura do Ollama,
-inclusive ao aguardar os headers ou o prefixo de uma recusa HTTP. Dados recebidos
-renovam a espera: esse prazo não limita a duração total do download. Se a leitura
+O acompanhamento tolera até 120 segundos de inatividade de leitura do Ollama.
+Após os headers, cada registro NDJSON completo e não vazio tem esse orçamento:
+fragmentos e linhas em branco não renovam a espera. Registros completos regulares
+permitem downloads mais longos, sem prazo total. O prefixo de uma recusa HTTP
+compartilha um único orçamento de 120 segundos, mesmo recebendo bytes lentamente.
+Ao aguardar headers, continua valendo o timeout de leitura do transporte. Se a leitura
 expirar, a conexão é fechada e o recibo termina em `failed`/`pull_failed`, mantendo
 o progresso já observado. Consultar ou repetir qualquer UUID ligado ao download
 conserva esse resultado, sem novo POST. Uma nova tentativa exige confirmação com

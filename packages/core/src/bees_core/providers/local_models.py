@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
@@ -214,6 +215,19 @@ async def _pull_lines(response: httpx.Response) -> AsyncIterator[str]:
                 raise LocalModelError("pull_failed")
     if buffer:
         yield bytes(buffer).decode("utf-8")
+
+
+async def _pull_records(response: httpx.Response, idle_timeout: float) -> AsyncIterator[str]:
+    async with aclosing(_pull_lines(response)) as lines:
+        while True:
+            # Bytes isolados e linhas vazias não renovam o prazo de um registro.
+            # O orçamento recomeça após cada registro, sem limitar o download total.
+            async with asyncio.timeout(idle_timeout):
+                while (line := await anext(lines, None)) is not None and not line.strip():
+                    pass
+            if line is None:
+                return
+            yield line
 
 
 async def _catalog_body(client: httpx.AsyncClient, route: str, limit: int) -> bytes:
@@ -428,13 +442,12 @@ class LocalModelManager:
                 if not response.is_success:
                     if response.is_redirect:
                         raise LocalModelError("pull_failed")
-                    body = await _error_prefix(response)
+                    async with asyncio.timeout(self._pull_idle_timeout):
+                        body = await _error_prefix(response)
                     raise LocalModelError(
                         "model_not_found" if response.status_code == 404 else _classify(body)
                     )
-                async for line in _pull_lines(response):
-                    if not line.strip():
-                        continue
+                async for line in _pull_records(response, self._pull_idle_timeout):
                     try:
                         event = json.loads(line)
                     except RecursionError:
@@ -482,7 +495,7 @@ class LocalModelManager:
             pull.status, pull.error = "failed", error.code
         except httpx.ConnectError:
             pull.status, pull.error = "failed", "backend_unavailable"
-        except httpx.HTTPError, ValueError:
+        except httpx.HTTPError, ValueError, TimeoutError:
             pull.status, pull.error = "failed", "pull_failed"
         finally:
             pull.finished_at = self._clock()
