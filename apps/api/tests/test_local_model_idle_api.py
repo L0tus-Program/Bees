@@ -120,3 +120,60 @@ def test_record_deadline_publishes_terminal_receipt_without_retry(state, stage):
     assert wait(client, fresh.json()["id"])["status"] == "completed"
     assert client.post(path, json=value, headers=auth).json() == terminal
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_header_budget_keeps_sanitized_receipt_and_human_recovery(state, cancel):
+    client, _ = state
+    calls = []
+    entered, interrupted = asyncio.Event(), asyncio.Event()
+
+    async def backend(request):
+        calls.append(request)
+        if len(calls) == 1:
+            entered.set()
+            try:
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                interrupted.set()
+                raise
+        return httpx.Response(200, content=lines({"status": "success"}))
+
+    client.app.state.local_models = LocalModelManager(
+        transport=httpx.MockTransport(backend), pull_idle_timeout=0.15
+    )
+    value = {"client_request_id": str(uuid4()), "model": "qwen3", "confirm_download": True}
+    auth = headers(client)
+    path = "/api/v1/local-models/pulls"
+    accepted = client.post(path, json=value, headers=auth)
+    assert accepted.status_code == 202
+    client.portal.call(entered.wait)
+    alias = value | {"client_request_id": str(uuid4())}
+    assert client.post(path, json=alias, headers=auth).json()["id"] == accepted.json()["id"]
+    blocked = client.post(
+        "/api/v1/local-models/delete",
+        json={"model": "qwen3", "confirm_delete": True},
+        headers=auth,
+    )
+    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "model_in_use"
+    if cancel:
+        terminal = client.post(
+            f"{path}/{accepted.json()['id']}/cancel", json={}, headers=auth
+        ).json()
+    else:
+        terminal = wait(client, accepted.json()["id"])
+    assert terminal["status"] == ("cancelled" if cancel else "failed")
+    assert terminal["error"] == (None if cancel else "pull_failed")
+    assert terminal["finished_at"] is not None and terminal["completed_bytes"] == 0
+    assert interrupted.is_set()
+    assert client.get(f"{path}/{terminal['id']}").json() == terminal
+    for prior in (value, alias):
+        receipt = client.get(f"/api/v1/local-models/pull-requests/{prior['client_request_id']}")
+        assert receipt.json() == {"client_request_id": prior["client_request_id"], "pull": terminal}
+        assert client.post(path, json=prior, headers=auth).json() == terminal
+    assert client.post(f"{path}/{terminal['id']}/cancel", json={}, headers=auth).json() == terminal
+    assert len(calls) == 1
+    fresh = client.post(path, json=value | {"client_request_id": str(uuid4())}, headers=auth)
+    assert wait(client, fresh.json()["id"])["status"] == "completed"
+    assert len(calls) == 2
+    assert client.post(path, json=value, headers=auth).json() == terminal
