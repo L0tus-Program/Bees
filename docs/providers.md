@@ -217,6 +217,14 @@ pendente em pt-BR/en/es a 390/1280 px com axe. O artefato
 Esse teste não baixa um modelo real nem reinicia a API; o aceite com Ollama e
 os limites de persistência entre reinícios continuam separados.
 
+O mesmo fluxo Chromium cobre remoção aceita pelo daemon cuja resposta é perdida
+antes de chegar à interface (#502). Confere intenção após remontagem, catálogo
+sem o modelo sem liberar incerteza, isolamento entre dois destinos e liberação
+humana (cancelar e confirmar) pelo teclado. O estado pendente é auditado com axe
+em pt-BR/en/es e 390/1280 px. `local-removal-recovery.json` registra um único
+DELETE no daemon e um único POST à API, sem mutações durante recuperação ou
+liberação. O daemon é HTTP controlado; não comprova remoção de um modelo real.
+
 A remoção também guarda endpoint/modelo em `sessionStorage` **antes** do POST.
 Resposta perdida, inválida ou de erro conserva a pendência; voltar à tela ou
 recarregar a mesma aba não repete a exclusão. Novos downloads e remoções nesse
