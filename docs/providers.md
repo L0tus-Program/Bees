@@ -238,6 +238,23 @@ um único POST de download na API e no daemon, sem cancelamento ou replay durant
 consulta/liberação. O worker continua no mesmo processo. Usa daemon HTTP controlado:
 não prova persistência ou término do download dentro de um Ollama real.
 
+O cenário de conclusão e seleção (#508) envia 100% e `success`, mantendo o
+stream HTTP aberto. Confere o recibo `running`/fase `success`, a intenção
+preservada, o aviso de espera e o bloqueio de novas mutações até o EOF válido.
+Depois do EOF, confere `completed` para o mesmo acompanhamento, limpeza da
+intenção e atualização do catálogo. O modelo só preenche o editor por escolha
+humana; a busca aditiva de catálogo usa POST, mas não gera nem salva configuração.
+Ao sair e voltar, o rascunho não salvo é descartado e o modelo instalado continua
+disponível para seleção, sem repetir download. Os estados de espera e conclusão
+são auditados em pt-BR/en/es, 390/1280 px, nos temas claro e escuro.
+Os avisos de conclusão, perda de acompanhamento, cancelamento e remoção guardam
+a mensagem e o modelo, traduzindo na renderização: trocar idioma atualiza também
+avisos já exibidos, sem repetir a operação. A auditoria espera os frames e as
+transições finitas de cor terminarem antes de medir contraste e capturar a tela.
+`local-download-completion.json` registra recibos e contagens de efeitos.
+Usa API/worker reais e daemon HTTP controlado; não baixa arquivos de modelo real
+nem comprova geração, integridade dos pesos ou compatibilidade do modelo.
+
 O mesmo fluxo Chromium cobre remoção aceita pelo daemon cuja resposta é perdida
 antes de chegar à interface (#502). Confere intenção após remontagem, catálogo
 sem o modelo sem liberar incerteza, isolamento entre dois destinos e liberação

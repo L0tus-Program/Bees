@@ -39,6 +39,38 @@ async function render(onSelect = vi.fn(), endpoint = status.endpoint) {
 }
 function button(text: string) { return [...container.querySelectorAll('button')].find((item) => item.textContent === text) }
 
+it.each(['completed', 'interrupted', 'cancelled', 'removed'] as const)('translates an existing %s notice after changing language without repeating an operation', async (outcome) => {
+  vi.useFakeTimers()
+  try {
+    for (const language of ['en', 'es'] as const) i18n.addResourceBundle(language, 'localModel', localModelResources[language])
+    let trackingLost = false
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    vi.stubGlobal('fetch', vi.fn(async (url: string, options: RequestInit) => {
+      if (options.method === 'POST') return Response.json(outcome === 'removed'
+        ? { deleted: 'qwen3:1.7b' } : { ...pull, status: 'cancelled', finished_at: '2026-11-25T00:01:00Z' })
+      if (url.endsWith('/pulls/p1')) {
+        if (outcome === 'interrupted') { trackingLost = true; return Response.json({ error: { code: 'pull_not_found' } }, { status: 404 }) }
+        return Response.json({ ...pull, status: 'completed', phase: 'success', finished_at: '2026-11-25T00:01:00Z' })
+      }
+      return Response.json({ ...status, pulls: outcome === 'removed' || trackingLost ? [] : [pull] })
+    }))
+    await render()
+    if (outcome === 'removed' || outcome === 'cancelled') await act(async () => button(outcome === 'removed' ? 'Remover' : 'Cancelar download')!.click())
+    else await act(async () => vi.advanceTimersByTimeAsync(1000))
+    const notice = () => [...container.querySelectorAll('.status-ok')].find((node) => node.textContent === i18n.t(outcome, { ns: 'localModel', model: pull.model }))
+    expect(notice()).toBeTruthy()
+    const calls = vi.mocked(fetch).mock.calls.length
+    for (const language of ['en', 'es', 'pt-BR'] as const) {
+      const before = notice()!.textContent
+      await act(async () => i18n.changeLanguage(language))
+      expect(notice()).toBeTruthy()
+      expect(container.textContent).not.toContain(before)
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(calls)
+      expect(container.querySelector('progress')).toBeNull()
+    }
+  } finally { vi.useRealTimers() }
+})
+
 it.each(['remount', 'poll', 'cancel', 'lookup'] as const)('retains accepted running intent until resolution via %s', async (mode) => {
   vi.useFakeTimers()
   try {
