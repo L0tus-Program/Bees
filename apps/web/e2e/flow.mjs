@@ -590,7 +590,11 @@ async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint,
       await page.locator('.language-select select').first().selectOption(language)
       await local.getByRole('button', { name: release, exact: true }).waitFor()
       await checkBlocked(download, remove)
-      await auditWidths(page, `12-remocao-pendente-${language}`)
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        await local.getByRole('status').filter({ hasText: release }).scrollIntoViewIfNeeded()
+        await audit(page, `12-remocao-pendente-${language}-${width}`)
+      }
     }
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.locator('.language-select select').first().selectOption('pt-BR')
