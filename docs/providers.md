@@ -207,6 +207,17 @@ Falha/corrupção do armazenamento bloqueia envio; falha ao limpar mantém a
 recuperação. Fechar a aba pode perder a intenção e outras abas não são
 sincronizadas. Isso não é um journal durável.
 
+### Confirmar a gravação da intenção local
+
+Antes de despachar download ou remoção, o painel grava a intenção de recuperação
+no `sessionStorage` e confere se a leitura devolve exatamente o conteúdo gravado.
+Escrita descartada, conteúdo substituído ou falha de leitura bloqueiam a operação
+sem enviar o POST. Atualizar o catálogo não libera esse bloqueio; a liberação no
+painel exige a confirmação humana existente. Isso confirma a gravação naquele
+momento, sem garantir durabilidade após fechar a sessão do navegador ou impedir
+alterações posteriores no armazenamento. A prova de geração com modelo real
+continua separada (BEES-028.4 #99, recorte #510).
+
 O fluxo Chromium em `apps/web/e2e/flow.mjs` cobre a recuperação com interface
 compilada e API/worker reais, usando um daemon HTTP controlado. Exercita perda
 da resposta após aceitação e saída/retorno ao painel após `running` confirmado;
