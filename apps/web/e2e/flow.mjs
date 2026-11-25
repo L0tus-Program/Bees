@@ -535,7 +535,8 @@ async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint,
   const releaseName = 'Liberar após remoção pendente'
   const checkBlocked = async (download, remove) => {
     const downloads = local.getByRole('button', { name: download, exact: true })
-    if (await downloads.count() === 0) throw new Error('Catálogo não oferece download para verificar o bloqueio.')
+    // A intenção aparece antes de a consulta do catálogo terminar após troca de destino.
+    await downloads.first().waitFor()
     for (const button of [...await downloads.all(), ...await local.getByRole('button', { name: remove, exact: true }).all()]) {
       if (await button.isEnabled()) throw new Error('Remoção incerta liberou mutações.')
     }
