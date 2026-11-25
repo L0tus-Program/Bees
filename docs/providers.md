@@ -217,6 +217,15 @@ pendente em pt-BR/en/es a 390/1280 px com axe. O artefato
 Esse teste não baixa um modelo real nem reinicia a API; o aceite com Ollama e
 os limites de persistência entre reinícios continuam separados.
 
+O cenário de cancelamento com resposta perdida (#504) deixa o POST chegar à API
+e encerrar o stream do daemon antes de abortar a resposta ao navegador. Suspende
+as leituras de progresso até remontar o painel, preserva o UUID e confere o
+bloqueio de download/remoção em pt-BR/en/es, 390/1280 px e axe. A consulta humana
+por GET recupera o recibo `cancelled` original e só então libera nova decisão.
+`local-cancellation-recovery.json` registra um POST de download e um de
+cancelamento na API, um único POST no daemon e o encerramento do stream.
+Usa daemon HTTP controlado, sem reinício da API ou download de modelo real.
+
 O mesmo fluxo Chromium cobre remoção aceita pelo daemon cuja resposta é perdida
 antes de chegar à interface (#502). Confere intenção após remontagem, catálogo
 sem o modelo sem liberar incerteza, isolamento entre dois destinos e liberação

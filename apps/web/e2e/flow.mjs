@@ -514,6 +514,96 @@ async function checkLocalDownloadRecovery(page, endpoint, backend) {
   } finally { page.off('request', observe) }
 }
 
+async function checkLocalCancellationRecovery(page, endpoint, backend) {
+  const local = page.locator('.local-model')
+  const key = `bees.local-pull-pending.v1.${endpoint}`
+  const readIntent = () => page.evaluate((key) => sessionStorage.getItem(key), key)
+  const beforePulls = backend.state.pulls.length
+  const beforeWrites = backend.state.writes
+  const writes = []
+  const lookups = []
+  let accepted
+  let blockReads = true
+  const observe = (request) => {
+    const path = new URL(request.url()).pathname
+    if (!path.startsWith('/api/v1/local-models')) return
+    if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() })
+    if (path.includes('/pull-requests/')) lookups.push({ path, method: request.method() })
+  }
+  // O efeito é real; só a resposta ao navegador se perde. Leituras são suspensas
+  // até a remontagem para não esconder a janela de incerteza com polling rápido.
+  const intercept = async (route) => {
+    if (route.request().method() === 'POST' && route.request().url().endsWith('/cancel')) {
+      const response = await route.fetch()
+      if (!response.ok()) throw new Error(`Cancelamento recusado: ${response.status()}`)
+      accepted = await response.json()
+      await route.abort('failed')
+    } else if (blockReads && route.request().method() === 'GET') await route.abort('failed')
+    else await route.continue()
+  }
+  page.on('request', observe)
+  try {
+    await local.getByRole('button', { name: 'Baixar', exact: true }).first().press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+    await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(async () => await local.getByRole('progressbar').getAttribute('value') === '40', 'progresso antes de cancelar')
+    const saved = await readIntent()
+    if (!saved) throw new Error('Download não preservou intenção antes de cancelar.')
+    const intent = JSON.parse(saved)
+    await page.route('**/api/v1/local-models/pulls/*', intercept)
+    await page.route('**/api/v1/local-models/pulls/*/cancel', intercept)
+    await local.getByRole('button', { name: 'Cancelar download', exact: true }).press('Enter')
+    await waitFor(() => accepted?.status === 'cancelled' && backend.state.streams.size === 0, 'cancelamento aceito e transporte encerrado')
+    await waitFor(async () => await local.getByRole('button', { name: 'Cancelar download', exact: true }).isEnabled(), 'resposta perdida concluída no cliente')
+    if (await readIntent() !== saved || accepted.model !== intent.model || accepted.endpoint !== endpoint) throw new Error('Resposta perdida alterou a intenção original.')
+    await selectSettings(page, 'profile')
+    await selectSettings(page, 'model')
+    await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    const labels = {
+      'pt-BR': ['Baixar', 'Remover', 'Consultar pedido de download'],
+      en: ['Download', 'Remove', 'Check download request'],
+      es: ['Descargar', 'Eliminar', 'Consultar pedido de descarga'],
+    }
+    for (const [language, [download, remove, lookup]] of Object.entries(labels)) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('.language-select select').first().selectOption(language)
+      await local.getByRole('button', { name: lookup, exact: true }).waitFor()
+      await local.getByRole('button', { name: download, exact: true }).first().waitFor()
+      for (const button of [...await local.getByRole('button', { name: download, exact: true }).all(), ...await local.getByRole('button', { name: remove, exact: true }).all()]) {
+        if (await button.isEnabled()) throw new Error('Cancelamento sem recibo liberou mutações.')
+      }
+      if (await readIntent() !== saved || await local.getByRole('progressbar').count()) throw new Error('Remontagem resolveu cancelamento sem consultar recibo.')
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        await local.getByRole('button', { name: lookup, exact: true }).scrollIntoViewIfNeeded()
+        await audit(page, `12-cancelamento-pendente-${language}-${width}`)
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('.language-select select').first().selectOption('pt-BR')
+    blockReads = false
+    const receipt = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/local-models/pull-requests/${intent.clientRequestId}`)
+    await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).press('Enter')
+    const recovered = await (await receipt).json()
+    if (recovered.client_request_id !== intent.clientRequestId || recovered.pull.id !== accepted.id || recovered.pull.status !== 'cancelled') throw new Error('Consulta não recuperou o cancelamento original.')
+    await local.getByText('Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', { exact: true }).first().waitFor()
+    await waitFor(async () => await readIntent() === null, 'limpeza após cancelamento confirmado por GET')
+    if (!await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()) throw new Error('Recibo terminal não liberou nova decisão humana.')
+    if (writes.length !== 2 || writes[0].path !== '/api/v1/local-models/pulls' || writes[0].body.client_request_id !== intent.clientRequestId
+      || writes[0].body.endpoint !== endpoint || writes[0].body.model !== intent.model || writes[0].body.confirm_download !== true
+      || writes[1].path !== `/api/v1/local-models/pulls/${accepted.id}/cancel`
+      || backend.state.writes !== beforeWrites + 1 || backend.state.pulls.length !== beforePulls + 1
+      || backend.state.pulls.at(-1).model !== intent.model
+      || lookups.length !== 1 || lookups[0].method !== 'GET') throw new Error('Recuperação repetiu uma mutação ou mudou o pedido consultado.')
+    writeFileSync(join(out, 'local-cancellation-recovery.json'), JSON.stringify({ scenario: 'lost-response-after-cancel', model: intent.model, status: recovered.pull.status, daemon_posts_delta: backend.state.writes - beforeWrites, api_writes: writes.map((item) => item.path), lookup_methods: lookups.map((item) => item.method), stream_closed: backend.state.streams.size === 0 }, null, 2))
+  } finally {
+    await page.unroute('**/api/v1/local-models/pulls/*', intercept)
+    await page.unroute('**/api/v1/local-models/pulls/*/cancel', intercept)
+    page.off('request', observe)
+  }
+}
+
 async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint, otherBackend) {
   const local = page.locator('.local-model')
   const key = `bees.local-removal-pending.v1.${endpoint}`
@@ -1008,6 +1098,7 @@ try {
   if (localBackends.some(({ state }) => state.writes)) throw new Error('Troca ou confirmação cancelada iniciou uma operação no Ollama.')
   await audit(page, '12-modelo-local-endpoint-atual')
   await checkLocalDownloadRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
+  await checkLocalCancellationRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
   await checkLocalRemovalRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], `http://127.0.0.1:${localPortA}`, localBackends[0])
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
