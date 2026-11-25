@@ -88,8 +88,8 @@ const modelServer = createServer((request, response) => {
 
 // Dois backends Ollama controlados: exercitam troca de destino e resposta atrasada sem baixar modelos.
 const localBackends = ['a', 'b'].map((name) => {
-  const state = { holdTags: false, waiting: [], writes: 0, pulls: [], streams: new Set() }
-  const tags = JSON.stringify({ models: [{ name: `modelo-local-${name}:latest`, size: 12 }] })
+  const state = { holdTags: false, waiting: [], writes: 0, pulls: [], deletes: [], removed: false, streams: new Set() }
+  const tags = () => JSON.stringify({ models: state.removed ? [] : [{ name: `modelo-local-${name}:latest`, size: 12 }] })
   const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
     if (request.method !== 'GET') {
@@ -107,17 +107,27 @@ const localBackends = ['a', 'b'].map((name) => {
         })
         return
       }
+      if (request.method === 'DELETE' && request.url === '/api/delete') {
+        let body = ''
+        request.on('data', (chunk) => { body += chunk })
+        request.on('end', () => {
+          state.deletes.push(JSON.parse(body))
+          state.removed = true
+          response.end('{}')
+        })
+        return
+      }
       response.end('{"error":"unexpected_mutation"}'); return
     }
     if (request.url === '/api/version') { response.end(JSON.stringify({ version: `teste-${name}` })); return }
     if (request.url === '/api/tags') {
       if (state.holdTags) state.waiting.push(response)
-      else response.end(tags)
+      else response.end(tags())
       return
     }
     response.statusCode = 404; response.end('{}')
   })
-  return { state, server, release() { state.holdTags = false; for (const response of state.waiting.splice(0)) response.end(tags) } }
+  return { state, server, release() { state.holdTags = false; for (const response of state.waiting.splice(0)) response.end(tags()) } }
 })
 
 const children = []
@@ -502,6 +512,107 @@ async function checkLocalDownloadRecovery(page, endpoint, backend) {
     }
     writeFileSync(join(out, 'local-download-recovery.json'), JSON.stringify({ scenarios: ['lost-response', 'accepted-running'], daemon_posts: backend.state.writes, daemon_models: backend.state.pulls.map((item) => item.model), api_writes: writes, lookup_methods: lookups.map((item) => item.method) }, null, 2))
   } finally { page.off('request', observe) }
+}
+
+async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint, otherBackend) {
+  const local = page.locator('.local-model')
+  const key = `bees.local-removal-pending.v1.${endpoint}`
+  const readIntent = () => page.evaluate((key) => sessionStorage.getItem(key), key)
+  const writes = []
+  const beforeWrites = backend.state.writes
+  const otherWrites = otherBackend.state.writes
+  const observe = (request) => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/api/v1/local-models') && request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() })
+  }
+  let accepted
+  const loseResponse = async (route) => {
+    const response = await route.fetch()
+    if (!response.ok()) throw new Error(`Remoção recusada: ${response.status()}`)
+    accepted = await response.json()
+    await route.abort('failed')
+  }
+  const releaseName = 'Liberar após remoção pendente'
+  const checkBlocked = async (download, remove) => {
+    const downloads = local.getByRole('button', { name: download, exact: true })
+    if (await downloads.count() === 0) throw new Error('Catálogo não oferece download para verificar o bloqueio.')
+    for (const button of [...await downloads.all(), ...await local.getByRole('button', { name: remove, exact: true }).all()]) {
+      if (await button.isEnabled()) throw new Error('Remoção incerta liberou mutações.')
+    }
+  }
+  const refresh = async () => {
+    const response = page.waitForResponse((item) => new URL(item.url()).pathname === '/api/v1/local-models' && item.request().method() === 'GET')
+    await local.getByRole('button', { name: 'Verificar de novo', exact: true }).press('Enter')
+    if (!(await response).ok()) throw new Error('Consulta do catálogo falhou.')
+    await waitFor(async () => await local.getByRole('button', { name: releaseName, exact: true }).isEnabled(), 'consulta sem liberar a pendência')
+  }
+  page.on('request', observe)
+  await page.route('**/api/v1/local-models/delete', loseResponse)
+  try {
+    await local.getByRole('button', { name: 'Remover', exact: true }).first().press('Enter')
+    let dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+    await dialog.getByText('modelo-local-b:latest', { exact: false }).waitFor()
+    await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(() => accepted?.deleted === 'modelo-local-b:latest', 'remoção aceita antes da resposta perdida')
+    await waitFor(async () => await local.getByRole('button', { name: releaseName, exact: true }).isEnabled(), 'recuperação da remoção incerta')
+    const saved = await readIntent()
+    const intent = JSON.parse(saved)
+    if (intent.endpoint !== endpoint || intent.model !== accepted.deleted || !backend.state.removed || backend.state.deletes.length !== 1) throw new Error('Intenção não corresponde ao efeito da remoção.')
+    await checkBlocked('Baixar', 'Remover')
+    // Catálogo ainda renderizado com o modelo presente não resolve a incerteza.
+    await local.getByText(intent.model, { exact: true }).waitFor()
+    await selectSettings(page, 'profile')
+    await selectSettings(page, 'model')
+    await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    await local.getByRole('button', { name: releaseName, exact: true }).waitFor()
+    await local.getByText('Nenhum modelo instalado ainda.', { exact: true }).waitFor()
+    if (await readIntent() !== saved) throw new Error('Remontagem perdeu a intenção de remoção.')
+    await refresh()
+    await checkBlocked('Baixar', 'Remover')
+    if (await readIntent() !== saved) throw new Error('Ausência no catálogo liberou a remoção incerta.')
+    // Outro destino permanece disponível, sem tocar seu daemon nem apagar a intenção original.
+    await page.getByLabel(/^Endereço da API/).fill(otherEndpoint)
+    await local.getByText('modelo-local-a:latest', { exact: true }).waitFor()
+    if (!await local.getByRole('button', { name: 'Remover', exact: true }).first().isEnabled()
+      || !await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()
+      || await readIntent() !== saved) throw new Error('Pendência de remoção vazou entre destinos.')
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    await local.getByRole('button', { name: releaseName, exact: true }).waitFor()
+    const labels = {
+      'pt-BR': ['Baixar', 'Remover', releaseName],
+      en: ['Download', 'Remove', 'Release pending removal'],
+      es: ['Descargar', 'Eliminar', 'Liberar eliminación pendiente'],
+    }
+    for (const [language, [download, remove, release]] of Object.entries(labels)) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('.language-select select').first().selectOption(language)
+      await local.getByRole('button', { name: release, exact: true }).waitFor()
+      await checkBlocked(download, remove)
+      await auditWidths(page, `12-remocao-pendente-${language}`)
+    }
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('.language-select select').first().selectOption('pt-BR')
+    // Cancelar a decisão de liberar conserva o bloqueio e o registro.
+    await local.getByRole('button', { name: releaseName, exact: true }).press('Enter')
+    dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+    await dialog.getByText('Liberar a pendência não cancela nem comprova o término', { exact: false }).waitFor()
+    await dialog.getByRole('button', { name: 'Cancelar', exact: true }).press('Enter')
+    if (await readIntent() !== saved) throw new Error('Cancelar liberação apagou a intenção.')
+    await checkBlocked('Baixar', 'Remover')
+    await local.getByRole('button', { name: releaseName, exact: true }).press('Enter')
+    await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(async () => await readIntent() === null, 'liberação humana da intenção de remoção')
+    if (!await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()) throw new Error('Liberação humana não habilitou nova decisão.')
+    if (writes.length !== 1 || writes[0].path !== '/api/v1/local-models/delete' || writes[0].method !== 'POST'
+      || writes[0].body.endpoint !== endpoint || writes[0].body.model !== intent.model || writes[0].body.confirm_delete !== true
+      || backend.state.writes !== beforeWrites + 1 || backend.state.deletes.length !== 1
+      || backend.state.deletes[0].model !== intent.model || otherBackend.state.writes !== otherWrites) throw new Error('Recuperação/liberação repetiu ou introduziu um efeito.')
+    writeFileSync(join(out, 'local-removal-recovery.json'), JSON.stringify({ scenario: 'lost-response-after-delete', model: intent.model, daemon_deletes: backend.state.deletes.length, daemon_writes_delta: backend.state.writes - beforeWrites, other_daemon_writes_delta: otherBackend.state.writes - otherWrites, api_writes: writes, released_by_human: true }, null, 2))
+  } finally {
+    await page.unroute('**/api/v1/local-models/delete', loseResponse)
+    page.off('request', observe)
+  }
 }
 
 async function selectSettings(page, value) {
@@ -892,6 +1003,7 @@ try {
   if (localBackends.some(({ state }) => state.writes)) throw new Error('Troca ou confirmação cancelada iniciou uma operação no Ollama.')
   await audit(page, '12-modelo-local-endpoint-atual')
   await checkLocalDownloadRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
+  await checkLocalRemovalRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], `http://127.0.0.1:${localPortA}`, localBackends[0])
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
   // Fechar antes de reduzir a janela: a folha móvel do computador cobre o chat.
