@@ -88,8 +88,8 @@ const modelServer = createServer((request, response) => {
 
 // Dois backends Ollama controlados: exercitam troca de destino e resposta atrasada sem baixar modelos.
 const localBackends = ['a', 'b'].map((name) => {
-  const state = { holdTags: false, waiting: [], writes: 0, pulls: [], deletes: [], removed: false, streams: new Set() }
-  const tags = () => JSON.stringify({ models: state.removed ? [] : [{ name: `modelo-local-${name}:latest`, size: 12 }] })
+  const state = { holdTags: false, waiting: [], writes: 0, pulls: [], deletes: [], removed: false, streams: new Set(), finishing: new Set(), installed: new Set() }
+  const tags = () => JSON.stringify({ models: [...(state.removed ? [] : [{ name: `modelo-local-${name}:latest`, size: 12 }]), ...[...state.installed].map((name) => ({ name, size: 100 }))] })
   const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json')
     if (request.method !== 'GET') {
@@ -100,9 +100,9 @@ const localBackends = ['a', 'b'].map((name) => {
         request.on('end', () => {
           state.pulls.push(JSON.parse(body))
           state.streams.add(response)
-          const progress = () => response.write(JSON.stringify({ status: 'pulling layer', digest: 'sha256:e2e', total: 100, completed: 40 }) + '\n')
+          const progress = () => { if (!state.finishing.has(response)) response.write(JSON.stringify({ status: 'pulling layer', digest: 'sha256:e2e', total: 100, completed: 40 }) + '\n') }
           const timer = setInterval(progress, 1000)
-          response.on('close', () => { clearInterval(timer); state.streams.delete(response) })
+          response.on('close', () => { clearInterval(timer); state.streams.delete(response); state.finishing.delete(response) })
           progress()
         })
         return
@@ -702,6 +702,131 @@ async function checkLocalApiRestartRecovery(page, endpoint, backend, restartApi)
   } finally { page.off('request', observe) }
 }
 
+async function checkLocalDownloadCompletion(page, endpoint, backend, returnEndpoint) {
+  const local = page.locator('.local-model')
+  const key = `bees.local-pull-pending.v1.${endpoint}`
+  const readIntent = () => page.evaluate((key) => sessionStorage.getItem(key), key)
+  const modelName = 'modelo-concluido-e2e:latest'
+  const beforeWrites = backend.state.writes
+  const beforePulls = backend.state.pulls.length
+  const beforeGenerations = model.requests
+  const writes = []
+  const receipts = []
+  const observeRequest = (request) => {
+    const path = new URL(request.url()).pathname
+    // Inclui configuração/teste; a busca aditiva de catálogo usa POST sem gerar.
+    if (path.startsWith('/api/') && request.method() !== 'GET') writes.push({ path, method: request.method(), body: request.postDataJSON() })
+  }
+  const observeResponse = async (response) => {
+    if (!/^\/api\/v1\/local-models\/pulls\/[^/]+$/.test(new URL(response.url()).pathname) || response.request().method() !== 'GET' || !response.ok()) return
+    try { receipts.push(await response.json()) } catch { /* a asserção abaixo exige os recibos completos */ }
+  }
+  page.on('request', observeRequest)
+  page.on('response', observeResponse)
+  try {
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    await local.getByText('modelo-local-a:latest', { exact: true }).waitFor()
+    await local.locator('#local-model-other').fill(modelName)
+    await local.locator('.inline-field').getByRole('button', { name: 'Baixar', exact: true }).press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+    await dialog.getByText(modelName, { exact: false }).waitFor()
+    await dialog.getByText(endpoint, { exact: false }).waitFor()
+    await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(async () => await local.getByRole('progressbar').getAttribute('value') === '40', 'progresso antes de success')
+    const saved = await readIntent()
+    if (!saved) throw new Error('Download não preservou intenção antes da conclusão.')
+    const intent = JSON.parse(saved)
+    if (intent.endpoint !== endpoint || intent.model !== modelName || !intent.clientRequestId
+      || backend.state.pulls.at(-1)?.model !== modelName || backend.state.streams.size !== 1) throw new Error('Download não corresponde à intenção/stream controlado.')
+    const stream = [...backend.state.streams][0]
+    backend.state.finishing.add(stream)
+    stream.write(JSON.stringify({ status: 'pulling layer', digest: 'sha256:e2e', total: 100, completed: 100 }) + '\n')
+    stream.write(JSON.stringify({ status: 'success' }) + '\n')
+    await local.getByText('Aguardando confirmação de término…', { exact: false }).waitFor()
+    const labels = {
+      'pt-BR': ['Baixar', 'Remover', 'Aguardando confirmação de término…', 'Usar este modelo'],
+      en: ['Download', 'Remove', 'Waiting for completion confirmation…', 'Use this model'],
+      es: ['Descargar', 'Eliminar', 'Esperando confirmación de finalización…', 'Usar este modelo'],
+    }
+    for (const [language, [download, remove, waiting]] of Object.entries(labels)) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('.language-select select').first().selectOption(language)
+      await local.getByText(waiting, { exact: false }).waitFor()
+      if (await local.getByRole('progressbar').getAttribute('value') !== '100' || await readIntent() !== saved
+        || stream.writableEnded || await local.locator('.status-ok').filter({ hasText: modelName }).count()) throw new Error('100%/success foi tratado como conclusão antes de EOF.')
+      for (const button of [...await local.getByRole('button', { name: download, exact: true }).all(), ...await local.getByRole('button', { name: remove, exact: true }).all()]) {
+        if (await button.isEnabled()) throw new Error('success com stream aberto liberou mutações.')
+      }
+      for (const theme of ['light', 'dark']) {
+        await page.locator('.appearance-select select').first().selectOption(theme)
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          await local.getByRole('progressbar').scrollIntoViewIfNeeded()
+          await audit(page, `12-download-aguarda-eof-${language}-${theme}-${width}`)
+        }
+        await page.setViewportSize({ width: 1280, height: 900 })
+      }
+    }
+    const running = receipts.find((item) => item.status === 'running' && item.phase === 'success' && item.model === modelName)
+    if (!running) throw new Error('API não confirmou running/success antes de EOF.')
+    backend.state.installed.add(modelName)
+    stream.end()
+    await waitFor(async () => await readIntent() === null, 'recibo terminal limpa intenção após EOF')
+    const installed = local.locator('li').filter({ has: page.getByText(modelName, { exact: true }) }).first()
+    await installed.waitFor()
+    await waitFor(() => receipts.some((item) => item.id === running.id && item.status === 'completed' && item.model === modelName), 'recibo completed do mesmo acompanhamento')
+    if (await local.getByRole('progressbar').count() || await local.locator('.local-model-pull button').count()) throw new Error('Conclusão conservou controles de download ativo.')
+    for (const [language, [, remove, , use]] of Object.entries(labels)) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('.language-select select').first().selectOption(language)
+      if (!await installed.getByRole('button', { name: use, exact: true }).isEnabled()
+        || !await installed.getByRole('button', { name: remove, exact: true }).isEnabled()) throw new Error('Modelo concluído não está disponível para decisão humana.')
+      for (const theme of ['light', 'dark']) {
+        await page.locator('.appearance-select select').first().selectOption(theme)
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          await installed.scrollIntoViewIfNeeded()
+          await audit(page, `12-download-concluido-${language}-${theme}-${width}`)
+        }
+        await page.setViewportSize({ width: 1280, height: 900 })
+      }
+    }
+    await page.locator('.appearance-select select').first().selectOption('light')
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('.language-select select').first().selectOption('pt-BR')
+    const modelInput = page.getByLabel(/^Identificador do modelo|^Modelo/).last()
+    if (await modelInput.inputValue() === modelName) throw new Error('Conclusão selecionou modelo automaticamente.')
+    const firstDiscovery = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/models/discover' && response.ok())
+    await installed.getByRole('button', { name: 'Usar este modelo', exact: true }).press('Enter')
+    await firstDiscovery
+    if (await modelInput.inputValue() !== modelName || await installed.getByRole('button', { name: 'Usar este modelo', exact: true }).isEnabled()) throw new Error('Seleção humana não preencheu o editor.')
+    // Rascunho não salvo é descartado ao sair; catálogo instalado permanece disponível.
+    await selectSettings(page, 'profile')
+    await selectSettings(page, 'model')
+    await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    await installed.getByRole('button', { name: 'Usar este modelo', exact: true }).waitFor()
+    if (await readIntent() !== null || await modelInput.inputValue() === modelName
+      || !await installed.getByRole('button', { name: 'Usar este modelo', exact: true }).isEnabled()) throw new Error('Remontagem perdeu catálogo ou salvou configuração sem decisão.')
+    const secondDiscovery = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/models/discover' && response.ok())
+    await installed.getByRole('button', { name: 'Usar este modelo', exact: true }).press('Enter')
+    await secondDiscovery
+    if (await modelInput.inputValue() !== modelName) throw new Error('Modelo não pode ser selecionado após remontagem.')
+    const mutations = writes.filter((item) => item.path !== '/api/v1/models/discover')
+    if (writes.filter((item) => item.path === '/api/v1/models/discover').length !== 2
+      || mutations.length !== 1 || writes[0].method !== 'POST' || writes[0].path !== '/api/v1/local-models/pulls'
+      || writes[0].body.model !== modelName || writes[0].body.endpoint !== endpoint || writes[0].body.client_request_id !== intent.clientRequestId
+      || writes[0].body.confirm_download !== true || backend.state.writes !== beforeWrites + 1 || backend.state.pulls.length !== beforePulls + 1
+      || model.requests !== beforeGenerations) throw new Error('Conclusão/seleção repetiu efeito, gerou ou salvou configuração automaticamente.')
+    writeFileSync(join(out, 'local-download-completion.json'), JSON.stringify({ scenario: 'success-awaits-eof-then-human-selection', model: modelName, running_before_eof: { id: running.id, status: running.status, phase: running.phase }, terminal_status: 'completed', intent_preserved_before_eof: true, intent_cleared_after_eof: true, selected_by_human: true, remounted_without_replay: true, daemon_posts_delta: backend.state.writes - beforeWrites, api_writes: writes.map((item) => item.path), generations_delta: model.requests - beforeGenerations }, null, 2))
+    await page.getByLabel(/^Endereço da API/).fill(returnEndpoint)
+    await local.getByText('modelo-local-b:latest', { exact: true }).waitFor()
+  } finally {
+    page.off('request', observeRequest)
+    page.off('response', observeResponse)
+  }
+}
+
 async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint, otherBackend) {
   const local = page.locator('.local-model')
   const key = `bees.local-removal-pending.v1.${endpoint}`
@@ -1207,6 +1332,7 @@ try {
   await checkLocalDownloadRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
   await checkLocalCancellationRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
   await checkLocalApiRestartRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], restartApi)
+  await checkLocalDownloadCompletion(page, `http://127.0.0.1:${localPortA}`, localBackends[0], `http://127.0.0.1:${localPortB}`)
   await checkLocalRemovalRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], `http://127.0.0.1:${localPortA}`, localBackends[0])
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)
