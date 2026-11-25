@@ -247,6 +247,10 @@ humana; a busca aditiva de catálogo usa POST, mas não gera nem salva configura
 Ao sair e voltar, o rascunho não salvo é descartado e o modelo instalado continua
 disponível para seleção, sem repetir download. Os estados de espera e conclusão
 são auditados em pt-BR/en/es, 390/1280 px, nos temas claro e escuro.
+Os avisos de conclusão, perda de acompanhamento, cancelamento e remoção guardam
+a mensagem e o modelo, traduzindo na renderização: trocar idioma atualiza também
+avisos já exibidos, sem repetir a operação. A auditoria espera os frames e as
+transições finitas de cor terminarem antes de medir contraste e capturar a tela.
 `local-download-completion.json` registra recibos e contagens de efeitos.
 Usa API/worker reais e daemon HTTP controlado; não baixa arquivos de modelo real
 nem comprova geração, integridade dos pesos ou compatibilidade do modelo.

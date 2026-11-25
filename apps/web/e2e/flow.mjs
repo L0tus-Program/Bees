@@ -152,6 +152,12 @@ async function waitFor(check, what, timeout = 60_000) {
 
 const violations = []
 async function audit(page, name) {
+  // Mudanças de tema atualizam texto e fundos com transições diferentes.
+  // Medir o estado final evita comparar cores de instantes distintos do mesmo frame.
+  await page.evaluate(async () => {
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+    await Promise.all(document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity).map((animation) => animation.finished.catch(() => {})))
+  })
   await page.addScriptTag({ content: axeSource })
   const result = await page.evaluate(async () => {
     const report = await window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
@@ -744,9 +750,9 @@ async function checkLocalDownloadCompletion(page, endpoint, backend, returnEndpo
     stream.write(JSON.stringify({ status: 'success' }) + '\n')
     await local.getByText('Aguardando confirmação de término…', { exact: false }).waitFor()
     const labels = {
-      'pt-BR': ['Baixar', 'Remover', 'Aguardando confirmação de término…', 'Usar este modelo'],
-      en: ['Download', 'Remove', 'Waiting for completion confirmation…', 'Use this model'],
-      es: ['Descargar', 'Eliminar', 'Esperando confirmación de finalización…', 'Usar este modelo'],
+      'pt-BR': ['Baixar', 'Remover', 'Aguardando confirmação de término…', 'Usar este modelo', `${modelName} está pronto. Selecione-o e teste a conexão.`],
+      en: ['Download', 'Remove', 'Waiting for completion confirmation…', 'Use this model', `${modelName} is ready. Select it and test the connection.`],
+      es: ['Descargar', 'Eliminar', 'Esperando confirmación de finalización…', 'Usar este modelo', `${modelName} está listo. Selecciónalo y prueba la conexión.`],
     }
     for (const [language, [download, remove, waiting]] of Object.entries(labels)) {
       await page.setViewportSize({ width: 1280, height: 900 })
@@ -776,9 +782,10 @@ async function checkLocalDownloadCompletion(page, endpoint, backend, returnEndpo
     await installed.waitFor()
     await waitFor(() => receipts.some((item) => item.id === running.id && item.status === 'completed' && item.model === modelName), 'recibo completed do mesmo acompanhamento')
     if (await local.getByRole('progressbar').count() || await local.locator('.local-model-pull button').count()) throw new Error('Conclusão conservou controles de download ativo.')
-    for (const [language, [, remove, , use]] of Object.entries(labels)) {
+    for (const [language, [, remove, , use, completed]] of Object.entries(labels)) {
       await page.setViewportSize({ width: 1280, height: 900 })
       await page.locator('.language-select select').first().selectOption(language)
+      await local.getByText(completed, { exact: true }).waitFor()
       if (!await installed.getByRole('button', { name: use, exact: true }).isEnabled()
         || !await installed.getByRole('button', { name: remove, exact: true }).isEnabled()) throw new Error('Modelo concluído não está disponível para decisão humana.')
       for (const theme of ['light', 'dark']) {
