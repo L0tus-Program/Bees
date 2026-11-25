@@ -666,12 +666,17 @@ async function checkLocalApiRestartRecovery(page, endpoint, backend, restartApi)
       await page.locator('.language-select select').first().selectOption(language)
       await checkBlocked(download, remove)
       if (await readIntent() !== saved) throw new Error('Consulta ou mudança de idioma apagou intenção sem recibo.')
-      for (const width of [1280, 390]) {
-        await page.setViewportSize({ width, height: 900 })
-        await local.getByRole('button', { name: release, exact: true }).scrollIntoViewIfNeeded()
-        await audit(page, `12-download-api-reiniciada-${language}-${width}`)
+      for (const theme of ['light', 'dark']) {
+        await page.locator('.appearance-select select').first().selectOption(theme)
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          await local.getByRole('button', { name: release, exact: true }).scrollIntoViewIfNeeded()
+          await audit(page, `12-download-api-reiniciada-${language}-${theme}-${width}`)
+        }
+        await page.setViewportSize({ width: 1280, height: 900 })
       }
     }
+    await page.locator('.appearance-select select').first().selectOption('light')
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.locator('.language-select select').first().selectOption('pt-BR')
     const release = local.getByRole('button', { name: 'Liberar novo pedido', exact: true })

@@ -109,7 +109,8 @@
   line-height: 1.65;
 }
 .settings-content .form-success { background: var(--ui-muted); color: var(--ui-foreground); }
-.settings-content .form-error { background: var(--theme-error-background); color: var(--ui-destructive); }
+/* O tom de ação destrutiva precisa de mais contraste como texto no fundo suave. */
+.settings-content .form-error { background: var(--theme-error-background); color: color-mix(in oklch, var(--ui-destructive) 75%, var(--ui-foreground)); }
 .settings-content .transfer-notice { background: var(--ui-accent); color: var(--ui-accent-foreground); }
 .settings-content .saved-notice { margin: 0; }
 .settings-content :is(.memory-card, .policy-card, .tool-card, .tool-catalog-card, .channel-card, .attention-card, .computer-card, .computer-runtime, .connector-card, .environment-card, .local-model, .task-card, .activity-task, .routine-list > li, .delivery-list > li) {

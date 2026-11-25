@@ -231,7 +231,8 @@ abruptamente o processo da API descartável e o substitui na mesma porta, com os
 mesmos dados e chave. Sem interceptar respostas, confere `pull_not_found` no
 acompanhamento e na consulta autenticada pelo UUID original. A intenção sobrevive
 à remontagem; download e remoção continuam bloqueados em pt-BR/en/es, 390/1280 px,
-com axe. Cancelar a liberação mantém o bloqueio; confirmar somente remove a intenção
+com axe nos temas claro e escuro. O texto de erro nas configurações combina o tom
+destrutivo com a cor de texto do tema para manter contraste no fundo suave. Cancelar a liberação mantém o bloqueio; confirmar somente remove a intenção
 da aba. `local-api-restart-recovery.json` registra os processos distintos, os 404 e
 um único POST de download na API e no daemon, sem cancelamento ou replay durante
 consulta/liberação. O worker continua no mesmo processo. Usa daemon HTTP controlado:
