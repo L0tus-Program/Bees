@@ -605,6 +605,98 @@ async function checkLocalCancellationRecovery(page, endpoint, backend) {
   }
 }
 
+async function checkLocalApiRestartRecovery(page, endpoint, backend, restartApi) {
+  const local = page.locator('.local-model')
+  const key = `bees.local-pull-pending.v1.${endpoint}`
+  const readIntent = () => page.evaluate((key) => sessionStorage.getItem(key), key)
+  const beforeWrites = backend.state.writes
+  const beforePulls = backend.state.pulls.length
+  const writes = []
+  const lookups = []
+  const observe = (request) => {
+    const path = new URL(request.url()).pathname
+    if (!path.startsWith('/api/v1/local-models')) return
+    if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() })
+    if (path.includes('/pull-requests/')) lookups.push({ path, method: request.method() })
+  }
+  const checkBlocked = async (download = 'Baixar', remove = 'Remover') => {
+    await local.getByRole('button', { name: download, exact: true }).first().waitFor()
+    await local.getByRole('button', { name: remove, exact: true }).first().waitFor()
+    for (const button of [...await local.getByRole('button', { name: download, exact: true }).all(), ...await local.getByRole('button', { name: remove, exact: true }).all()]) {
+      if (await button.isEnabled()) throw new Error('Perda do recibo após reinício liberou mutações.')
+    }
+  }
+  page.on('request', observe)
+  try {
+    await local.getByRole('button', { name: 'Baixar', exact: true }).first().press('Enter')
+    await page.getByRole('dialog', { name: 'Confirmar ação', exact: true }).getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(async () => await local.getByRole('progressbar').getAttribute('value') === '40', 'download running antes de reiniciar API')
+    const saved = await readIntent()
+    if (!saved) throw new Error('Download confirmado não preservou intenção antes do reinício.')
+    const intent = JSON.parse(saved)
+    if (intent.endpoint !== endpoint || !intent.clientRequestId || backend.state.pulls.at(-1).model !== intent.model) throw new Error('Intenção não corresponde ao download anterior ao reinício.')
+    // Sem interceptar tráfego: o 404 vem do processo novo, cujo registro é em memória.
+    const missingProgress = page.waitForResponse((response) => /^\/api\/v1\/local-models\/pulls\/[^/]+$/.test(new URL(response.url()).pathname) && response.status() === 404)
+    const restarted = await restartApi()
+    const progressError = await (await missingProgress).json()
+    if (progressError.error?.code !== 'pull_not_found') throw new Error('API nova não perdeu o acompanhamento como esperado.')
+    await local.getByText(`O acompanhamento do download de ${intent.model} foi perdido.`, { exact: false }).waitFor()
+    await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).waitFor()
+    await checkBlocked()
+    if (await readIntent() !== saved || await local.getByRole('progressbar').count()) throw new Error('Perda real do acompanhamento resolveu a intenção sem recibo.')
+    // Remontar mantém a intenção, inclusive depois de consultar o inventário novo.
+    await selectSettings(page, 'profile')
+    await selectSettings(page, 'model')
+    await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('custom_ollama')
+    await page.getByLabel(/^Endereço da API/).fill(endpoint)
+    await checkBlocked()
+    const receipt = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/v1/local-models/pull-requests/${intent.clientRequestId}`)
+    await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).press('Enter')
+    const response = await receipt
+    const missing = await response.json()
+    if (response.status() !== 404 || missing.error?.code !== 'pull_not_found') throw new Error('Recibo original não foi perdido pelo reinício real.')
+    await waitFor(async () => await local.getByRole('button', { name: 'Liberar novo pedido', exact: true }).isEnabled(), 'consulta do recibo ausente concluída')
+    const labels = {
+      'pt-BR': ['Baixar', 'Remover', 'Liberar novo pedido'],
+      en: ['Download', 'Remove', 'Allow a new request'],
+      es: ['Descargar', 'Eliminar', 'Permitir un nuevo pedido'],
+    }
+    for (const [language, [download, remove, release]] of Object.entries(labels)) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.locator('.language-select select').first().selectOption(language)
+      await checkBlocked(download, remove)
+      if (await readIntent() !== saved) throw new Error('Consulta ou mudança de idioma apagou intenção sem recibo.')
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: 900 })
+        await local.getByRole('button', { name: release, exact: true }).scrollIntoViewIfNeeded()
+        await audit(page, `12-download-api-reiniciada-${language}-${width}`)
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.locator('.language-select select').first().selectOption('pt-BR')
+    const release = local.getByRole('button', { name: 'Liberar novo pedido', exact: true })
+    await release.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Confirmar ação', exact: true })
+    await dialog.getByText('Liberar o pedido preservado não cancela nem comprova o término do download anterior.', { exact: false }).waitFor()
+    await dialog.getByRole('button', { name: 'Cancelar', exact: true }).press('Enter')
+    await dialog.waitFor({ state: 'hidden' })
+    await checkBlocked()
+    if (await readIntent() !== saved) throw new Error('Cancelar liberação apagou intenção original.')
+    await release.press('Enter')
+    await dialog.getByRole('button', { name: 'Confirmar', exact: true }).press('Enter')
+    await waitFor(async () => await readIntent() === null, 'liberação humana após recibo perdido')
+    if (!await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()
+      || !await local.getByRole('button', { name: 'Remover', exact: true }).first().isEnabled()) throw new Error('Liberação humana não habilitou nova decisão.')
+    if (writes.length !== 1 || writes[0].path !== '/api/v1/local-models/pulls'
+      || writes[0].body.client_request_id !== intent.clientRequestId || writes[0].body.endpoint !== endpoint
+      || writes[0].body.model !== intent.model || writes[0].body.confirm_download !== true
+      || backend.state.writes !== beforeWrites + 1 || backend.state.pulls.length !== beforePulls + 1
+      || lookups.length !== 1 || lookups[0].path !== `/api/v1/local-models/pull-requests/${intent.clientRequestId}`
+      || lookups[0].method !== 'GET') throw new Error('Reinício, consulta ou liberação repetiu efeito ou consultou outro pedido.')
+    writeFileSync(join(out, 'local-api-restart-recovery.json'), JSON.stringify({ scenario: 'api-killed-during-running-download', ...restarted, model: intent.model, progress_status: 404, receipt_status: response.status(), intent_preserved_until_human_release: true, release_cancel_preserved_intent: true, daemon_posts_delta: backend.state.writes - beforeWrites, api_writes: writes.map((item) => item.path), lookup_methods: lookups.map((item) => item.method) }, null, 2))
+  } finally { page.off('request', observe) }
+}
+
 async function checkLocalRemovalRecovery(page, endpoint, backend, otherEndpoint, otherBackend) {
   const local = page.locator('.local-model')
   const key = `bees.local-removal-pending.v1.${endpoint}`
@@ -732,7 +824,16 @@ try {
   await Promise.all(localBackends.map(({ server }, index) => new Promise((done) => server.listen(index ? localPortB : localPortA, '127.0.0.1', done))))
   const env = { BEES_VAULT_KEY: randomBytes(32).toString('base64url') + '=', BEES_DATA_DIR: data, BEES_PORT: String(apiPort), BEES_WEB_DIST: join(web, 'dist') }
   const origin = `http://127.0.0.1:${apiPort}`
-  start('api', ['-c', 'from bees_api.cli import main; main()'], env)
+  let api = start('api', ['-c', 'from bees_api.cli import main; main()'], env)
+  const restartApi = async () => {
+    const previous = api
+    if (!previous.kill('SIGKILL')) throw new Error('Não foi possível encerrar a API descartável.')
+    await waitFor(() => previous.signalCode === 'SIGKILL', 'saída abrupta da API descartável', 10_000)
+    api = start('api-restarted', ['-c', 'from bees_api.cli import main; main()'], env)
+    await waitFor(async () => (await fetch(`${origin}/api/v1/health`)).ok, 'API reiniciada com o mesmo estado')
+    if (!api.pid || api.pid === previous.pid) throw new Error('API não foi substituída por outro processo.')
+    return { previous_pid: previous.pid, restarted_pid: api.pid, exit_signal: previous.signalCode }
+  }
   await waitFor(async () => (await fetch(`${origin}/api/v1/health`)).ok, 'API')
   const bootstrap = spawnSync(python, ['-c', 'from bees_api.bootstrap_cli import main; main()', 'bootstrap'], { cwd: root, env: { ...process.env, ...env }, encoding: 'utf8' })
   const code = bootstrap.stdout.match(/^[A-Za-z0-9_-]{43}$/m)?.[0]
@@ -1100,6 +1201,7 @@ try {
   await audit(page, '12-modelo-local-endpoint-atual')
   await checkLocalDownloadRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
   await checkLocalCancellationRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1])
+  await checkLocalApiRestartRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], restartApi)
   await checkLocalRemovalRecovery(page, `http://127.0.0.1:${localPortB}`, localBackends[1], `http://127.0.0.1:${localPortA}`, localBackends[0])
   await page.getByRole('button', { name: 'Voltar à conversa' }).click()
   if (model.requests - before !== 2) throw new Error(`Modo agente: esperava 2 gerações, houve ${model.requests - before}.`)

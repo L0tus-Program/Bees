@@ -226,6 +226,17 @@ por GET recupera o recibo `cancelled` original e só então libera nova decisão
 cancelamento na API, um único POST no daemon e o encerramento do stream.
 Usa daemon HTTP controlado, sem reinício da API ou download de modelo real.
 
+O cenário de reinício da API (#506) inicia um download `running`, encerra
+abruptamente o processo da API descartável e o substitui na mesma porta, com os
+mesmos dados e chave. Sem interceptar respostas, confere `pull_not_found` no
+acompanhamento e na consulta autenticada pelo UUID original. A intenção sobrevive
+à remontagem; download e remoção continuam bloqueados em pt-BR/en/es, 390/1280 px,
+com axe. Cancelar a liberação mantém o bloqueio; confirmar somente remove a intenção
+da aba. `local-api-restart-recovery.json` registra os processos distintos, os 404 e
+um único POST de download na API e no daemon, sem cancelamento ou replay durante
+consulta/liberação. O worker continua no mesmo processo. Usa daemon HTTP controlado:
+não prova persistência ou término do download dentro de um Ollama real.
+
 O mesmo fluxo Chromium cobre remoção aceita pelo daemon cuja resposta é perdida
 antes de chegar à interface (#502). Confere intenção após remontagem, catálogo
 sem o modelo sem liberar incerteza, isolamento entre dois destinos e liberação
