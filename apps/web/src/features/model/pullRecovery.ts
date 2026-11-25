@@ -24,8 +24,10 @@ export function readPullRecovery(endpoint: string): PullRecovery {
 
 export function preservePullIntent(intent: PullIntent): boolean {
   try {
-    sessionStorage.setItem(key(intent.endpoint), JSON.stringify(checked(intent, intent.endpoint)))
-    return true
+    const storageKey = key(intent.endpoint)
+    const value = JSON.stringify(checked(intent, intent.endpoint))
+    sessionStorage.setItem(storageKey, value)
+    return sessionStorage.getItem(storageKey) === value
   } catch { return false }
 }
 

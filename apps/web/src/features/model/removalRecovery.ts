@@ -22,8 +22,10 @@ export function readRemovalRecovery(endpoint: string): RemovalRecovery {
 
 export function preserveRemovalIntent(intent: RemovalIntent): boolean {
   try {
-    sessionStorage.setItem(key(intent.endpoint), JSON.stringify(checked(intent, intent.endpoint)))
-    return true
+    const storageKey = key(intent.endpoint)
+    const value = JSON.stringify(checked(intent, intent.endpoint))
+    sessionStorage.setItem(storageKey, value)
+    return sessionStorage.getItem(storageKey) === value
   } catch { return false }
 }
 

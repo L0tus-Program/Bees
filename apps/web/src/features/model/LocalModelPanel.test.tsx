@@ -1236,3 +1236,41 @@ it.each(['', `${status.endpoint}/`])('recognizes pending removal at equivalent e
   expect(button('Baixar')?.disabled).toBe(true)
   expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
 })
+
+it.each(
+  (['download', 'removal'] as const).flatMap((operation) =>
+    (['discard', 'replace', 'unreadable'] as const).map((mode) => ({ operation, mode }))),
+)('blocks $operation when recovery storage mode is $mode', async ({ operation, mode }) => {
+  vi.stubGlobal('confirm', vi.fn(() => true))
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(status)))
+  const storage = sessionStorage
+  const originalSet = storage.setItem.bind(storage)
+  const originalGet = storage.getItem.bind(storage)
+  let written = false
+  const prefix = operation === 'download' ? 'bees.local-pull-pending.v1.' : 'bees.local-removal-pending.v1.'
+  const set = vi.spyOn(storage, 'setItem').mockImplementation((key, value) => {
+    if (!key.startsWith(prefix)) { originalSet(key, value); return }
+    written = true
+    if (mode === 'discard') return
+    const intent = JSON.parse(value)
+    originalSet(key, mode === 'replace' ? JSON.stringify({ ...intent, model: 'other:latest' }) : value)
+  })
+  const get = vi.spyOn(storage, 'getItem').mockImplementation((key) => {
+    if (written && mode === 'unreadable' && key.startsWith(prefix)) throw new Error('storage unavailable')
+    return originalGet(key)
+  })
+  try {
+    await render()
+    vi.mocked(fetch).mockClear()
+    await act(async () => button(operation === 'download' ? 'Baixar' : 'Remover')!.click())
+    expect(written).toBe(true)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(button('Baixar')!.disabled).toBe(true)
+    expect(button('Remover')!.disabled).toBe(true)
+    // Refresh is read-only and must not make a failed persistence check safe.
+    await act(async () => button('Verificar de novo')!.click())
+    expect(vi.mocked(fetch).mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
+    expect(button('Baixar')!.disabled).toBe(true)
+    expect(button('Remover')!.disabled).toBe(true)
+  } finally { set.mockRestore(); get.mockRestore() }
+})
