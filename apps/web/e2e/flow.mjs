@@ -587,7 +587,8 @@ async function checkLocalCancellationRecovery(page, endpoint, backend) {
     await local.getByRole('button', { name: 'Consultar pedido de download', exact: true }).press('Enter')
     const recovered = await (await receipt).json()
     if (recovered.client_request_id !== intent.clientRequestId || recovered.pull.id !== accepted.id || recovered.pull.status !== 'cancelled') throw new Error('Consulta não recuperou o cancelamento original.')
-    await local.getByText('Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', { exact: true }).first().waitFor()
+    // Recibo recuperado mostra o resultado junto ao nome do modelo, sem toast.
+    await local.locator('.local-model-pull').getByText('Download cancelado. Os arquivos parciais podem ser retomados ao baixar de novo.', { exact: false }).waitFor()
     await waitFor(async () => await readIntent() === null, 'limpeza após cancelamento confirmado por GET')
     if (!await local.getByRole('button', { name: 'Baixar', exact: true }).first().isEnabled()) throw new Error('Recibo terminal não liberou nova decisão humana.')
     if (writes.length !== 2 || writes[0].path !== '/api/v1/local-models/pulls' || writes[0].body.client_request_id !== intent.clientRequestId
